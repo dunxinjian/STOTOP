@@ -1,0 +1,40 @@
+<h2>分类 → 定模板 → 套用：你的思路更优，且能并进现方案</h2>
+<p class="subtitle">直接回答：<b>你的"分类+标准模板"更好——在"怎么铺开"这条轴上，它优于我原方案的"按模块逐个扫"。</b>而且它不是另起炉灶：上游 PATTERNS.md 其实已经起了头（定了 4 类页面骨架 + 样板），我把铺开方式改成"类驱动"即可。</p>
+
+<div class="label">可模板化的页面类（覆盖大头）</div>
+<div style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:1.25rem;font-size:.8rem">
+  <div style="display:flex;gap:.6rem;padding:.5rem .7rem;border-left:3px solid var(--accent);background:var(--bg-secondary);border-radius:0 6px 6px 0">
+    <span style="font-weight:600;min-width:6.5rem">列表页 <span style="color:var(--accent)">~150+</span></span>
+    <span style="color:var(--text-secondary)">模板 = PageLayout + PageHeader(#toolbar 筛选) + <b>DataTable</b> + StatusTag + StatFilterTabs。<b>DataTable 在这类回本最猛</b>（消 55 页重复）。样板：BuildingManage</span>
+  </div>
+  <div style="display:flex;gap:.6rem;padding:.5rem .7rem;border-left:3px solid var(--accent);background:var(--bg-secondary);border-radius:0 6px 6px 0">
+    <span style="font-weight:600;min-width:6.5rem">详情页 <span style="color:var(--accent)">~11</span></span>
+    <span style="color:var(--text-secondary)">模板 = PageHeader(backTo) + 概览条(StatCard) + 主区/侧栏 或 标签。样板：TaskDetail</span>
+  </div>
+  <div style="display:flex;gap:.6rem;padding:.5rem .7rem;border-left:3px solid var(--accent);background:var(--bg-secondary);border-radius:0 6px 6px 0">
+    <span style="font-weight:600;min-width:6.5rem">表单/提交页 <span style="color:var(--accent)">~18</span></span>
+    <span style="color:var(--text-secondary)">模板 = PageHeader(#actions 保存) + BaseCard + a-form 分区。样板：ExpenseReimburseSubmit</span>
+  </div>
+  <div style="display:flex;gap:.6rem;padding:.5rem .7rem;border-left:3px solid var(--accent);background:var(--bg-secondary);border-radius:0 6px 6px 0">
+    <span style="font-weight:600;min-width:6.5rem">仪表盘/首页 <span style="color:var(--accent)">~22</span></span>
+    <span style="color:var(--text-secondary)">模板 = KPI 条(StatCard) + 标签/卡片网格 + 图表。样板：express/Dashboard</span>
+  </div>
+  <div style="display:flex;gap:.6rem;padding:.5rem .7rem;border-left:3px solid var(--accent);background:var(--bg-secondary);border-radius:0 6px 6px 0">
+    <span style="font-weight:600;min-width:6.5rem">报表页 <span style="color:var(--accent)">~10</span></span>
+    <span style="color:var(--text-secondary)">模板 = PageHeader(#toolbar 周期/组织) + ReportTable(金额/合计/数字右对齐) + ECharts 色板常量。样板：待定（BalanceSheet 类）</span>
+  </div>
+</div>
+
+<div class="label">特殊页（你说的"功能特别的"）——不套模板，单独重做</div>
+<div style="padding:.55rem .75rem;border-left:3px solid var(--warning);background:var(--bg-secondary);border-radius:0 6px 6px 0;font-size:.8rem;color:var(--text-secondary);margin-bottom:1.5rem">
+  工作台/编辑器：QuotationEdit、FlowDefinitionEditPage、EventWorkbench、QuotationWorkbench、CardFlow 编排/暂存、导入校验工作台；多视角报表：ProfitAnalysis。<b>这些就是阶段2 痛点队列里那批</b>——模板救不了，得逐个重做。你那句"除了功能特别的页面"正好对应这里。</div>
+
+<div class="label">所以方案怎么调（类驱动，不是大爆炸）</div>
+<div style="font-size:.82rem;color:var(--text-secondary);line-height:1.7;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:.8rem 1rem">
+  <b style="color:var(--text-primary)">每一类：</b> ① 拿 1 个样板页跑通模板（= 把该类骨架 + 它要用的共享组件做实，<b>这跟阶段0"建 DataTable 等"是同一件事，只是按类组织</b>）→ ② 批量套用该类其余页（同类同配方，省力又一致）。<br>
+  <b style="color:var(--text-primary)">特殊页：</b> 走阶段2 单独重做。<br>
+  <b style="color:var(--text-primary)">裸 hex 清理 / 密度 / 门禁：</b> 横切，套用每页时顺手做。<br><br>
+  <b style="color:var(--text-primary)">关键改动</b>：把原方案"阶段1 按<u>模块</u>逐个扫"改成"按<u>页面类</u>逐类定模板再批量套"。两点提醒：(a) 不要一次性把 5 类模板都抽象设计完——每类先用样板验证再批量，避免过度设计；(b) 套用<u>顺序</u >仍可按业务优先级或模块排（模板是类驱动，排期可灵活）。
+</div>
+
+<p class="subtitle" style="margin-top:1.25rem;font-size:.82rem">认可的话，我把 spec 的阶段1 改写成"类驱动模板迁移"（阶段0/2 基本不变），再转实现计划。</p>

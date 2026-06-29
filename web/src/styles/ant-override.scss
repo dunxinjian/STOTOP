@@ -1,0 +1,353 @@
+// Ant Design Vue 样式覆盖
+// 该文件用于覆盖 Ant Design Vue 默认样式，保持与原项目一致的视觉风格
+@use './variables.scss' as *;
+
+// 全局表格行高标准化 - 紧凑风格，标题行与数据行高度一致
+.ant-table {
+  // 列头：白底融入数据行（无独立灰带）+ 中性墨字 + 耳语级柔线，克制不抢眼
+  // （原在 DataTable.vue scoped 内，已上移到全局，让所有列表表格一致）
+  .ant-table-thead > tr > th {
+    background: var(--bg-card);
+    font-weight: 500;
+    color: var(--text-2);
+    letter-spacing: 0.02em;
+    padding: 6px 8px !important;
+    border-bottom: 1px solid var(--border-faint);
+    border-radius: 0 !important;
+  }
+
+  // 数据行：保留一条极细行底线，撑起宽表的逐行结构
+  .ant-table-tbody > tr > td {
+    padding: 6px 8px !important;
+    border-bottom: 1px solid $border-color-lighter;
+  }
+
+  // 【项1】去斑马纹：改为仅靠极细行底线 + hover 高亮（Linear/Notion 式克制干净）
+
+  // 【项2】行 hover：中性浅灰高亮（替代浅橙，去斑马后承担逐行扫读）
+  .ant-table-tbody > tr:hover > td,
+  .ant-table-tbody > tr.ant-table-row-hover > td {
+    background: var(--bg-muted) !important;
+  }
+
+  // 空态占位行不参与 hover 高亮（特异度需压过上面的行 hover 规则）
+  .ant-table-tbody > tr.ant-table-placeholder:hover > td,
+  .ant-table-tbody > tr.ant-table-placeholder > td.ant-table-cell-row-hover {
+    background: var(--bg-card) !important;
+  }
+
+  // small 尺寸
+  &.ant-table-small {
+    .ant-table-thead > tr > th,
+    .ant-table-tbody > tr > td {
+      padding: 4px 6px !important;
+    }
+  }
+
+  // middle 尺寸
+  &.ant-table-middle {
+    .ant-table-thead > tr > th,
+    .ant-table-tbody > tr > td {
+      padding: 6px 8px !important;
+    }
+  }
+}
+
+// 卡片样式
+.ant-card {
+  border-radius: 0;
+  border: 1px solid $border-color !important;
+  box-shadow: $shadow-sm !important;
+  transition: $transition-smooth;
+
+  &:hover {
+    box-shadow: $shadow-md !important;
+  }
+
+  .ant-card-head {
+    padding: 0 20px;
+    min-height: auto;
+    font-weight: 600;
+    color: $text-primary;
+
+    .ant-card-head-title {
+      padding: 16px 0;
+    }
+  }
+}
+
+// 分页样式 - 紧凑风格
+.ant-pagination {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  margin-top: 0;
+  padding: 4px 8px;
+  border-top: 1px solid var(--border-faint); // 【项4】顶部分隔线降到耳语级
+  background: transparent;
+  font-size: 12px;
+
+  .ant-pagination-item,
+  .ant-pagination-prev,
+  .ant-pagination-next,
+  .ant-pagination-jump-prev,
+  .ant-pagination-jump-next {
+    min-width: 24px;
+    height: 24px;
+    line-height: 24px;
+    margin-inline-end: 4px;
+    font-size: 12px;
+  }
+
+  // 【项4】页码块降视觉重量：去边框去底色，仅当前页留主色描边
+  .ant-pagination-item {
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .ant-pagination-item-active {
+    border-color: var(--color-primary);
+  }
+
+  .ant-pagination-item a {
+    line-height: 22px;
+    font-size: 12px;
+  }
+
+  .ant-select-single .ant-select-selector {
+    height: 24px !important;
+    line-height: 22px;
+    font-size: 12px;
+  }
+
+  .ant-select-single .ant-select-selection-item {
+    line-height: 22px !important;
+    font-size: 12px;
+  }
+
+  .ant-pagination-options-quick-jumper {
+    height: 24px;
+    line-height: 24px;
+    font-size: 12px;
+
+    input {
+      height: 24px;
+      line-height: 22px;
+      font-size: 12px;
+    }
+  }
+
+  .ant-pagination-total-text {
+    height: 24px;
+    line-height: 24px;
+    font-size: 12px;
+  }
+}
+
+// 对话框样式 - 默认垂直居中
+.ant-modal-root .ant-modal-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ant-modal {
+  top: 0;
+  padding-bottom: 0;
+
+  .ant-modal-content {
+    border-radius: $border-radius-lg;
+  }
+
+  .ant-modal-header {
+    padding: 20px 24px 16px;
+
+    .ant-modal-title {
+      font-weight: 600;
+    }
+  }
+
+  .ant-modal-body {
+    padding: 8px 24px 24px;
+  }
+
+  .ant-modal-footer {
+    padding: 12px 24px 20px;
+  }
+}
+
+// 按钮样式 —— 统一高度 + 文字居中
+.ant-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: $border-radius-md;
+  height: 32px;
+  transition: $transition-fast;
+
+  &:hover {
+    box-shadow: $shadow-md;
+  }
+}
+
+.ant-btn-sm {
+  height: 24px;
+}
+
+// 输入框聚焦光晕
+.ant-input,
+.ant-input-affix-wrapper {
+  &:focus,
+  &-focused {
+    border-color: $color-primary !important;
+    box-shadow: 0 0 0 3px var(--color-primary-border) !important;
+  }
+}
+
+.ant-select-selector {
+  .ant-select-focused & {
+    border-color: $color-primary !important;
+    box-shadow: 0 0 0 3px var(--color-primary-border) !important;
+  }
+}
+
+// 表单样式范式（label 字号/必填星/校验态统一令牌化；列宽建议页面用 :label-col 约定，冒号由 ConfigProvider 接管）
+.ant-form-item-label > label {
+  font-weight: 500;
+  font-size: var(--font-sm2); // 13 紧凑表单标签
+}
+
+// 必填星统一危险色
+.ant-form-item-required:not(.ant-form-item-required-mark-optional)::before {
+  color: var(--color-danger);
+}
+
+// 校验错误文案
+.ant-form-item-explain-error {
+  color: var(--color-danger-text);
+}
+
+// 内容区域卡片和表格容器统一直角
+.page-container,
+.page-content,
+.content-area {
+  .ant-card {
+    border-radius: 0 !important;
+  }
+}
+
+// 表格容器直角
+.ant-table-wrapper {
+  border-radius: 0 !important;
+}
+
+.ant-table-container {
+  border-radius: 0 !important;
+  border-start-start-radius: 0 !important;
+  border-start-end-radius: 0 !important;
+  border-end-start-radius: 0 !important;
+  border-end-end-radius: 0 !important;
+}
+
+.ant-table {
+  border-radius: 0 !important;
+}
+
+// table-card 通用直角
+.table-card {
+  border-radius: 0 !important;
+
+  &.ant-card {
+    border-radius: 0 !important;
+  }
+}
+
+// ========== 工具栏下方紧贴卡片规范 ==========
+// 全直角：无间隙布局下卡片统一直角
+.page-container > :first-child:is(.ant-card, .table-card),
+.page-container > :first-child.ant-card,
+.page-container > :first-child.table-card {
+  border-radius: 0 !important;
+  margin-top: 0 !important;
+}
+
+// 显式工具类：适用于特殊结构或嵌套卡片
+.toolbar-adjacent-card {
+  border-radius: 0 !important;
+  margin-top: 0 !important;
+}
+
+// 操作列固定和统一
+.ant-table-cell.action-col {
+  white-space: nowrap;
+}
+
+// 【项3】操作列：表体内 link 按钮收紧横向内边距，多操作（编辑/重置/删除）并排更紧凑
+.ant-table-tbody .ant-btn-link {
+  padding-inline: 4px;
+}
+
+// 表格内数值右对齐
+.ant-table-cell.num-col {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+// 隐藏水平导航菜单的子菜单展开/折叠箭头
+.ant-menu-horizontal > .ant-menu-submenu > .ant-menu-submenu-title .ant-menu-submenu-arrow {
+  display: none !important;
+}
+
+// ==================== Message 消息提示 ====================
+.ant-message {
+  .ant-message-notice {
+    .ant-message-notice-content {
+      padding: 12px 24px;
+      font-size: 16px;
+      border-radius: 8px;
+      box-shadow: 0 6px 16px 0 rgba(0, 0, 0, 0.12),
+                  0 3px 6px -4px rgba(0, 0, 0, 0.08),
+                  0 9px 28px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    .ant-message-custom-content {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+
+      .anticon {
+        font-size: 20px;
+      }
+    }
+  }
+}
+
+// ========== 工具栏按钮分级风格 ==========
+// 次操作按钮 — 淡橙填充风格（导出、刷新、批量等非核心操作）
+.toolbar-btn {
+  background: var(--color-primary-light) !important;
+  border: none !important;
+  color: var(--color-primary) !important;
+  box-shadow: none !important;
+
+  &:hover, &:focus {
+    background: var(--color-primary-border) !important;
+    color: var(--color-primary-hover) !important;
+  }
+
+  &:active {
+    background: var(--color-primary-border) !important;
+    color: var(--color-primary-hover) !important;
+  }
+
+  .anticon {
+    color: inherit;
+  }
+}
+
+// 工具栏操作区分隔线
+.toolbar-divider {
+  height: 24px;
+  margin: 0 8px;
+  border-left: 1px solid var(--border);
+}

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\STOTOP.Core\STOTOP.Core.csproj" />
+    <ProjectReference Include="..\STOTOP.Infrastructure\STOTOP.Infrastructure.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.System\STOTOP.Module.System.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.HR\STOTOP.Module.HR.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Finance\STOTOP.Module.Finance.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.CardFlow\STOTOP.Module.CardFlow.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Task\STOTOP.Module.Task.csproj">
+      <Aliases>TaskModule</Aliases>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="NPOI" Version="2.7.2" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
+  </ItemGroup>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>

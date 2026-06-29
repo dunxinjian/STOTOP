@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\STOTOP.Core\STOTOP.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.8" />
+    <!-- 提升传递的 SQLite 原生库以消除 CVE-2025-6965 / GHSA-2m69-gcr7-jv3q（lib.e_sqlite3 <=2.1.11 高危）。
+         仅抬原生二进制至 SQLite 3.50.3（>=3.50.2 已修复）；托管层 SQLitePCLRaw.core/provider/bundle 仍随
+         Microsoft.Data.Sqlite 10.0.8 保持 2.1.11。EF/Data.Sqlite 官方把 SQLitePCLRaw 抬过 2.1.11 后可移除。 -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
+
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.8">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="MiniExcel" Version="1.43.1" />
+    <PackageReference Include="NPOI" Version="2.7.2" />
+    <!-- 显式提升 NPOI 2.7.2 的漏洞传递依赖（NU1903），NPOI 升级后可移除 -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="2.1.13" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

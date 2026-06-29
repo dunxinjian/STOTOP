@@ -1,0 +1,16 @@
+{
+  "solution": {
+    "path": "STOTOP.sln",
+    "projects": [
+      "STOTOP.Core\\STOTOP.Core.csproj",
+      "STOTOP.Infrastructure\\STOTOP.Infrastructure.csproj",
+      "STOTOP.Module.System\\STOTOP.Module.System.csproj",
+      "STOTOP.Module.Finance\\STOTOP.Module.Finance.csproj",
+      "STOTOP.Module.KSF\\STOTOP.Module.KSF.csproj",
+      "STOTOP.Module.PPV\\STOTOP.Module.PPV.csproj",
+      "STOTOP.Module.Points\\STOTOP.Module.Points.csproj",
+      "STOTOP.Module.Task\\STOTOP.Module.Task.csproj",
+      "..\\tests\\STOTOP.Module.Task.Tests\\STOTOP.Module.Task.Tests.csproj"
+    ]
+  }
+}

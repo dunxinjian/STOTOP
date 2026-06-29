@@ -1,0 +1,81 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "STOTOP: doctor",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/dev/doctor.sh",
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "STOTOP: setup",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/dev/setup.sh",
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "STOTOP: backend",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/dev/backend.sh",
+      "problemMatcher": {
+        "owner": "stotop-backend",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Now listening on:"
+        }
+      },
+      "isBackground": true
+    },
+    {
+      "label": "STOTOP: frontend",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/dev/frontend.sh",
+      "problemMatcher": {
+        "owner": "stotop-frontend",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Local:"
+        }
+      },
+      "isBackground": true
+    },
+    {
+      "label": "STOTOP: build all",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/dev/build-all.sh",
+      "problemMatcher": "$msCompile",
+      "group": "build"
+    },
+    {
+      "label": "STOTOP: contract tests",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/dev/test-contracts.sh",
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "STOTOP: dotnet tests",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/dev/test-dotnet.sh",
+      "problemMatcher": "$msCompile",
+      "group": "test"
+    },
+    {
+      "label": "STOTOP: preflight",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/dev/preflight.sh",
+      "problemMatcher": "$msCompile",
+      "group": "test"
+    }
+  ]
+}

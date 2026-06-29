@@ -1,0 +1,72 @@
+<h2>整体 UX 优化 — 先定首要目标</h2>
+<p class="subtitle">现状：约 <b>523</b> 个页面、<b>30</b> 个模块。逐页手工重做不现实——真正的杠杆是「统一的页面骨架 + 共享组件 + 设计令牌」。先确认你最想解决什么，再决定怎么投入。</p>
+
+<div class="label">现状诊断（基于代码扫描，非主观感受）</div>
+<div class="mockup">
+  <div class="mockup-header">典型 CRUD 列表页今天的样子</div>
+  <div class="mockup-body" style="padding:0">
+    <div class="mock-nav" style="padding:0.5rem 1rem;font-size:0.78rem;">STOTOP　·　顶栏（组织 / 账期 / 全局搜索 / 用户）</div>
+    <div style="display:flex;min-height:220px;">
+      <div class="mock-sidebar" style="min-width:130px;font-size:0.76rem;color:var(--text-secondary)">
+        <div style="margin-bottom:.5rem;color:var(--text-primary);font-weight:600">侧边菜单</div>
+        快递<br>财务<br>CardFlow<br>CRM<br>任务 …
+      </div>
+      <div class="mock-content" style="padding:1rem;">
+        <div style="font-size:.76rem;color:var(--text-secondary);margin-bottom:.5rem">首页 / CRM / 业务小组管理</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);padding-bottom:.5rem;margin-bottom:.75rem">
+          <b style="font-size:.95rem">业务小组管理</b>
+          <div style="display:flex;gap:.4rem;align-items:center">
+            <span class="mock-input" style="width:110px;padding:.2rem .5rem;font-size:.72rem">关键词…</span>
+            <span class="mock-button" style="padding:.2rem .6rem;font-size:.72rem">查询</span>
+            <span style="border:1px solid var(--border);border-radius:6px;padding:.2rem .6rem;font-size:.72rem">重置</span>
+          </div>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:.72rem">
+          <div style="display:flex;background:var(--bg-tertiary);padding:.35rem .5rem;color:var(--text-secondary)"><span style="flex:1">组织名称</span><span style="width:54px;text-align:center">数量</span><span style="width:54px;text-align:center">操作</span></div>
+          <div style="display:flex;padding:.35rem .5rem;border-top:1px solid var(--border)"><span style="flex:1">华东一组</span><span style="width:54px;text-align:center">12</span><span style="width:54px;text-align:center;color:var(--accent)">管理</span></div>
+          <div style="display:flex;padding:.35rem .5rem;border-top:1px solid var(--border)"><span style="flex:1">华南二组</span><span style="width:54px;text-align:center">8</span><span style="width:54px;text-align:center;color:var(--accent)">管理</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:2rem">
+  <div style="border-left:3px solid var(--success);background:var(--bg-secondary);padding:.5rem .75rem;border-radius:0 6px 6px 0;font-size:.85rem"><b style="color:var(--success)">已统一 ✓</b>　页头 <code>PageHeader</code> 已在 204 个页面采用 —— 页头模式是健康的，可作为基准向外扩。</div>
+  <div style="border-left:3px solid var(--warning);background:var(--bg-secondary);padding:.5rem .75rem;border-radius:0 6px 6px 0;font-size:.85rem"><b style="color:var(--warning)">不一致 ⚠</b>　共享 <code>SearchBar</code> 组件 <b>0 处被使用</b> —— 每个页面各自手搓筛选条，尺寸/留白/按钮位置都不一样。</div>
+  <div style="border-left:3px solid var(--warning);background:var(--bg-secondary);padding:.5rem .75rem;border-radius:0 6px 6px 0;font-size:.85rem"><b style="color:var(--warning)">不一致 ⚠</b>　<code>page-container</code> 在 179 个页面各自定义骨架 —— 没有统一的页面留白/间距基元，观感参差。</div>
+  <div style="border-left:3px solid var(--error);background:var(--bg-secondary);padding:.5rem .75rem;border-radius:0 6px 6px 0;font-size:.85rem"><b style="color:var(--error)">隐患 ✕</b>　<b>195 处</b>内联硬编码色值（80 个文件）绕过令牌系统 —— 换肤会漏色、明暗主题易出错。</div>
+  <div style="border-left:3px solid var(--warning);background:var(--bg-secondary);padding:.5rem .75rem;border-radius:0 6px 6px 0;font-size:.85rem"><b style="color:var(--warning)">不一致 ⚠</b>　密度混用（部分 <code>size="small"</code>、部分默认）+ 个别模块首页仍是「建设中」占位。</div>
+</div>
+
+<div class="label">你最想先解决什么？（可多选，挑 1–2 个最痛的）</div>
+<div class="options" data-multiselect>
+  <div class="option" data-choice="consistency" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>一致性 / 专业观感</h3>
+      <p>让 523 个页面看起来像一个成熟统一的产品：间距、密度、配色、组件风格收敛到一套规范。覆盖面最广，也最能整体「显贵」。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="efficiency" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>操作效率（日常用起来更顺）</h3>
+      <p>高频页面少点几下：筛选/搜索更顺手、表格列可调、批量操作、录入更快、跨页跳转更短。用户每天能感知。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="ia" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>信息架构 / 导航</h3>
+      <p>模块多、找功能难：理顺侧边栏、工作台首页、面包屑、全局搜索，让人快速找到要去的页面。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="responsive" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>响应式 / 移动端</h3>
+      <p>让页面在窄屏 / 平板 / 手机可用（目前以 PC 宽屏为主，已有少量 *-mobile 页面）。</p>
+    </div>
+  </div>
+</div>

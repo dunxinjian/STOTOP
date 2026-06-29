@@ -1,0 +1,170 @@
+// ===== 颜色变量（桥接到 :root 设计令牌，回退值=权威值）=====
+// 主色由 theme.ts 双预设(维持橙/板岩蓝)× 亮/暗 注入 --color-primary，回退=维持橙·亮锚色
+$color-primary: var(--color-primary, #C2410C);   // 主色 - 维持橙(烧橙，AA 合规)
+$color-success: var(--color-success, #2BA471);   // 绿
+$color-warning: var(--color-warning, #E6A700);   // 金黄
+$color-danger:  var(--color-danger, #E5484D);    // 红
+$color-info:    var(--color-info, #3A6FB0);      // 蓝（信息，由青改蓝）
+
+// 辅助色 - 活泼点缀
+$color-purple: #722ED1;        // 紫色
+$color-cyan: #3A6FB0;          // 信息蓝（原青#13C2C2 收敛至 --color-info）
+$color-green: #52C41A;         // 绿色
+$color-orange: #FF6700;        // 橙色
+$color-magenta: #EB2F96;       // 洋红
+
+// 主色衍生（回退=维持橙·亮派生值；实际由 theme.ts 按预设×模式注入）
+$color-primary-light: var(--color-primary-light, #FBEDE6); // 浅色背景底色
+$color-primary-hover: var(--color-primary-hover, #A8370A); // 悬停态
+$color-primary-bg: var(--color-primary-light, #FBEDE6);    // 极浅底色（并入 light）
+$color-accent: var(--color-primary, #C2410C);              // 强调色
+
+// 渐变
+$gradient-brand: linear-gradient(135deg, #FF6700, #FF9A44);
+$gradient-primary: linear-gradient(135deg, #FF6700, #FF8533);
+
+// 字体
+$font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+  'Microsoft YaHei', 'Segoe UI', Roboto, 'Noto Sans CJK SC', 'Noto Sans', Arial, sans-serif;
+
+// 等宽字体（数字报表/金额/代码）
+$font-family-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, 'Courier New', monospace;
+
+// 字号体系
+$font-size-xs: var(--font-xs, 11px);    // 徽标、角标
+$font-size-sm: var(--font-sm, 12px);    // 辅助文字、分组标签
+$font-size-sm2: var(--font-sm2, 13px);  // 导航项、紧凑内容
+$font-size-base: var(--font-base, 14px);// 正文基准
+$font-size-lg: var(--font-lg, 16px);    // 小标题
+$font-size-xl: var(--font-xl, 18px);    // 页面主标题
+$font-size-2xl: var(--font-2xl, 24px);  // 大标题
+
+// ===== 间距（4 基数刻度，桥接 --space-* 令牌；与 antd marginXS/SM/.. 同值对齐）=====
+$spacing-2xs: var(--space-2xs2, 2px);   // = antd 无
+$spacing-xs: var(--space-xs4, 4px);     // ≈ 4 基数最小
+$spacing-sm: var(--space-sm8, 8px);     // = antd marginXS(8)
+$spacing-md12: var(--space-md12, 12px); // = antd marginSM(12)（新增对齐项）
+$spacing-md: var(--space-lg16, 16px);   // = antd margin(16)
+$spacing-lg: var(--space-xl24, 24px);   // = antd marginLG(24)
+$spacing-xl: var(--space-2xl32, 32px);  // 4 基数 ×8
+$spacing-3xl: 48px;                      // 无令牌，保留
+$spacing-4xl: 64px;                      // 无令牌，保留
+
+// ===== 圆角 =====
+$border-radius-sm: var(--radius-sm, 4px);
+$border-radius-md: var(--radius-md, 6px);
+$border-radius-lg: var(--radius-lg, 8px);
+
+// ===== 阴影（统一柔和系，桥接权威阴影令牌）=====
+$shadow-sm: var(--shadow-sm, 0 1px 2px rgba(18,31,53,0.05));
+$shadow-md: var(--shadow-md, 0 4px 12px rgba(18,31,53,0.08));
+$shadow-lg: var(--shadow-lg, 0 8px 24px rgba(18,31,53,0.10));
+
+// 语义阴影
+$shadow-card: 0 2px 8px rgba(0,0,0,0.06);
+$shadow-card-hover: 0 4px 16px rgba(0,0,0,0.1);
+$shadow-dropdown: 0 6px 16px rgba(0,0,0,0.08);
+
+// ===== 过渡动画（统一 0.2s ease）=====
+$transition-fast: all 0.15s ease;
+$transition-base: all 0.2s ease;
+$transition-smooth: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+$transition-normal: 0.3s ease;
+$transition-slow: 0.5s ease;
+
+// ===== 文字颜色 =====
+$text-primary: var(--text-1, #1F2329);
+$text-regular: var(--text-2, #5A6068);
+$text-secondary: var(--text-3, #8A9099);
+$text-placeholder: var(--text-disabled, #BFC3C9);
+$text-on-accent: var(--text-on-accent, #FFFFFF); // 强调色块上的文字/图标
+
+// ===== 边框颜色（统一分隔线，桥接权威边框令牌）=====
+$border-color: var(--border, #E6E8EB);
+$border-color-light: var(--border, #E6E8EB);
+$border-color-lighter: var(--border, #E6E8EB);
+$border-color-faint: var(--border-faint, #F2F4F6); // 耳语级细线（比 --border 更浅一档）
+$color-danger-border: var(--color-danger-border, rgba(214, 88, 78, 0.30)); // 危险态焦点环/描边
+$color-success-border: var(--color-success-border, rgba(62, 158, 110, 0.30)); // 成功态描边
+$color-warning-border: var(--color-warning-border, rgba(212, 154, 46, 0.30)); // 警告态描边
+$color-info-border: var(--color-info-border, rgba(91, 114, 144, 0.30)); // 信息态描边
+
+// ===== 背景颜色 =====
+$bg-page: var(--bg-page, #F5F6F8);
+$bg-card: var(--bg-card, #FFFFFF);
+$bg-header: var(--bg-card, #FFFFFF);
+
+// ===== 行高 =====
+$line-height-compact: 1.2;
+$line-height-normal: 1.5;
+$line-height-loose: 1.8;
+
+// ===== 断点 =====
+$breakpoint-sm: 768px;
+$breakpoint-md: 1024px;
+$breakpoint-lg: 1280px;
+$breakpoint-xl: 1440px;
+
+// ===== 按钮高度 =====
+$button-height: 32px;
+$button-height-small: 24px;
+
+// ===== 页面内容区（桥接 --page-pad-* 令牌，动态轨由 theme.ts applyPagePaddingCSS 注入，回退=合理留白）=====
+$page-padding: 0;                            // DEPRECATED 旧静态轨，保留防断引；新代码用 $page-pad-x/y
+$page-pad-x: var(--page-pad-x, 16px);        // 页面横向内边距（令牌单一真源）
+$page-pad-y: var(--page-pad-y, 12px);        // 页面纵向内边距
+$section-gap: 16px;
+
+// ===== 工具栏规范（桥接 --toolbar-height 令牌）=====
+$toolbar-height: var(--toolbar-height, 40px);
+$toolbar-padding: 8px 16px;
+$button-default-height: 32px;
+
+// ========== 布局重构 - L型深色框架 ==========
+
+// 布局尺寸
+$topbar-height: 40px;                // 紧凑但兼顾呼吸感与点击热区
+$sidebar-width: 160px;               // 飞书式紧凑宽度
+
+// ── 前台顶栏（深色背景 + 极细半透明白线分隔）
+$sidebar-bg: #EDEEF1;                // 桥接 --sidebar-bg（收口 #E2E2E2/#e4e7ef）
+$topbar-bg: #1F2430;                 // 桥接 --topbar-ink
+$topbar-bottom-border: 1px solid rgba(255, 255, 255, 0.10); // 桥接 --topbar-border（略可见）
+$content-bg: #F5F6F8;
+
+// 左栏文字（浅色背景下使用深色文字，确保清晰醒目）
+$sidebar-text: rgba(0, 0, 0, 0.75);          // 常规态文字略淡，不争强
+$sidebar-text-hover: #1f1f1f;
+$sidebar-text-active: #C2410C;               // 维持橙·亮锚色，WCAG AA 合规（实际由令牌注入）
+$sidebar-divider: rgba(0, 0, 0, 0.06);
+$sidebar-item-hover-bg: rgba(0, 0, 0, 0.04);
+$sidebar-item-active-bg: rgba(255, 103, 0, 0.10); // 飞书式透明浅橙底色
+
+// ── 管理后台 admin 紫色族
+// DEPRECATED 阶段5 退役：后台紫主题已退役，AdminLayout 改用前台同套权威令牌
+// （--topbar-ink-admin / --sidebar-bg / --sidebar-item-active-* 等）。
+// 以下定义保留仅防编译期未清引用断引，外壳已无任何消费，勿在新代码引用。
+$admin-topbar-bg: #434352;           // DEPRECATED 中灰紫顶栏
+$admin-topbar-gradient-line: linear-gradient(90deg, #722ED1 0%, #B37FEB 60%, transparent 100%); // DEPRECATED 紫色渐变底线
+$admin-sidebar-bg: #2B2D3A;          // DEPRECATED 深紫灰侧栏
+$admin-accent: #722ED1;              // DEPRECATED 紫色强调色
+$admin-accent-light: rgba(114, 46, 209, 0.12); // DEPRECATED 紫色高亮底色
+$admin-content-bg: #F4F5F7;          // DEPRECATED 内容区（偏冷调）
+$admin-text-muted: rgba(255, 255, 255, 0.62);  // DEPRECATED 侧栏分组标题色
+
+// ── 侧栏导航项细节
+$sidebar-item-radius: 6px;                   // 飞书式圆角底色
+$sidebar-group-label: rgba(0, 0, 0, 0.40);   // 分区标题极克制
+$sidebar-group-label-size: 11px;
+
+// ── 步骤状态色（登录过渡屏等）
+$color-step-pending: rgba(0, 0, 0, 0.25);    // 未到达步骤
+$color-step-active:  #FF6700;                // 当前步骤
+$color-step-done:    #52C41A;                // 已完成步骤（绿色）
+
+// ── 登录页布局
+$login-brand-width: 44%;                     // 品牌区（从45%微缩）
+$login-form-width: 56%;
+$login-form-bg: #FFFFFF;
+$login-transition-bg: #1A1B23;               // 过渡屏背景与顶栏统一
+

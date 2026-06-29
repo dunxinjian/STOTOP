@@ -1,0 +1,64 @@
+{
+  "terminal.integrated.defaultProfile.osx": "zsh",
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "terminal.integrated.defaultProfile.windows": "Git Bash",
+  "terminal.integrated.env.windows": {
+    "PYTHONIOENCODING": "utf-8",
+    "LANG": "en_US.UTF-8",
+    "DOTNET_SYSTEM_CONSOLE_ALLOW_ANSI_COLOR_REDIRECTED": "1"
+  },
+  "terminal.integrated.profiles.windows": {
+    "Git Bash": {
+      "path": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "icon": "terminal-bash"
+    },
+    "PowerShell": {
+      "source": "PowerShell",
+      "args": ["-NoExit", "-Command", "chcp 65001 > $null; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8"]
+    },
+    "Windows PowerShell": {
+      "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "args": ["-NoExit", "-Command", "chcp 65001 > $null; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8"]
+    }
+  },
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "editor.formatOnSave": false,
+  "typescript.tsdk": "web/node_modules/typescript/lib",
+  "dotnet.completion.showCompletionItemsFromUnimportedNamespaces": true,
+  "csharp.semanticHighlighting.enabled": true,
+
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "BizObjTransform/Taicang/transform_script/output": true,
+    "BizObjTransform/Taicang/*.sql": true,
+    "BizObjTransform/Taicang/*.json": true
+  },
+  "search.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "BizObjTransform/**/*.sql": true,
+    "BizObjTransform/**/*.json": true,
+    "BizObjTransform/Taicang/transform_script/output/**": true,
+    "**/bin/**": true,
+    "**/obj/**": true,
+    "**/node_modules/**": true,
+    "**/dist/**": true
+  },
+  "workbench.editor.enablePreview": true,
+  "workbench.editor.enablePreviewFromQuickOpen": true,
+  "workbench.editor.revealIfOpen": false,
+  "workbench.editor.focusRecentEditorAfterClose": false,
+  "files.watcherExclude": {
+    "**/__pycache__/**": true,
+    "**/*.pyc": true,
+    "BizObjTransform/**/*.sql": true,
+    "BizObjTransform/**/*.json": true,
+    "BizObjTransform/Taicang/transform_script/output/**": true,
+    "**/bin/**": true,
+    "**/obj/**": true,
+    "**/node_modules/**": true,
+    "**/dist/**": true
+  }
+}

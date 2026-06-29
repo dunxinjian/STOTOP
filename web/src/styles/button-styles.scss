@@ -1,0 +1,62 @@
+// 操作按钮语义颜色规范
+// 通过语义类名统一全系统按钮颜色
+// 注：$color-success / $color-warning 已桥接为 var(--token, 回退) CSS 变量，
+//     SCSS 编译期无法对其做 color.adjust 运算；hover 态改用 CSS 原生 color-mix
+//     与基色令牌混白，使其随运行时主令牌动态变亮（阶段0 令牌桥接的必然处理）。
+@use './variables.scss' as *;
+
+// 成功/同意/启用 - 绿色
+.btn-approve,
+.btn-success,
+.btn-enable {
+  color: $color-success !important;
+  border-color: $color-success !important;
+  &:hover {
+    color: color-mix(in srgb, #{$color-success} 88%, white) !important;
+    border-color: color-mix(in srgb, #{$color-success} 88%, white) !important;
+    background: var(--color-success-light, #E7F5EF);
+  }
+}
+.btn-approve-filled {
+  background: $color-success !important;
+  border-color: $color-success !important;
+  color: #fff !important;
+  &:hover {
+    background: color-mix(in srgb, #{$color-success} 88%, white) !important;
+    border-color: color-mix(in srgb, #{$color-success} 88%, white) !important;
+  }
+}
+
+// 警告/返回/撤回/停用 - 橙色
+.btn-warning,
+.btn-return,
+.btn-disable {
+  color: $color-warning !important;
+  border-color: $color-warning !important;
+  &:hover {
+    color: color-mix(in srgb, #{$color-warning} 88%, white) !important;
+    border-color: color-mix(in srgb, #{$color-warning} 88%, white) !important;
+    background: var(--color-warning-light, #FBF1D8);
+  }
+}
+
+// 危险/删除/拒绝 — 使用 Ant Design 原生 danger 属性即可，无需自定义
+
+// 金额格式统一
+.amount-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+}
+.amount-positive {
+  color: $color-success;
+}
+.amount-negative {
+  color: $color-danger;
+}
+
+// 操作列统一宽度
+.table-action-col-sm { width: 80px; }
+.table-action-col-md { width: 120px; }
+.table-action-col-lg { width: 160px; }
+.table-action-col-xl { width: 200px; }

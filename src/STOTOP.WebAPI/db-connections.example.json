@@ -1,0 +1,10 @@
+[
+  {
+    "id": 1,
+    "connectionName": "Local development database",
+    "databaseType": "SqlServer",
+    "connectionString": "Server=localhost,1433;Database=STOTOP_DEV;User Id=sa;Password=YOUR_PASSWORD;TrustServerCertificate=True",
+    "connectionType": "系统",
+    "status": 1
+  }
+]

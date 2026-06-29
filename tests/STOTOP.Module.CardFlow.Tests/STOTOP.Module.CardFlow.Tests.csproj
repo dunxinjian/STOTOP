@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.8" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <!-- SQL Server 冒烟测试：默认 Skip，需 STOTOP_TEST_CONNECTION 才实际执行 -->
+    <PackageReference Include="Xunit.SkippableFact" Version="1.4.13" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/STOTOP.Module.CardFlow/STOTOP.Module.CardFlow.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Infrastructure/STOTOP.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.System/STOTOP.Module.System.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.Finance/STOTOP.Module.Finance.csproj" />
+    <!-- 集成测试需调用 CardFlowSeeder（位于 WebAPI/Data/Seeders）建表 -->
+    <ProjectReference Include="../../src/STOTOP.WebAPI/STOTOP.WebAPI.csproj" />
+  </ItemGroup>
+</Project>

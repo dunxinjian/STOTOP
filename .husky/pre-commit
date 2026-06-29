@@ -1,0 +1,42 @@
+#!/usr/bin/env sh
+# =============================================================
+# 0d 防裸 hex 回潮门禁（diff-based，只拦"新增"裸 hex，存量不阻塞）
+# 抓暂存 web 下 .vue/.scss 的【新增行】里的裸 hex 颜色（含 <style>/inline/JS，比 stylelint 更全）。
+# 豁免：全局样式/令牌文件、行内含 /* hex-ok */ 或 stylelint-disable 标记、HTML 实体(&#123;)。
+# 整改：改用设计令牌 var(--token)（见 web/docs/TOKENS.md）。
+# 确需真 hex（ECharts/SVG stroke/打印/导出独立文档）：在该行加注释 /* hex-ok: 原因 */。
+# =============================================================
+
+# 全局样式/令牌文件本就合法持有 hex（与 .stylelintrc.json 豁免清单一致）
+EXEMPT_RE='web/src/styles/(variables|ant-override|layout|button-styles)\.scss'
+
+files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^web/src/.*\.(vue|scss)$' | grep -vE "$EXEMPT_RE")
+
+[ -z "$files" ] && exit 0
+
+fail=0
+report=""
+for f in $files; do
+  # 仅看新增行(+，排除 +++ 文件头)；裸 hex(3/4/6/8 位)；排除 HTML 实体 / hex-ok / stylelint-disable 行
+  hits=$(git diff --cached -U0 -- "$f" \
+    | grep -E '^\+' | grep -vE '^\+\+\+' \
+    | grep -iE '#[0-9a-fA-F]{3,8}\b' \
+    | grep -ivE '&#[0-9]|hex-ok|stylelint-disable')
+  if [ -n "$hits" ]; then
+    report="$report
+✗ $f"
+    report="$report
+$(echo "$hits" | sed 's/^+/    +/')"
+    fail=1
+  fi
+done
+
+if [ "$fail" = "1" ]; then
+  printf '%s\n' "$report"
+  echo ""
+  echo "⛔ 提交被裸 hex 门禁拦截：以上是新增的裸 hex 颜色。"
+  echo "   请改用设计令牌 var(--token)（见 web/docs/TOKENS.md）。"
+  echo "   确需真 hex（ECharts/SVG/打印/导出独立文档）：在该行加注释 /* hex-ok: 原因 */ 后重提。"
+  exit 1
+fi
+exit 0

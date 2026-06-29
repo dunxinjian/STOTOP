@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>顶栏重构设计原型 — 无Logo线性布局</title>
+<style>
+/* ========================================
+   DESIGN TOKENS
+   ======================================== */
+:root {
+  /* 色彩系统 */
+  --topbar-bg: #001529;
+  --topbar-text: rgba(255, 255, 255, 0.85);
+  --topbar-text-muted: rgba(255, 255, 255, 0.55);
+  --topbar-hover: rgba(255, 255, 255, 0.08);
+  --topbar-active: rgba(255, 255, 255, 0.12);
+  --topbar-border: rgba(255, 255, 255, 0.06);
+  
+  --primary: #1890ff;
+  --primary-light: #40a9ff;
+  --primary-dark: #096dd9;
+  
+  --sidebar-bg: #f0f2f5;
+  --sidebar-text: #1f1f1f;
+  --sidebar-text-muted: #8c8c8c;
+  --sidebar-hover: rgba(24, 144, 255, 0.06);
+  --sidebar-active: rgba(24, 144, 255, 0.1);
+  
+  --content-bg: #ffffff;
+  --badge-red: #ff4d4f;
+  --shadow-dropdown: 0 6px 16px rgba(0, 0, 0, 0.12);
+  
+  /* 间距系统 (4px基准) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  
+  /* 尺寸 */
+  --topbar-height: 38px;
+  --sidebar-width: 120px;
+  --avatar-size: 24px;
+  --icon-size: 16px;
+  
+  /* 字号 */
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-base: 13px;
+  --font-md: 14px;
+  
+  /* 圆角 */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 50%;
+  
+  /* 过渡 */
+  --transition-fast: 150ms ease;
+  --transition-normal: 200ms ease;
+}
+
+/* ========================================
+   RESET & BASE
+   ======================================== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif;
+  font-size: var(--font-base);
+  color: #1f1f1f;
+  background: var(--sidebar-bg);
+  overflow: hidden;
+  height: 100vh;
+}
+
+/* ========================================
+   LAYOUT STRUCTURE
+   ======================================== */
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ========================================
+   TOP BAR — 38px 无Logo线性布局
+   ======================================== */
+.topbar {
+  height: var(--topbar-height);
+  background: var(--topbar-bg);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--topbar-border);
+  position: relative;
+  z-index: 1000;
+  flex-shrink: 0;
+}
+
+.org-switcher {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--topbar-text);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  transition: background var(--transition-fast);
+  position: relative;
+  flex-shrink: 0;
+}
+
+.org-switcher:hover {
+  background: var(--topbar-hover);
+}
+
+.org-switcher__name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.org-switcher__arrow {
+  font-size: 10px;
+  opacity: 0.6;
+  transition: transform var(--transition-fast);
+}
+
+.org-switcher.active .org-switcher__arrow {
+  transform: rotate(180deg);
+}
+
+/* — 工作台按钮 — */
+.workhub-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--topbar-text-muted);
+  font-size: var(--font-sm);
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.workhub-btn:hover {
+  background: var(--topbar-hover);
+  color: var(--topbar-text);
+}
+
+/* — 搜索框（固定宽度） — */
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  width: 180px;
+  flex-shrink: 0;
+}
+
+.search-box:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.search-box__icon {
+  color: var(--topbar-text-muted);
+  font-size: 12px;
+}
+
+.search-box__text {
+  color: var(--topbar-text-muted);
+  font-size: var(--font-sm);
+  flex: 1;
+}
+
+.search-box__kbd {
+  font-size: 10px;
+  color: var(--topbar-text-muted);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-family: monospace;
+}
+
+/* — 系统公告（弹性伸缩） — */
+.announcement {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  overflow: hidden;
+}
+
+.announcement__icon {
+  font-size: 12px;
+  flex-shrink: 0;
+  color: #faad14;
+}
+
+.announcement__text {
+  font-size: var(--font-xs);
+  color: var(--topbar-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.announcement__text:hover {
+  color: var(--topbar-text);
+  cursor: pointer;
+}
+
+/* — 右侧工具按钮区 — */
+.topbar__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.topbar-icon-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--topbar-text-muted);
+  transition: all var(--transition-fast);
+  position: relative;
+}
+
+.topbar-icon-btn:hover {
+  background: var(--topbar-hover);
+  color: var(--topbar-text);
+}
+
+.notification-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 14px;
+  height: 14px;
+  background: var(--badge-red);
+  color: white;
+  font-size: 9px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  font-weight: 600;
+}
+
+.user-menu {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.user-menu:hover {
+  background: var(--topbar-hover);
+}
+
+.user-menu__avatar {
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+
+.user-menu__name {
+  color: var(--topbar-text);
+  font-size: var(--font-sm);
+  white-space: nowrap;
+}
+
+/* ========================================
+   SIDEBAR — 120px 精简模式
+   ======================================== */
+.sidebar {
+  width: var(--sidebar-width);
+  background: var(--sidebar-bg);
+  border-right: 1px solid #e8e8e8;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.sidebar__section {
+  padding: var(--space-3) var(--space-2);
+}
+
+.sidebar__section-title {
+  font-size: var(--font-xs);
+  color: var(--sidebar-text-muted);
+  padding: 0 var(--space-2);
+  margin-bottom: var(--space-2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sidebar__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--sidebar-text);
+  font-size: var(--font-sm);
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar__item:hover {
+  background: var(--sidebar-hover);
+}
+
+.sidebar__item.active {
+  background: var(--sidebar-active);
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.sidebar__item-icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.sidebar__divider {
+  height: 1px;
+  background: #e8e8e8;
+  margin: var(--space-2) var(--space-3);
+}
+
+/* ========================================
+   CONTENT AREA
+   ======================================== */
+.content {
+  flex: 1;
+  background: var(--content-bg);
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.content__placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #bfbfbf;
+  gap: var(--space-3);
+}
+
+.content__placeholder-icon {
+  font-size: 48px;
+  opacity: 0.3;
+}
+
+.content__placeholder-text {
+  font-size: var(--font-md);
+}
+
+/* ========================================
+   DROPDOWN PANELS
+   ======================================== */
+.dropdown-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+}
+
+.dropdown-overlay.visible {
+  display: block;
+}
+
+.org-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(var(--topbar-height) - 2px);
+  left: var(--space-4);
+  width: 260px;
+  background: white;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-dropdown);
+  z-index: 1001;
+  overflow: hidden;
+  animation: slideDown 150ms ease;
+}
+
+.org-dropdown.visible {
+  display: block;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.org-dropdown__header {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid #f0f0f0;
+  font-size: var(--font-xs);
+  color: #8c8c8c;
+}
+
+.org-dropdown__list {
+  padding: var(--space-2);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.org-dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.org-dropdown__item:hover {
+  background: #f5f5f5;
+}
+
+.org-dropdown__item.current {
+  background: rgba(24, 144, 255, 0.06);
+}
+
+.org-dropdown__item-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: white;
+  flex-shrink: 0;
+}
+
+.org-dropdown__item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.org-dropdown__item-name {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: #1f1f1f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.org-dropdown__item-desc {
+  font-size: var(--font-xs);
+  color: #8c8c8c;
+}
+
+.org-dropdown__item-check {
+  color: var(--primary);
+  font-size: var(--font-md);
+}
+
+/* User dropdown */
+.user-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(var(--topbar-height) - 2px);
+  right: var(--space-4);
+  width: 180px;
+  background: white;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-dropdown);
+  z-index: 1001;
+  overflow: hidden;
+  animation: slideDown 150ms ease;
+}
+
+.user-dropdown.visible {
+  display: block;
+}
+
+.user-dropdown__header {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.user-dropdown__header-name {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: #1f1f1f;
+}
+
+.user-dropdown__header-role {
+  font-size: var(--font-xs);
+  color: #8c8c8c;
+  margin-top: 2px;
+}
+
+.user-dropdown__list {
+  padding: var(--space-1);
+}
+
+.user-dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  color: #595959;
+  transition: background var(--transition-fast);
+}
+
+.user-dropdown__item:hover {
+  background: #f5f5f5;
+}
+
+.user-dropdown__item--danger {
+  color: #ff4d4f;
+}
+
+.user-dropdown__divider {
+  height: 1px;
+  background: #f0f0f0;
+  margin: var(--space-1) 0;
+}
+
+/* ========================================
+   COMMAND PALETTE MODAL
+   ======================================== */
+.command-modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 2000;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 100px;
+}
+
+.command-modal.visible {
+  display: flex;
+}
+
+.command-panel {
+  width: 520px;
+  background: white;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  animation: scaleIn 150ms ease;
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.command-panel__input-wrap {
+  display: flex;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid #f0f0f0;
+  gap: var(--space-2);
+}
+
+.command-panel__input-icon {
+  color: #bfbfbf;
+  font-size: 16px;
+}
+
+.command-panel__input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: var(--font-md);
+  color: #1f1f1f;
+  font-family: inherit;
+}
+
+.command-panel__input::placeholder {
+  color: #bfbfbf;
+}
+
+.command-panel__body {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+
+.command-panel__group {
+  margin-bottom: var(--space-2);
+}
+
+.command-panel__group-title {
+  font-size: var(--font-xs);
+  color: #8c8c8c;
+  padding: var(--space-1) var(--space-3);
+  margin-bottom: var(--space-1);
+}
+
+.command-panel__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.command-panel__item:hover {
+  background: #f5f5f5;
+}
+
+.command-panel__item-icon {
+  width: 20px;
+  text-align: center;
+  font-size: 13px;
+  color: #8c8c8c;
+}
+
+.command-panel__item-text {
+  flex: 1;
+  font-size: var(--font-sm);
+  color: #1f1f1f;
+}
+
+.command-panel__item-hint {
+  font-size: var(--font-xs);
+  color: #bfbfbf;
+}
+
+.command-panel__footer {
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--font-xs);
+  color: #8c8c8c;
+}
+
+.command-panel__footer kbd {
+  background: #f5f5f5;
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid #e8e8e8;
+  font-family: monospace;
+  font-size: 10px;
+}
+
+/* ========================================
+   DESIGN NOTES PANEL
+   ======================================== */
+.design-notes {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  padding: var(--space-4) var(--space-6);
+  font-size: var(--font-sm);
+  line-height: 1.8;
+  max-height: 200px;
+  overflow-y: auto;
+  border-top: 2px solid var(--primary);
+  display: none;
+}
+
+.design-notes.visible {
+  display: block;
+}
+
+.design-notes h3 {
+  color: var(--primary-light);
+  font-size: var(--font-md);
+  margin-bottom: var(--space-2);
+}
+
+.design-notes code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: var(--font-xs);
+}
+
+/* Toggle button */
+.notes-toggle {
+  position: fixed;
+  bottom: var(--space-4);
+  right: var(--space-4);
+  padding: 6px 12px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  font-family: inherit;
+  z-index: 3000;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.3);
+}
+
+.notes-toggle:hover {
+  background: var(--primary-dark);
+}
+
+.design-notes.visible ~ .notes-toggle {
+  bottom: 210px;
+}
+</style>
+</head>
+<body>
+
+<div class="app-layout">
+  <!-- ============ TOP BAR ============ -->
+  <header class="topbar">
+    <!-- 1. 组织切换器 -->
+    <div class="org-switcher" id="orgSwitcher" onclick="toggleOrgDropdown()">
+      <span class="org-switcher__name">太仓申通</span>
+      <span class="org-switcher__arrow">▾</span>
+    </div>
+
+    <!-- 2. 工作台 -->
+    <div class="workhub-btn" title="工作台首页">
+      <span>🏠</span>
+      <span>工作台</span>
+    </div>
+
+    <!-- 3. 搜索框（固定宽度） -->
+    <div class="search-box" onclick="openCommandPalette()">
+      <span class="search-box__icon">🔍</span>
+      <span class="search-box__text">搜索...</span>
+      <span class="search-box__kbd">⌘K</span>
+    </div>
+
+    <!-- 4. 系统公告（弹性伸缩） -->
+    <div class="announcement">
+      <span class="announcement__icon">📢</span>
+      <span class="announcement__text">【系统公告】5月份出港结算已完成，请各网点及时核对数据。如有异议请在3个工作日内反馈至财务部。</span>
+    </div>
+
+    <!-- 5. 全屏按钮 + 用户头像 -->
+    <div class="topbar__tools">
+      <div class="topbar-icon-btn" title="全屏" onclick="toggleFullscreen()">
+        ⛶
+      </div>
+      <div class="user-menu" id="userMenu" onclick="toggleUserDropdown()">
+        <div class="user-menu__avatar">D</div>
+      </div>
+    </div>
+
+    <!-- 组织切换下拉面板 -->
+    <div class="org-dropdown" id="orgDropdown">
+      <div class="org-dropdown__header">切换组织</div>
+      <div class="org-dropdown__list">
+        <div class="org-dropdown__item current">
+          <div class="org-dropdown__item-avatar" style="background: #1890ff;">太</div>
+          <div class="org-dropdown__item-info">
+            <div class="org-dropdown__item-name">太仓申通</div>
+            <div class="org-dropdown__item-desc">江苏太仓市 · 主组织</div>
+          </div>
+          <span class="org-dropdown__item-check">✓</span>
+        </div>
+        <div class="org-dropdown__item">
+          <div class="org-dropdown__item-avatar" style="background: #722ed1;">石</div>
+          <div class="org-dropdown__item-info">
+            <div class="org-dropdown__item-name">石家庄申通</div>
+            <div class="org-dropdown__item-desc">河北石家庄市</div>
+          </div>
+        </div>
+        <div class="org-dropdown__item">
+          <div class="org-dropdown__item-avatar" style="background: #13c2c2;">城</div>
+          <div class="org-dropdown__item-info">
+            <div class="org-dropdown__item-name">太仓城区</div>
+            <div class="org-dropdown__item-desc">江苏太仓市城区</div>
+          </div>
+        </div>
+        <div class="org-dropdown__item">
+          <div class="org-dropdown__item-avatar" style="background: #fa8c16;">浏</div>
+          <div class="org-dropdown__item-info">
+            <div class="org-dropdown__item-name">太仓浏河</div>
+            <div class="org-dropdown__item-desc">江苏太仓市浏河镇</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 用户下拉面板 -->
+    <div class="user-dropdown" id="userDropdown">
+      <div class="user-dropdown__header">
+        <div class="user-dropdown__header-name">Dun</div>
+        <div class="user-dropdown__header-role">系统管理员</div>
+      </div>
+      <div class="user-dropdown__list">
+        <div class="user-dropdown__item">⚙️ 个人设置</div>
+        <div class="user-dropdown__item">🎨 外观偏好</div>
+        <div class="user-dropdown__item">⌨️ 快捷键</div>
+        <div class="user-dropdown__divider"></div>
+        <div class="user-dropdown__item user-dropdown__item--danger">↩️ 退出登录</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ BODY ============ -->
+  <div class="app-body">
+    <!-- 左侧栏 -->
+    <aside class="sidebar">
+      <div class="sidebar__section">
+        <div class="sidebar__section-title">最近使用</div>
+        <div class="sidebar__item active">
+          <span class="sidebar__item-icon">📊</span>
+          阿米巴报表
+        </div>
+        <div class="sidebar__item">
+          <span class="sidebar__item-icon">📋</span>
+          凭证管理
+        </div>
+        <div class="sidebar__item">
+          <span class="sidebar__item-icon">📦</span>
+          数据导入
+        </div>
+        <div class="sidebar__item">
+          <span class="sidebar__item-icon">💰</span>
+          报价工作台
+        </div>
+        <div class="sidebar__item">
+          <span class="sidebar__item-icon">👥</span>
+          客户管理
+        </div>
+      </div>
+      <div class="sidebar__divider"></div>
+      <div class="sidebar__section">
+        <div class="sidebar__section-title">收藏</div>
+        <div class="sidebar__item">
+          <span class="sidebar__item-icon">⭐</span>
+          出港明细
+        </div>
+        <div class="sidebar__item">
+          <span class="sidebar__item-icon">⭐</span>
+          科目设置
+        </div>
+      </div>
+      <div class="sidebar__divider"></div>
+      <div class="sidebar__section">
+        <div class="sidebar__section-title">模块</div>
+        <div class="sidebar__item">
+          <span class="sidebar__item-icon">🚚</span>
+          快递业务
+        </div>
+        <div class="sidebar__item">
+          <span class="sidebar__item-icon">💼</span>
+          财务管理
+        </div>
+        <div class="sidebar__item">
+          <span class="sidebar__item-icon">📈</span>
+          数据中心
+        </div>
+        <div class="sidebar__item">
+          <span class="sidebar__item-icon">🏢</span>
+          行政办公
+        </div>
+      </div>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main class="content">
+      <div class="content__placeholder">
+        <div class="content__placeholder-icon">📊</div>
+        <div class="content__placeholder-text">阿米巴经营报表</div>
+        <div style="font-size: 12px; color: #d9d9d9;">（内容区域 — 移除Tab后单页面展示）</div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ============ COMMAND PALETTE MODAL ============ -->
+<div class="command-modal" id="commandModal" onclick="closeCommandPalette(event)">
+  <div class="command-panel" onclick="event.stopPropagation()">
+    <div class="command-panel__input-wrap">
+      <span class="command-panel__input-icon">⌕</span>
+      <input class="command-panel__input" type="text" placeholder="输入页面名称、拼音首字母或命令..." autofocus>
+    </div>
+    <div class="command-panel__body">
+      <div class="command-panel__group">
+        <div class="command-panel__group-title">最近访问</div>
+        <div class="command-panel__item">
+          <span class="command-panel__item-icon">📊</span>
+          <span class="command-panel__item-text">阿米巴经营报表</span>
+          <span class="command-panel__item-hint">财务</span>
+        </div>
+        <div class="command-panel__item">
+          <span class="command-panel__item-icon">📋</span>
+          <span class="command-panel__item-text">凭证管理</span>
+          <span class="command-panel__item-hint">财务</span>
+        </div>
+        <div class="command-panel__item">
+          <span class="command-panel__item-icon">📦</span>
+          <span class="command-panel__item-text">数据导入 · 上传中心</span>
+          <span class="command-panel__item-hint">数据中心</span>
+        </div>
+      </div>
+      <div class="command-panel__group">
+        <div class="command-panel__group-title">快递业务</div>
+        <div class="command-panel__item">
+          <span class="command-panel__item-icon">💰</span>
+          <span class="command-panel__item-text">报价工作台</span>
+          <span class="command-panel__item-hint">Express</span>
+        </div>
+        <div class="command-panel__item">
+          <span class="command-panel__item-icon">📄</span>
+          <span class="command-panel__item-text">出港发件费明细</span>
+          <span class="command-panel__item-hint">Express</span>
+        </div>
+        <div class="command-panel__item">
+          <span class="command-panel__item-icon">👥</span>
+          <span class="command-panel__item-text">业务员管理</span>
+          <span class="command-panel__item-hint">Express</span>
+        </div>
+      </div>
+      <div class="command-panel__group">
+        <div class="command-panel__group-title">财务管理</div>
+        <div class="command-panel__item">
+          <span class="command-panel__item-icon">📖</span>
+          <span class="command-panel__item-text">科目设置</span>
+          <span class="command-panel__item-hint">Finance</span>
+        </div>
+        <div class="command-panel__item">
+          <span class="command-panel__item-icon">🏷️</span>
+          <span class="command-panel__item-text">辅助核算项目</span>
+          <span class="command-panel__item-hint">Finance</span>
+        </div>
+        <div class="command-panel__item">
+          <span class="command-panel__item-icon">📐</span>
+          <span class="command-panel__item-text">损益模板</span>
+          <span class="command-panel__item-hint">Finance</span>
+        </div>
+      </div>
+    </div>
+    <div class="command-panel__footer">
+      <span><kbd>↑↓</kbd> 导航</span>
+      <span><kbd>Enter</kbd> 打开</span>
+      <span><kbd>Esc</kbd> 关闭</span>
+      <span>支持拼音：输入 <kbd>pzgl</kbd> 匹配"凭证管理"</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ DESIGN NOTES ============ -->
+<div class="design-notes" id="designNotes">
+  <h3>📐 设计规格说明</h3>
+  <p><strong>顶栏高度：</strong><code>38px</code> — 比传统48px节省10px垂直空间</p>
+  <p><strong>布局方式：</strong>无Logo线性排列 — [组织切换器] [工作台] [搜索框 180px固定] [公告 flex:1] [全屏] [头像]</p>
+  <p><strong>系统公告：</strong>弹性伸缩填充剩余空间，单行溢出省略，显示最新公告摘要，点击展开详情</p>
+  <p><strong>搜索框：</strong>固定180px宽度，点击后弹出命令面板（Ctrl+K），支持拼音/首字母模糊匹配</p>
+  <p><strong>页面流转（移除Tab后）：</strong></p>
+  <p>① <strong>命令面板</strong>（Ctrl+K / 点击搜索框）— 主力导航，空态即菜单</p>
+  <p>② <strong>工作台按钮</strong> — 一键回到首页仪表盘</p>
+  <p>③ <strong>左侧栏最近使用</strong> — 基于行为智能推荐，120px精简模式始终可见</p>
+  <p>④ <strong>左侧栏模块入口</strong> — 点击模块名展开Ribbon（Toggle模式）</p>
+  <p><strong>组织切换交互：</strong>点击组织名 → 弹出下拉面板 → 选择新组织 → 当前页刷新权限（无权限则跳首页）</p>
+  <p><strong>用户菜单：</strong>点击头像 → 弹出下拉 → 个人设置/外观偏好/快捷键/退出登录</p>
+</div>
+
+<button class="notes-toggle" onclick="toggleNotes()">📐 设计说明</button>
+
+<!-- ============ OVERLAY ============ -->
+<div class="dropdown-overlay" id="overlay" onclick="closeAllDropdowns()"></div>
+
+<script>
+// 组织切换器
+function toggleOrgDropdown() {
+  const dropdown = document.getElementById('orgDropdown');
+  const switcher = document.getElementById('orgSwitcher');
+  const overlay = document.getElementById('overlay');
+  const isVisible = dropdown.classList.contains('visible');
+  
+  closeAllDropdowns();
+  
+  if (!isVisible) {
+    dropdown.classList.add('visible');
+    switcher.classList.add('active');
+    overlay.classList.add('visible');
+  }
+}
+
+// 用户菜单
+function toggleUserDropdown() {
+  const dropdown = document.getElementById('userDropdown');
+  const overlay = document.getElementById('overlay');
+  const isVisible = dropdown.classList.contains('visible');
+  
+  closeAllDropdowns();
+  
+  if (!isVisible) {
+    dropdown.classList.add('visible');
+    overlay.classList.add('visible');
+  }
+}
+
+// 命令面板
+function openCommandPalette() {
+  document.getElementById('commandModal').classList.add('visible');
+  setTimeout(() => {
+    document.querySelector('.command-panel__input').focus();
+  }, 50);
+}
+
+function closeCommandPalette(e) {
+  if (e.target === e.currentTarget) {
+    document.getElementById('commandModal').classList.remove('visible');
+  }
+}
+
+// 关闭所有下拉
+function closeAllDropdowns() {
+  document.getElementById('orgDropdown').classList.remove('visible');
+  document.getElementById('userDropdown').classList.remove('visible');
+  document.getElementById('orgSwitcher').classList.remove('active');
+  document.getElementById('overlay').classList.remove('visible');
+}
+
+// 设计说明面板
+function toggleNotes() {
+  document.getElementById('designNotes').classList.toggle('visible');
+}
+
+// 全屏切换
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen();
+  } else {
+    document.exitFullscreen();
+  }
+}
+
+// 键盘快捷键
+document.addEventListener('keydown', function(e) {
+  if (e.ctrlKey && e.key === 'k') {
+    e.preventDefault();
+    openCommandPalette();
+  }
+  if (e.key === 'Escape') {
+    document.getElementById('commandModal').classList.remove('visible');
+    closeAllDropdowns();
+  }
+});
+</script>
+
+</body>
+</html>

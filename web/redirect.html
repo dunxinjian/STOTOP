@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>跳转中...</title>
+  <style>
+    body { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: -apple-system, sans-serif; color: #666; }
+    .loading { text-align: center; }
+    .spinner { width: 32px; height: 32px; border: 3px solid #f3f3f3; border-top: 3px solid #1677ff; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="loading">
+    <div class="spinner"></div>
+    <p>正在跳转...</p>
+  </div>
+  <script>
+    (function() {
+      var path = location.pathname;
+      var search = location.search;
+      var params = new URLSearchParams(search);
+      var orgId = params.get('orgId') || '';
+
+      var ua = navigator.userAgent;
+      var isMobileDevice = /Android|iPhone|iPad|iPod|Mobile/.test(ua);
+
+      var isDingTalk = /DingTalk/.test(ua);
+      if (!isDingTalk) {
+        document.querySelector('.loading').innerHTML = '<p>请在钉钉客户端中打开此链接</p>';
+        return;
+      }
+
+      var target = '';
+      var cardMatch = path.match(/\/redirect\/card\/(\d+)/);
+      var dashboardMatch = path.match(/\/redirect\/dashboard/);
+
+      if (cardMatch) {
+        var cardId = cardMatch[1];
+        if (isMobileDevice) {
+          target = '/mobile.html#/m/card/' + cardId + (orgId ? '?orgId=' + orgId : '');
+        } else {
+          target = '/workhub/card/' + cardId;
+        }
+      } else if (dashboardMatch) {
+        if (isMobileDevice) {
+          target = '/mobile.html#/m/dashboard';
+        } else {
+          target = '/workhub';
+        }
+      } else {
+        target = isMobileDevice ? '/mobile.html#/m/home' : '/workhub';
+      }
+
+      location.replace(target);
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+@use './variables.scss' as *;
+
+// ===========================
+// 页面间距规范 — 工具类
+// ===========================
+
+// 区块间距（卡片之间、搜索栏与表格之间）
+.section-gap {
+  margin-bottom: $section-gap;
+}
+
+// 卡片标准间距
+.card-gap {
+  margin-bottom: $spacing-md;
+}
+
+// 页面标题与内容之间
+.title-gap {
+  margin-bottom: $spacing-lg;
+}
+
+// 紧凑间距（表单内部元素）
+.compact-gap {
+  margin-bottom: $spacing-sm;
+}
+
+// 内容区域标准 padding
+.content-padding {
+  padding: $spacing-md;
+}
+
+// 标准卡片样式（自动处理末尾间距）
+.standard-card {
+  margin-bottom: $section-gap;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}

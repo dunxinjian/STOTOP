@@ -1,0 +1,24 @@
+<Project>
+  <PropertyGroup>
+    <!-- Static graph restore and parallel project builds can hang/fail on local macOS .NET 10. -->
+    <RestoreUseStaticGraphEvaluation>false</RestoreUseStaticGraphEvaluation>
+    <BuildInParallel>false</BuildInParallel>
+    <NuGetAudit Condition="'$(ContinuousIntegrationBuild)' != 'true'">false</NuGetAudit>
+    <EnablePlaywrightBuildAssets Condition="'$(MSBuildProjectName)' == 'STOTOP.WebAPI'">true</EnablePlaywrightBuildAssets>
+    <PlaywrightPlatform Condition="'$(EnablePlaywrightBuildAssets)' != 'true'">none</PlaywrightPlatform>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 漏洞传递依赖提升（NU1903）：NPOI 2.7.2 传递引入 System.Security.Cryptography.Xml 8.0.2，
+         命中两条高危 DoS 公告 GHSA-37gx-xxp4-5rgx (CVE-2026-33116, EncryptedXml 无限循环) 与
+         GHSA-w3x6-4m5h-cxqf (CVE-2026-26171, EncryptedXml 资源耗尽/XXE)，10.x 修复版为 10.0.6。
+         该包是 Microsoft.AspNetCore.App 框架自带包，会被 NuGet 从 ProjectReference 传递流中剪除，
+         因此在 Infrastructure 单点钉版无法传播到下游模块（与可正常传播的 SixLabors.ImageSharp 不同）；
+         改在 Directory.Build.props 为每个 src 工程注入一条直接 PackageReference（nearest-wins 压住 8.0.2）。
+         测试工程不在 src 树下，由 tests/Directory.Build.props 同款覆盖。
+         待 NPOI 升级到依赖 >=10.0.6（或 >=8.0.3）的版本后可移除本节。
+         NoWarn=NU1510：该包属框架自带，在不实际依赖 NPOI 的工程上 .NET 10 会提示此直接引用冗余可移除；
+         为集中治理统一注入、刻意保留，故抑制该提示（仅作用于本引用，不影响其它包的 NU1510）。 -->
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.9" NoWarn="NU1510" />
+  </ItemGroup>
+</Project>

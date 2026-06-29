@@ -1,0 +1,54 @@
+<h2>方案落地（基于真实代码审计）</h2>
+<p class="subtitle">10 个 agent 读了真实代码后的收敛结果。下面是 spec 的核心：样板页、阶段0 组件花名册、阶段2 逐页队列。</p>
+
+<div class="label">① 样板页改判（审计否决了原推荐）</div>
+<div class="split" style="margin-bottom:1.5rem">
+  <div style="border:1px solid var(--error);border-radius:8px;padding:.75rem .9rem;background:var(--bg-secondary)">
+    <div style="color:var(--error);font-weight:600;font-size:.9rem;margin-bottom:.3rem">✗ /crm/customers（原推荐，弃用）</div>
+    <div style="font-size:.8rem;color:var(--text-secondary);line-height:1.55">本身是重灾区：手写状态标签复刻已有组件、裸 rgba、BD 头像裸 hex 色板、为状态计数发 4 次请求 + 拉全量报价。<b>拿坏页当样板 = 把坏味道固化成范式。</b></div>
+  </div>
+  <div style="border:1px solid var(--success);border-radius:8px;padding:.75rem .9rem;background:var(--bg-secondary)">
+    <div style="color:var(--success);font-weight:600;font-size:.9rem;margin-bottom:.3rem">✓ /dormitory/buildings（改用）</div>
+    <div style="font-size:.8rem;color:var(--text-secondary);line-height:1.55">已接近正确：用了 PageHeader #toolbar、paginationConfig、EmptyState、标准操作列。唯一硬伤（内联 flex / a-tag 字面色 / bordered）正好用来验证 FilterBar + DataTable + StatusTag 三件套。备选 /insurance/policy。</div>
+  </div>
+</div>
+
+<div class="label">② 阶段0 组件花名册 —— 本质是「复活 + 收敛」，不是大量新建</div>
+<div style="margin-bottom:1.5rem;font-size:.8rem">
+  <div style="display:flex;gap:.5rem;align-items:flex-start;padding:.4rem .6rem;border-left:3px solid var(--accent);background:var(--bg-secondary);margin-bottom:.4rem;border-radius:0 6px 6px 0">
+    <span style="color:var(--accent);font-weight:600;min-width:3.5rem">新建×4</span>
+    <span style="color:var(--text-secondary)"><b>FilterBar</b>（替 38+ 文件手写筛选条 + 死代码 SearchBar）·　<b>DataTable</b>（替 55 文件 100% 重复的 paginationConfig + 序号列 + table-card）·　<b>StatFilterTabs</b>（带计数状态快筛，收编 3 套手写）·　<b>SectionTitle</b>（区块标题）</span>
+  </div>
+  <div style="display:flex;gap:.5rem;align-items:flex-start;padding:.4rem .6rem;border-left:3px solid var(--success);background:var(--bg-secondary);margin-bottom:.4rem;border-radius:0 6px 6px 0">
+    <span style="color:var(--success);font-weight:600;min-width:3.5rem">复活×5</span>
+    <span style="color:var(--text-secondary)"><b>StatusTag</b>（已存在·令牌干净·仅 1 处用 → 收编 17+ 文件分裂的 a-tag 字面色）·　<b>StatCard / BaseCard / EmptyState / PageHeader</b>（已存在，设为默认 / 推广）</span>
+  </div>
+  <div style="display:flex;gap:.5rem;align-items:flex-start;padding:.4rem .6rem;border-left:3px solid var(--error);background:var(--bg-secondary);border-radius:0 6px 6px 0">
+    <span style="color:var(--error);font-weight:600;min-width:3.5rem">删×1</span>
+    <span style="color:var(--text-secondary)"><b>SearchBar</b>（零业务引用的死代码，样式还带裸 hex，留着会成反例）</span>
+  </div>
+  <div style="font-size:.75rem;color:var(--text-tertiary);margin-top:.5rem">配套打底：① 色值收敛（1943 处裸 hex→令牌，按文件违规数出工单）② App.vue 加 <code>component-size='small'</code> 全局密度兜底 ③ PageLayout 基元规范收编 45 处 .page-container 覆写 ④ stylelint 接 husky pre-commit 防回潮（补内联 style 盲区 / ECharts 色板白名单）。<b>新令牌只缺 <code>--avatar-palette-*</code>，其余 -light 令牌已存在。</b></div>
+</div>
+
+<div class="label">③ 阶段2 逐页重做队列（按严重度排序，含你报的 6 个 + 审计揪出的）</div>
+<div style="font-size:.78rem">
+  <div style="display:flex;padding:.3rem .5rem;color:var(--text-tertiary);font-size:.68rem;border-bottom:1px solid var(--border)"><span style="width:1.6rem">#</span><span style="flex:1">页面</span><span style="width:7rem">核心毛病</span><span style="width:2.5rem;text-align:center">改动</span></div>
+
+  <div style="display:flex;align-items:flex-start;padding:.4rem .5rem;border-bottom:1px solid var(--bg-tertiary)"><span style="width:1.6rem;font-weight:600">1</span><span style="flex:1"><b>流程定义编辑</b> <span style="color:var(--warning);font-size:.62rem;border:1px solid var(--warning);border-radius:3px;padding:0 .25rem">审计揪出</span><br><span style="font-size:.66rem;color:var(--text-tertiary)">/cardflow · FlowDefinitionEditPage</span></span><span style="width:7rem;font-size:.66rem;color:var(--text-secondary)">单文件 197 处蓝色调色板，跑偏最严重</span><span style="width:2.5rem;text-align:center;color:var(--error)">L</span></div>
+
+  <div style="display:flex;align-items:flex-start;padding:.4rem .5rem;border-bottom:1px solid var(--bg-tertiary)"><span style="width:1.6rem;font-weight:600">2</span><span style="flex:1"><b>编辑报价</b><br><span style="font-size:.66rem;color:var(--text-tertiary)">/express/quotation/edit</span></span><span style="width:7rem;font-size:.66rem;color:var(--text-secondary)">骨架对，但视觉层全靠子组件各写裸 hex 造卡片</span><span style="width:2.5rem;text-align:center;color:var(--error)">L</span></div>
+
+  <div style="display:flex;align-items:flex-start;padding:.4rem .5rem;border-bottom:1px solid var(--bg-tertiary)"><span style="width:1.6rem;font-weight:600">3</span><span style="flex:1"><b>毛利分析</b><br><span style="font-size:.66rem;color:var(--text-tertiary)">/express/report/profit</span></span><span style="width:7rem;font-size:.66rem;color:var(--text-secondary)">920 行塞 7 视图 6 同构表，密度三套并存</span><span style="width:2.5rem;text-align:center;color:var(--error)">L</span></div>
+
+  <div style="display:flex;align-items:flex-start;padding:.4rem .5rem;border-bottom:1px solid var(--bg-tertiary)"><span style="width:1.6rem;font-weight:600">4</span><span style="flex:1"><b>合同管理</b><br><span style="font-size:.66rem;color:var(--text-tertiary)">/contract/list</span></span><span style="width:7rem;font-size:.66rem;color:var(--text-secondary)">工作台级编辑(20字段+2子表)硬塞进弹窗</span><span style="width:2.5rem;text-align:center;color:var(--error)">L</span></div>
+
+  <div style="display:flex;align-items:flex-start;padding:.4rem .5rem;border-bottom:1px solid var(--bg-tertiary)"><span style="width:1.6rem;font-weight:600">5</span><span style="flex:1"><b>客户详情/编辑</b><br><span style="font-size:.66rem;color:var(--text-tertiary)">/crm/customers/detail</span></span><span style="width:7rem;font-size:.66rem;color:var(--text-secondary)">名为详情实为只读 11 标签堆叠，编辑入口缺失</span><span style="width:2.5rem;text-align:center;color:var(--error)">L</span></div>
+
+  <div style="display:flex;align-items:flex-start;padding:.4rem .5rem;border-bottom:1px solid var(--bg-tertiary)"><span style="width:1.6rem;font-weight:600">6</span><span style="flex:1"><b>用户管理</b><br><span style="font-size:.66rem;color:var(--text-tertiary)">/system/users</span></span><span style="width:7rem;font-size:.66rem;color:var(--text-secondary)">组织任职"先存再编辑"模态套模态 + 裸 hex</span><span style="width:2.5rem;text-align:center;color:var(--warning)">M</span></div>
+
+  <div style="display:flex;align-items:flex-start;padding:.4rem .5rem;border-bottom:1px solid var(--bg-tertiary)"><span style="width:1.6rem;font-weight:600">7</span><span style="flex:1"><b>客户管理</b><br><span style="font-size:.66rem;color:var(--text-tertiary)">/crm/customers</span></span><span style="width:7rem;font-size:.66rem;color:var(--text-secondary)">结构对但几乎每个视觉元素"该复用却手搓"</span><span style="width:2.5rem;text-align:center;color:var(--warning)">M</span></div>
+
+  <div style="display:flex;align-items:flex-start;padding:.4rem .5rem"><span style="width:1.6rem;font-weight:600">8</span><span style="flex:1"><b>车辆台账</b><br><span style="font-size:.66rem;color:var(--text-tertiary)">/vehicle/list</span></span><span style="width:7rem;font-size:.66rem;color:var(--text-secondary)">轻量 CRUD 基本对，筛选条位置/统计卡重叠</span><span style="width:2.5rem;text-align:center;color:var(--success)">S</span></div>
+</div>
+
+<p class="subtitle" style="font-size:.8rem;margin-top:1.25rem">确认这张图后，我就把它（含每页的详细问题清单与重做建议）写成 spec 文档供你过目，再转入实施计划。</p>

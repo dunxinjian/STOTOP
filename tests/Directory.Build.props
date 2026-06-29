@@ -1,0 +1,14 @@
+<Project>
+
+  <ItemGroup>
+    <!-- 漏洞传递依赖提升（NU1903）：与 src/Directory.Build.props 同款。NPOI 2.7.2 传递引入
+         System.Security.Cryptography.Xml 8.0.2，命中两条高危 DoS 公告 GHSA-37gx-xxp4-5rgx
+         (CVE-2026-33116) 与 GHSA-w3x6-4m5h-cxqf (CVE-2026-26171)，10.x 修复版为 10.0.6。
+         该包是框架自带包、会被从 ProjectReference 传递流中剪除，无法靠上游工程钉版传播到测试工程；
+         且测试工程不在 src 树下、拿不到 src/Directory.Build.props，故在此为每个测试工程注入一条
+         直接 PackageReference（nearest-wins 压住 8.0.2）。待 NPOI 升级到依赖 >=10.0.6 的版本后可移除。
+         NoWarn=NU1510：见 src/Directory.Build.props 说明，框架自带包的冗余直接引用提示，刻意保留并抑制。 -->
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.9" NoWarn="NU1510" />
+  </ItemGroup>
+
+</Project>

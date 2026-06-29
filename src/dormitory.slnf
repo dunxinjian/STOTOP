@@ -1,0 +1,13 @@
+{
+  "solution": {
+    "path": "STOTOP.sln",
+    "projects": [
+      "STOTOP.Core\\STOTOP.Core.csproj",
+      "STOTOP.Infrastructure\\STOTOP.Infrastructure.csproj",
+      "STOTOP.Module.System\\STOTOP.Module.System.csproj",
+      "STOTOP.Module.HR\\STOTOP.Module.HR.csproj",
+      "STOTOP.Module.Dormitory\\STOTOP.Module.Dormitory.csproj",
+      "..\\tests\\STOTOP.Module.Dormitory.Tests\\STOTOP.Module.Dormitory.Tests.csproj"
+    ]
+  }
+}

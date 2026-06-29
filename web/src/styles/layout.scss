@@ -1,0 +1,319 @@
+@use './variables' as *;
+
+// ========== 全局布局变量 ==========
+:root {
+  --rail-width: 46px;
+}
+
+// ========== 整体布局（行：侧栏 | 内容区） ==========
+.app-layout {
+  display: flex;
+  flex-direction: row;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+// ========== 顶栏（三分组布局：context | info | personal） ==========
+.topbar {
+  display: flex;
+  align-items: stretch;
+  height: $topbar-height;
+  padding: 0 12px;
+  background: var(--topbar-ink);
+  border-bottom: 1px solid var(--topbar-border);
+  flex-shrink: 0;
+  z-index: 100;
+  position: relative;
+}
+
+.topbar-context {
+  display: flex;
+  gap: 0;
+  align-items: center;
+  flex-shrink: 0;
+  // 宽度与「模块轨 + 侧栏」右对齐
+  width: calc(var(--rail-width, 46px) + var(--sidebar-width, 168px) - 29px);
+  min-width: 148px;
+}
+
+.topbar-info {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+}
+
+.topbar-personal {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.topbar-divider {
+  display: block;
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0 8px;
+  align-self: center;
+  flex-shrink: 0;
+}
+
+// 顶栏图标按钮（32px 最小点击区）
+.topbar-icon-btn {
+  position: relative;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.95);
+  }
+
+  &:focus-visible {
+    outline: 2px solid $color-primary;
+    outline-offset: -2px;
+  }
+}
+
+// 角标徽章（小红点样式）
+.badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-danger);
+  border: 1.5px solid #1E1F26; // 与顶栏背景色匹配的描边，确保可见
+  box-sizing: border-box;
+}
+
+// 顶栏搜索框（fake input 外观，深色适配）
+.topbar-search {
+  width: 150px;
+  flex-shrink: 0;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.7);
+  }
+}
+
+// 顶栏工作台按钮（图标+文字组合，纯导航入口，hover 变亮）
+// 注：详细样式在 TopBar.vue 中覆盖，此处保留基础变量兼容性
+.topbar-workhub-btn {
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid $color-primary;
+    outline-offset: -2px;
+  }
+}
+
+// 顶栏回退按钮（与工作台按钮风格一致）
+.topbar-back-btn {
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid $color-primary;
+    outline-offset: -2px;
+  }
+}
+
+// 顶栏系统公告（深色背景下保证主文字可读对比度）
+.topbar-announcement {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.98);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+// 顶栏 kbd 多主题样式（深色背景）
+.topbar kbd {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.6);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+// ========== 左栏（SmartSidebar 容器，紧凑 flex 布局） ==========
+.smart-sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: var(--sidebar-width, #{$sidebar-width});
+  height: 100%;
+  background: var(--sidebar-bg);
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+  box-sizing: border-box;
+  position: relative;
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &.is-collapsed {
+    width: 0 !important;
+    overflow: hidden;
+  }
+}
+
+// 侧栏右边缘拖拽手柄
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
+  transition: background 0.15s ease;
+
+  // hover 时显示一条 1px 竖线
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 1px;
+    height: 100%;
+    background: transparent;
+    transition: background 0.15s ease;
+  }
+
+  &:hover::after,
+  &.dragging::after {
+    background: rgba(0, 0, 0, 0.1);
+  }
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+// 分区分隔线（替代文字标题）
+.section-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 12px;
+}
+
+// section-title 保留（防止未移除引用导致样式丢失）
+.section-title {
+  display: none;
+}
+
+.nav-item {
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-sm2);
+  color: var(--text-2);
+  transition: background 0.15s ease, color 0.15s ease;
+
+  &:hover:not(.active) {
+    background: var(--sidebar-item-hover);
+    color: var(--text-1);
+  }
+
+  &.active {
+    background: var(--sidebar-item-active-bg);
+    color: var(--sidebar-item-active-text);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+
+  .star-icon {
+    opacity: 0;
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    color: #999;
+    transition: opacity 0.15s ease, color 0.15s ease;
+  }
+
+  &:hover .star-icon {
+    opacity: 1;
+  }
+
+  &.starred .star-icon {
+    opacity: 1;
+    color: $color-primary;
+  }
+}
+
+// ========== 内容区（灰底，与白色多页签顶栏区分） ==========
+.content-area {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-muted);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.content-scroll {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-height: 0;
+  position: relative;
+}
+
+// ========== 响应式 ==========
+@media (max-width: 1400px) {
+  .topbar-announcement {
+    display: none;
+  }
+}

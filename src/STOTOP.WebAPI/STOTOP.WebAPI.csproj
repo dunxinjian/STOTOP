@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- 保留自定义 web.config，防止 dotnet publish 覆盖 -->
+    <IsTransformWebConfigDisabled>true</IsTransformWebConfigDisabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="STOTOP.WebAPI.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Playwright" Version="1.49.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+    <PackageReference Include="Hangfire.Core" Version="1.8.17" />
+    <PackageReference Include="Hangfire.SqlServer" Version="1.8.17" />
+    <PackageReference Include="Hangfire.AspNetCore" Version="1.8.17" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="Asp.Versioning.Mvc" Version="8.1.0" />
+    <PackageReference Include="Asp.Versioning.Mvc.ApiExplorer" Version="8.1.0" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\STOTOP.Core\STOTOP.Core.csproj" />
+    <ProjectReference Include="..\STOTOP.Infrastructure\STOTOP.Infrastructure.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.System\STOTOP.Module.System.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Finance\STOTOP.Module.Finance.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.OA\STOTOP.Module.OA.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Task\STOTOP.Module.Task.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Supplier\STOTOP.Module.Supplier.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.HR\STOTOP.Module.HR.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Dormitory\STOTOP.Module.Dormitory.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Vehicle\STOTOP.Module.Vehicle.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Insurance\STOTOP.Module.Insurance.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Express\STOTOP.Module.Express.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Points\STOTOP.Module.Points.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.KSF\STOTOP.Module.KSF.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.PPV\STOTOP.Module.PPV.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.CRM\STOTOP.Module.CRM.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Contract\STOTOP.Module.Contract.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Quality\STOTOP.Module.Quality.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Conference\STOTOP.Module.Conference.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Workflow\STOTOP.Module.Workflow.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.CardFlow\STOTOP.Module.CardFlow.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Salary\STOTOP.Module.Salary.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="Data/Seeders/Baseline/**/*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

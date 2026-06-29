@@ -1,0 +1,138 @@
+# ========== .NET ==========
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+*.cache
+*.nupkg
+project.lock.json
+
+# .NET publish output
+.publish/
+
+# App_Data（锁文件等运行时数据）
+App_Data/
+
+# ========== Node.js / Frontend ==========
+node_modules/
+dist/
+.vite/
+.env.local
+.env.*.local
+web/.vite/
+
+# ========== IDE ==========
+.idea/
+*.swp
+*.swo
+*~
+
+# ========== OS ==========
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# ========== 运行时数据 ==========
+uploads/
+logs/
+.venv/
+__pycache__/
+*.py[cod]
+
+# ========== 敏感配置 ==========
+# 生产环境配置（含服务器 IP、密码等）
+src/STOTOP.WebAPI/appsettings.Production.json
+# 数据库连接配置
+src/STOTOP.WebAPI/db-connections.json
+src/STOTOP.WebAPI/db-connections.json.new
+src/STOTOP.WebAPI/backup-config.json
+# 钉钉配置（含各组织 AppKey/AppSecret/CorpId）
+src/STOTOP.WebAPI/dingtalk-config.json
+src/STOTOP.WebAPI/dingtalk-config.json.new
+dingtalk-config.json
+
+# ========== Qoder IDE ==========
+.qoder/
+
+# ========== Excel 数据文件 ==========
+Excel/
+
+# ========== 本地数据/备份文件夹 ==========
+Backup/
+Taicang/
+Temp/
+/Report/
+SJZSTO/
+BizObjTransform/
+
+# 任何位置的业务数据文件（如需提交脱敏样例，用 git add -f）
+*.xlsx
+*.xls
+*.docx
+
+# ========== 临时文件 ==========
+*.tmp
+*.bak
+*.log
+TEST_REPORT_*.txt
+
+# ========== 根目录调试/临时文件 ==========
+# 调试用 SQL 脚本
+alter_*.sql
+check_*.sql
+clear_*.sql
+diagnose_*.sql
+query_*.sql
+update_*.sql
+vehicle_*.sql
+verify_*.sql
+
+# 调试用脚本
+check_encoding.ps1
+decrypt_pwd.ps1
+fix_encoding*.ps1
+fix_encoding.py
+run_vehicle_update*.ps1
+write_*.ps1
+
+# 截图和日志
+*.png
+backend_stdout.txt
+backend_stderr.txt
+swagger_page_state.png
+full_init_error.txt
+stg_jt_result.txt
+tsc_errors*.txt
+tsc_output.txt
+payload.json
+
+# 临时构建输出
+_tmpbuild/
+_buildcheck/
+_analyze_xlsx.py
+_check_batch61.ps1
+_check_batch61.py
+_check_menu_data.py
+_diag_menu.py
+_diag_menu2.py
+_tmp_diff.txt
+_tmp_prev.txt
+check_merged_cells.py
+check_row2.py
+compare_excel_config.py
+query_aux.py
+
+# Windows reserved device names
+NUL
+
+# Local isolated worktrees
+.worktrees/
+.claude/worktrees/
+
+# ========== Claude Code 本地配置（含本地权限，勿提交）==========
+.claude/settings.local.json
+.claude/launch.json

@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.8" />
+    <!-- 提升传递的 SQLite 原生库以消除 CVE-2025-6965 / GHSA-2m69-gcr7-jv3q（lib.e_sqlite3 <=2.1.11 高危）。
+         仅抬原生二进制至 SQLite 3.50.3（>=3.50.2 已修复）；托管层 SQLitePCLRaw.core/provider/bundle 仍随
+         Microsoft.Data.Sqlite 10.0.8 保持 2.1.11。EF/Data.Sqlite 官方把 SQLitePCLRaw 抬过 2.1.11 后可移除。 -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <!-- SQL Server 冒烟测试：默认 Skip，需 STOTOP_TEST_CONNECTION 才实际执行 -->
+    <PackageReference Include="Xunit.SkippableFact" Version="1.4.13" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/STOTOP.Module.Finance/STOTOP.Module.Finance.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Infrastructure/STOTOP.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>

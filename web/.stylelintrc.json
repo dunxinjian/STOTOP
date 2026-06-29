@@ -1,0 +1,24 @@
+{
+  "rules": {
+    "color-no-hex": true
+  },
+  "overrides": [
+    {
+      "files": ["**/*.scss"],
+      "customSyntax": "postcss-scss"
+    },
+    {
+      "files": ["**/*.vue"],
+      "customSyntax": "postcss-html"
+    },
+    {
+      "files": [
+        "src/styles/variables.scss",
+        "src/styles/ant-override.scss",
+        "src/styles/layout.scss",
+        "src/styles/button-styles.scss"
+      ],
+      "rules": { "color-no-hex": null }
+    }
+  ]
+}

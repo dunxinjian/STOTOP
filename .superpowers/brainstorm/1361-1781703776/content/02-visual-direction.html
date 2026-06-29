@@ -1,0 +1,89 @@
+<h2>目标观感：统一成哪种风格？</h2>
+<p class="subtitle">同一个「业务小组管理」列表页，三种统一方向。重点看<b>密度、留白、表格样式、筛选区</b>给你的感觉。点选你最想要的（也可在终端说"偏 B 但要更紧凑"这类微调）。</p>
+
+<div class="cards">
+
+  <!-- A: 克制收敛 -->
+  <div class="card" data-choice="tidy" onclick="toggleSelect(this)">
+    <div class="card-image" style="aspect-ratio:auto;align-items:stretch;padding:0;background:var(--bg-secondary)">
+      <div style="padding:.7rem .8rem;font-size:.72rem;width:100%">
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);padding-bottom:.45rem;margin-bottom:.55rem">
+          <b style="font-size:.82rem">业务小组管理</b>
+          <div style="display:flex;gap:.3rem;align-items:center">
+            <span style="border:1px solid var(--border);border-radius:4px;padding:.12rem .4rem;font-size:.64rem;color:var(--text-tertiary)">关键词…</span>
+            <span style="background:#fa8c16;color:#fff;border-radius:4px;padding:.12rem .45rem;font-size:.64rem">查询</span>
+            <span style="border:1px solid var(--border);border-radius:4px;padding:.12rem .45rem;font-size:.64rem">重置</span>
+          </div>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:4px;overflow:hidden;font-size:.66rem">
+          <div style="display:flex;background:var(--bg-tertiary);padding:.28rem .45rem;color:var(--text-secondary);font-weight:600"><span style="flex:1">组织名称</span><span style="width:42px;text-align:center">数量</span><span style="width:42px;text-align:center">操作</span></div>
+          <div style="display:flex;padding:.28rem .45rem;border-top:1px solid var(--border)"><span style="flex:1">华东一组</span><span style="width:42px;text-align:center">12</span><span style="width:42px;text-align:center;color:#fa8c16">管理</span></div>
+          <div style="display:flex;padding:.28rem .45rem;border-top:1px solid var(--border)"><span style="flex:1">华南二组</span><span style="width:42px;text-align:center">8</span><span style="width:42px;text-align:center;color:#fa8c16">管理</span></div>
+          <div style="display:flex;padding:.28rem .45rem;border-top:1px solid var(--border)"><span style="flex:1">华北三组</span><span style="width:42px;text-align:center">15</span><span style="width:42px;text-align:center;color:#fa8c16">管理</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>① 克制收敛（最稳）</h3>
+      <p>保留现有 Ant Design 观感，只把间距/密度/配色/组件收敛统一。<b>风险最低、改动最轻</b>，效果是"还是这套系统，但整齐了"。</p>
+    </div>
+  </div>
+
+  <!-- B: 现代精炼 -->
+  <div class="card" data-choice="refined" onclick="toggleSelect(this)">
+    <div class="card-image" style="aspect-ratio:auto;align-items:stretch;padding:0;background:var(--bg-secondary)">
+      <div style="padding:.7rem .85rem;font-size:.72rem;width:100%">
+        <div style="margin-bottom:.55rem">
+          <b style="font-size:.86rem">业务小组管理</b>
+          <div style="font-size:.6rem;color:var(--text-tertiary)">共 24 个小组 · 含 BD / 运维角色映射</div>
+        </div>
+        <div style="display:flex;gap:.3rem;align-items:center;margin-bottom:.55rem">
+          <span style="border:1px solid var(--border);border-radius:999px;padding:.14rem .5rem;font-size:.62rem;color:var(--text-secondary);background:var(--bg-primary)">🔍 关键词</span>
+          <span style="border:1px solid var(--border);border-radius:999px;padding:.14rem .5rem;font-size:.62rem;color:var(--text-secondary);background:var(--bg-primary)">角色 ▾</span>
+          <span style="flex:1"></span>
+          <span style="background:#fa8c16;color:#fff;border-radius:6px;padding:.16rem .55rem;font-size:.64rem">查询</span>
+        </div>
+        <div style="font-size:.66rem">
+          <div style="display:flex;padding:.3rem .15rem;color:var(--text-tertiary);font-size:.6rem;border-bottom:1px solid var(--border)"><span style="flex:1">组织名称</span><span style="width:48px;text-align:center">映射</span><span style="width:42px;text-align:right">操作</span></div>
+          <div style="display:flex;align-items:center;padding:.34rem .15rem;border-bottom:1px solid var(--bg-tertiary)"><span style="flex:1">华东一组</span><span style="width:48px;text-align:center"><span style="background:var(--bg-tertiary);border-radius:999px;padding:.05rem .3rem">12</span></span><span style="width:42px;text-align:right;color:#fa8c16">管理</span></div>
+          <div style="display:flex;align-items:center;padding:.34rem .15rem;border-bottom:1px solid var(--bg-tertiary)"><span style="flex:1">华南二组</span><span style="width:48px;text-align:center"><span style="background:var(--bg-tertiary);border-radius:999px;padding:.05rem .3rem">8</span></span><span style="width:42px;text-align:right;color:#fa8c16">管理</span></div>
+          <div style="display:flex;align-items:center;padding:.34rem .15rem"><span style="flex:1">华北三组</span><span style="width:48px;text-align:center"><span style="background:var(--bg-tertiary);border-radius:999px;padding:.05rem .3rem">15</span></span><span style="width:42px;text-align:right;color:#fa8c16">管理</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>② 现代精炼（推荐）</h3>
+      <p>仍基于 Ant，但更舒展：标题带统计副行、筛选做成胶囊条、表格去重边框只留行分隔、状态用 pill。明显"更精致显贵"，改动中等。</p>
+    </div>
+  </div>
+
+  <!-- C: 高密度专业 -->
+  <div class="card" data-choice="dense" onclick="toggleSelect(this)">
+    <div class="card-image" style="aspect-ratio:auto;align-items:stretch;padding:0;background:var(--bg-secondary)">
+      <div style="padding:.55rem .7rem;font-size:.68rem;width:100%">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem">
+          <b style="font-size:.78rem">业务小组管理</b>
+          <div style="display:flex;gap:.25rem;align-items:center">
+            <span style="border:1px solid var(--border);border-radius:3px;padding:.08rem .3rem;font-size:.58rem;color:var(--text-tertiary)">关键词</span>
+            <span style="background:#fa8c16;color:#fff;border-radius:3px;padding:.08rem .35rem;font-size:.58rem">查</span>
+            <span style="border:1px solid var(--border);border-radius:3px;padding:.08rem .35rem;font-size:.58rem">+新增</span>
+          </div>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:3px;overflow:hidden;font-size:.6rem">
+          <div style="display:flex;background:var(--bg-tertiary);padding:.18rem .35rem;color:var(--text-secondary);font-weight:600"><span style="flex:1">组织名称</span><span style="width:34px;text-align:right">映射</span><span style="width:30px;text-align:right">BD</span><span style="width:34px;text-align:right">运维</span><span style="width:34px;text-align:center">操作</span></div>
+          <div style="display:flex;padding:.18rem .35rem;border-top:1px solid var(--border)"><span style="flex:1">华东一组</span><span style="width:34px;text-align:right">12</span><span style="width:30px;text-align:right">7</span><span style="width:34px;text-align:right">5</span><span style="width:34px;text-align:center;color:#fa8c16">管理</span></div>
+          <div style="display:flex;padding:.18rem .35rem;border-top:1px solid var(--border)"><span style="flex:1">华南二组</span><span style="width:34px;text-align:right">8</span><span style="width:30px;text-align:right">5</span><span style="width:34px;text-align:right">3</span><span style="width:34px;text-align:center;color:#fa8c16">管理</span></div>
+          <div style="display:flex;padding:.18rem .35rem;border-top:1px solid var(--border)"><span style="flex:1">华北三组</span><span style="width:34px;text-align:right">15</span><span style="width:30px;text-align:right">9</span><span style="width:34px;text-align:right">6</span><span style="width:34px;text-align:center;color:#fa8c16">管理</span></div>
+          <div style="display:flex;padding:.18rem .35rem;border-top:1px solid var(--border)"><span style="flex:1">西南四组</span><span style="width:34px;text-align:right">6</span><span style="width:30px;text-align:right">4</span><span style="width:34px;text-align:right">2</span><span style="width:34px;text-align:center;color:#fa8c16">管理</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>③ 高密度专业</h3>
+      <p>面向天天盯数据的人：更紧凑、一屏看更多列与行、数字右对齐、工具条吸顶。适合 express/finance 这类重数据模块，但整体观感偏"工具"而非"精致"。</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem;font-size:.82rem">注：这三者不是非此即彼——常见做法是<b>以②为基调，重数据模块局部用③的密度</b>。你也可以这么选。</p>

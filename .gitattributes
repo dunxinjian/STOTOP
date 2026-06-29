@@ -1,0 +1,40 @@
+* text=auto
+
+# Source code and scripts
+*.cs text eol=lf
+*.csproj text eol=lf
+*.sln text eol=crlf
+*.props text eol=lf
+*.targets text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.vue text eol=lf
+*.scss text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=crlf
+*.sql text eol=lf
+
+# Configuration and documentation
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.xml text eol=lf
+
+# Binary and data files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.xls binary
+*.zip binary
+*.dll binary
+*.pdb binary

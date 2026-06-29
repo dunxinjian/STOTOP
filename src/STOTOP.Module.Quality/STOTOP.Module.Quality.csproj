@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\STOTOP.Core\STOTOP.Core.csproj" />
+    <ProjectReference Include="..\STOTOP.Infrastructure\STOTOP.Infrastructure.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.System\STOTOP.Module.System.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Finance\STOTOP.Module.Finance.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.Express\STOTOP.Module.Express.csproj" />
+    <ProjectReference Include="..\STOTOP.Module.CardFlow\STOTOP.Module.CardFlow.csproj" />
+  </ItemGroup>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>

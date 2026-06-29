@@ -1,0 +1,31 @@
+<h2>对账：这件事昨天已经做了一半</h2>
+<p class="subtitle">我差点写一份重复的 spec。实际上 2026-06-16 那份「系统 UX/UI 统一重设计」已落地（阶段0-9 已合并），并<b>明确把"逐模块巡检"推迟了</b>——那正是你说的"功能页还烂"的部分，也正是我审计覆盖的部分。</p>
+
+<div style="border:1px solid var(--success);border-radius:8px;padding:.85rem 1rem;margin-bottom:.8rem;background:var(--bg-secondary)">
+  <div style="color:var(--success);font-weight:600;font-size:.92rem;margin-bottom:.45rem">✓ 昨天已完成（地基 + 外壳，已合并 + 持续精修）</div>
+  <div style="font-size:.8rem;color:var(--text-secondary);line-height:1.7">
+    令牌单一真源（TOKENS.md）· 去蓝221处 + 拆后台紫 · 登录/工作台/全局搜索/顶栏侧栏重做 · 后端默认色改 #E85E00 · <b>橙→中性墨精修</b>（状态色降饱和、info 墨蓝灰、橙只在交互点缀）·
+    <b>PATTERNS.md 已定义四类页面骨架</b>（列表/详情/表单/仪表盘）· <b>共享组件已建好：PageHeader（#toolbar 放筛选 / #actions 放主操作）、EmptyState、BaseCard、StatusTag（type/biz/dot）</b> · 全局类 .page-container/.page-card/.page-toolbar
+  </div>
+</div>
+
+<div style="border:1px solid var(--error);border-radius:8px;padding:.85rem 1rem;margin-bottom:.8rem;background:var(--bg-secondary)">
+  <div style="color:var(--error);font-weight:600;font-size:.92rem;margin-bottom:.45rem">✕ 仍是缺口（今天审计，跑在上述提交之后）</div>
+  <div style="font-size:.8rem;color:var(--text-secondary);line-height:1.7">
+    PATTERNS.md 自己写明「<b>其余进逐模块巡检阶段</b>」——这步基本没做：<br>
+    · 规范建好了但<b>没人用</b>：StatusTag 全站仅 1 处引用、38 页仍手写筛选条没迁到 #toolbar 标准、自造空态还剩 91 文件<br>
+    · <b>裸 hex 残留 1943 处/242 文件</b>（昨天只清了蓝 #1677ff，灰/自造卡片色没动）<br>
+    · 55 页 paginationConfig 100% 重复、痛点页（报价/毛利/合同…）未动<br>
+    · 密度无全局兜底（1571 处 size=small 手写、ConfigProvider 没配 component-size）<br>
+    · .page-container 45 处覆写打架 · stylelint 规则有但<b>无 husky/CI 门禁</b>（清完即回潮）
+  </div>
+</div>
+
+<div style="border:1px solid var(--accent);border-left:4px solid var(--accent);border-radius:8px;padding:.85rem 1rem;background:var(--bg-secondary)">
+  <div style="color:var(--accent);font-weight:600;font-size:.92rem;margin-bottom:.45rem">→ 我的审计 = §5.7「逐模块巡检」的具体续作（不重做地基）</div>
+  <div style="font-size:.8rem;color:var(--text-secondary);line-height:1.7">
+    所以写的不是新 spec，而是<b>续作 spec</b>：明确「站在 PATTERNS.md 既有契约上」，<b>复用</b>已建的 PageHeader/StatusTag/BaseCard/EmptyState 和 #toolbar 约定（不重造），只补：<br>
+    ① 真实残留裸 hex 收敛（1943，按文件排工单）　② 排序好的痛点页重做队列　③ 强制采用既有规范（StatusTag/#toolbar 迁移）　④ stylelint 接门禁防回潮<br>
+    <b>少数"PATTERNS 里还没有"的新基建</b>需要你拍板是否加：DataTable（消 55 页重复）/ StatFilterTabs（状态快筛）/ 密度全局兜底 / PageLayout variant（收编 45 处覆写）。
+  </div>
+</div>
