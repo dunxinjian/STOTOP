@@ -38,6 +38,8 @@ public class VoucherServiceTransactionTests
     private sealed class SqliteOrgAccessor(long orgId) : IOrgContextAccessor
     {
         public long? CurrentOrgId { get; set; } = orgId;
+        public long? CurrentTenantId { get; set; } = TestDbContextFactory.DefaultTenantId;  // v2 多租户：给测试上下文一个租户，否则 fail-closed 读空
+        public bool IsPlatformScope { get; set; }
     }
 
     private static STOTOPDbContext CreateSqliteDb(SqliteConnection conn)

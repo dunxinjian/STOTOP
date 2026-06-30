@@ -13,6 +13,7 @@ public class FinOperationLogConfiguration : IEntityTypeConfiguration<FinOperatio
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FAccountSetId).HasColumnName("F账套ID").HasDefaultValue(0L);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID").HasDefaultValue(0L);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FModule).HasColumnName("F模块").HasMaxLength(50);
         builder.Property(e => e.FOperationType).HasColumnName("F操作类型").HasMaxLength(50);
         builder.Property(e => e.FDescription).HasColumnName("F操作描述").HasMaxLength(500);
@@ -29,5 +30,6 @@ public class FinOperationLogConfiguration : IEntityTypeConfiguration<FinOperatio
         builder.HasIndex(e => e.FAccountSetId).HasDatabaseName("IX_FIN操作日志_账套ID");
         builder.HasIndex(e => e.FOperationTime).HasDatabaseName("IX_FIN操作日志_操作时间");
         builder.HasIndex(e => new { e.FAccountSetId, e.FModule, e.FOperationType }).HasDatabaseName("IX_FIN操作日志_账套模块类型");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN操作日志_租户ID");
     }
 }

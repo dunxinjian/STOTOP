@@ -14,6 +14,7 @@ public class FinBudgetLineConfiguration : IEntityTypeConfiguration<FinBudgetLine
         builder.Property(e => e.FBudgetVersionId).HasColumnName("F预算版本ID");
         builder.Property(e => e.FPeriod).HasColumnName("F期间").HasMaxLength(20).IsRequired();
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FAmoebaUnitId).HasColumnName("F阿米巴单元ID");
         builder.Property(e => e.FAccountId).HasColumnName("F科目ID");
         builder.Property(e => e.FAccountCode).HasColumnName("F科目编码").HasMaxLength(50);
@@ -30,5 +31,6 @@ public class FinBudgetLineConfiguration : IEntityTypeConfiguration<FinBudgetLine
             .HasDatabaseName("IX_FIN预算明细_版本期间组织损益项");
         builder.HasIndex(e => new { e.FBudgetVersionId, e.FPeriod, e.FOrgId, e.FAccountCode })
             .HasDatabaseName("IX_FIN预算明细_版本期间组织科目");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN预算明细_租户ID");
     }
 }

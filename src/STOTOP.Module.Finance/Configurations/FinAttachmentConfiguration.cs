@@ -13,6 +13,7 @@ public class FinAttachmentConfiguration : IEntityTypeConfiguration<FinAttachment
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FAccountSetId).HasColumnName("F账套ID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID").HasDefaultValue(0L);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FBusinessType).HasColumnName("F业务类型").HasMaxLength(50);
         builder.Property(e => e.FBusinessId).HasColumnName("F业务ID");
         builder.Property(e => e.FFileName).HasColumnName("F文件名").HasMaxLength(200);
@@ -29,5 +30,7 @@ public class FinAttachmentConfiguration : IEntityTypeConfiguration<FinAttachment
 
         builder.HasIndex(e => e.FAccountSetId)
             .HasDatabaseName("IX_FIN附件_账套ID");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN附件_租户ID");
     }
 }

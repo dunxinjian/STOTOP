@@ -19,6 +19,7 @@ public class FinAuxiliaryItemConfiguration : IEntityTypeConfiguration<FinAuxilia
         // 扩展字段：账套维度辅助核算
         builder.Property(e => e.FAccountSetId).HasColumnName("F账套ID").HasDefaultValue(0L);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID").HasDefaultValue(0L);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FAuxType).HasColumnName("F辅助类型").HasMaxLength(50);
         builder.Property(e => e.FShortName).HasColumnName("F简称").HasMaxLength(100);
         builder.Property(e => e.FContact).HasColumnName("F联系人").HasMaxLength(100);
@@ -33,5 +34,6 @@ public class FinAuxiliaryItemConfiguration : IEntityTypeConfiguration<FinAuxilia
             
         builder.HasIndex(e => e.FCode).HasDatabaseName("IX_FIN辅助核算项目_编码");
         builder.HasIndex(new[] { "FAccountSetId", "FAuxType" }).HasDatabaseName("IX_FIN辅助核算项目_账套类型");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN辅助核算项目_租户ID");
     }
 }

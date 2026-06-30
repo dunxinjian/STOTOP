@@ -2,7 +2,7 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Finance.Entities;
 
-public class FinAuxiliaryItem : BaseEntity, IOrgScoped
+public class FinAuxiliaryItem : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FCode { get; set; } = string.Empty;
     public string FName { get; set; } = string.Empty;
@@ -12,6 +12,7 @@ public class FinAuxiliaryItem : BaseEntity, IOrgScoped
     // 扩展字段：账套维度辅助核算
     public long FAccountSetId { get; set; }
     public long FOrgId { get; set; }  // 组织ID
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string? FAuxType { get; set; }  // customer/supplier/department/project/employee
     
     public string? FShortName { get; set; }

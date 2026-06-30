@@ -21,8 +21,10 @@ public class FinAmoebaMappingRuleConfiguration : IEntityTypeConfiguration<FinAmo
         builder.Property(e => e.FPriority).HasColumnName("F优先级").HasDefaultValue(0);
         builder.Property(e => e.FRemark).HasColumnName("F备注").HasMaxLength(500);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID").HasDefaultValue(192L);
-        
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+
         builder.HasIndex(e => e.FUnitId).HasDatabaseName("IX_FIN阿米巴映射规则_经营单元");
         builder.HasIndex(e => e.FDataSourceType).HasDatabaseName("IX_FIN阿米巴映射规则_数据源");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN阿米巴映射规则_租户ID");
     }
 }

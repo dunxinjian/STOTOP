@@ -2,7 +2,7 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Finance.Entities;
 
-public class FinAmoebaMappingRule : BaseEntity, IOrgScoped
+public class FinAmoebaMappingRule : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FUnitId { get; set; }           // F经营单元ID
     public int FDataSourceType { get; set; }    // F数据源类型: 1=计费结果 2=凭证分录 3=资产卡片
@@ -14,4 +14,5 @@ public class FinAmoebaMappingRule : BaseEntity, IOrgScoped
     public int FPriority { get; set; }          // F优先级
     public string? FRemark { get; set; }        // F备注
     public long FOrgId { get; set; }            // F组织ID
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
 }

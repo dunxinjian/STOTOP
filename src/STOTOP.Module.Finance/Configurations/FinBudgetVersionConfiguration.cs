@@ -19,6 +19,7 @@ public class FinBudgetVersionConfiguration : IEntityTypeConfiguration<FinBudgetV
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasMaxLength(30).HasDefaultValue("draft");
         builder.Property(e => e.FOwnerOrgId).HasColumnName("F归属组织ID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FCreatedBy).HasColumnName("F创建人").HasMaxLength(50);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FApprovedBy).HasColumnName("F审批人").HasMaxLength(50);
@@ -27,5 +28,6 @@ public class FinBudgetVersionConfiguration : IEntityTypeConfiguration<FinBudgetV
 
         builder.HasIndex(e => new { e.FAccountSetId, e.FYear, e.FScenarioType, e.FStatus })
             .HasDatabaseName("IX_FIN预算版本_账套年度场景状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN预算版本_租户ID");
     }
 }

@@ -24,12 +24,14 @@ public class FinVoucherEntryConfiguration : IEntityTypeConfiguration<FinVoucherE
         builder.Property(e => e.FExchangeRate).HasColumnName("F汇率").HasColumnType("DECIMAL(18,6)");
         builder.Property(e => e.FOriginalAmount).HasColumnName("F原币金额").HasColumnType("DECIMAL(18,2)");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID").HasDefaultValue(0L);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FDataScopeId).HasColumnName("F数据作用域ID").HasMaxLength(500);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
         
         builder.HasIndex(e => e.FVoucherId).HasDatabaseName("IX_FIN凭证分录_凭证ID");
         builder.HasIndex(e => e.FAccountId).HasDatabaseName("IX_FIN凭证分录_科目ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN凭证分录_租户ID");
         
         builder.HasOne<FinAccount>()
             .WithMany()

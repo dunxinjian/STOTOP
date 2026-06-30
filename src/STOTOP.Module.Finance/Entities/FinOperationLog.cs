@@ -4,12 +4,13 @@ using global::System.ComponentModel.DataAnnotations.Schema;
 namespace STOTOP.Module.Finance.Entities;
 
 [Table("FinOperationLog")]
-public class FinOperationLog : BaseEntity, IOrgScoped
+public class FinOperationLog : BaseEntity, IOrgScoped, ITenantScoped
 {
     [Column("FAccountSetId")]
     public long FAccountSetId { get; set; }
 
     public long FOrgId { get; set; }  // 组织ID
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
 
     [Column("FModule")]
     public string FModule { get; set; } = string.Empty;  // 模块：凭证/结账/日记账

@@ -2,7 +2,7 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Finance.Entities;
 
-public class FinVoucher : BaseEntity, IOrgScoped
+public class FinVoucher : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FVoucherWord { get; set; } = string.Empty;
     public int FVoucherNo { get; set; }
@@ -17,6 +17,7 @@ public class FinVoucher : BaseEntity, IOrgScoped
     public string? FRemark { get; set; }
     public long FAccountSetId { get; set; }
     public long FOrgId { get; set; }  // 组织ID
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string? FDataScopeId { get; set; }   // 数据血缘标记（批次ID等）
     public bool FIsRevoked { get; set; }           // 是否已被撤销/红冲
     public DateTime FCreatedTime { get; set; }

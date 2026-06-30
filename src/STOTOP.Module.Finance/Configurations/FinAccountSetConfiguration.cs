@@ -21,10 +21,12 @@ public class FinAccountSetConfiguration : IEntityTypeConfiguration<FinAccountSet
         builder.Property(e => e.FStartYear).HasColumnName("F起始年份").HasDefaultValue(0);
         builder.Property(e => e.FStartMonth).HasColumnName("F起始月份").HasDefaultValue(0);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID").HasDefaultValue(0L);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
         
         builder.HasIndex(e => e.FCode).IsUnique().HasDatabaseName("IX_FIN账套_编码");
         builder.HasIndex(e => e.FIsDefault).HasDatabaseName("IX_FIN账套_是否默认");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN账套_租户ID");
     }
 }

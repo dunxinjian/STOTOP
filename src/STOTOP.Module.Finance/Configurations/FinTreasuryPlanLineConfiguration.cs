@@ -13,6 +13,7 @@ public class FinTreasuryPlanLineConfiguration : IEntityTypeConfiguration<FinTrea
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FAccountSetId).HasColumnName("F账套ID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FPlanDate).HasColumnName("F计划日期");
         builder.Property(e => e.FWeekStartDate).HasColumnName("F周开始日期");
         builder.Property(e => e.FDirection).HasColumnName("F方向").HasMaxLength(20).IsRequired();
@@ -30,5 +31,6 @@ public class FinTreasuryPlanLineConfiguration : IEntityTypeConfiguration<FinTrea
             .HasDatabaseName("IX_FIN资金计划明细_账套周方向分类");
         builder.HasIndex(e => new { e.FSourceType, e.FSourceId, e.FCashCategory })
             .HasDatabaseName("IX_FIN资金计划明细_来源分类");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN资金计划明细_租户ID");
     }
 }

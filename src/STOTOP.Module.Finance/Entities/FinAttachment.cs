@@ -4,12 +4,13 @@ using STOTOP.Core.Models;
 namespace STOTOP.Module.Finance.Entities;
 
 [Table("FinAttachment")]
-public class FinAttachment : BaseEntity, IOrgScoped
+public class FinAttachment : BaseEntity, IOrgScoped, ITenantScoped
 {
     [Column("FAccountSetId")]
     public long FAccountSetId { get; set; }
 
     public long FOrgId { get; set; }  // 组织ID
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
 
     /// <summary>业务类型：voucher / journal</summary>
     [Column("FBusinessType")]

@@ -24,6 +24,7 @@ public class FinVoucherConfiguration : IEntityTypeConfiguration<FinVoucher>
         builder.Property(e => e.FRemark).HasColumnName("F备注").HasMaxLength(500);
         builder.Property(e => e.FAccountSetId).HasColumnName("F账套ID").HasDefaultValue(0L);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID").HasDefaultValue(0L);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FDataScopeId).HasColumnName("F数据作用域ID").HasMaxLength(500);
         builder.Property(e => e.FIsRevoked).HasColumnName("F已撤销").HasDefaultValue(false);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
@@ -34,6 +35,7 @@ public class FinVoucherConfiguration : IEntityTypeConfiguration<FinVoucher>
         builder.HasIndex(e => e.FPeriodId).HasDatabaseName("IX_FIN凭证_期间ID");
         builder.HasIndex(e => e.FStatus).HasDatabaseName("IX_FIN凭证_状态");
         builder.HasIndex(e => new { e.FVoucherWord, e.FVoucherNo }).HasDatabaseName("IX_FIN凭证_凭证字号");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN凭证_租户ID");
         
         builder.HasOne<FinAccountPeriod>()
             .WithMany()

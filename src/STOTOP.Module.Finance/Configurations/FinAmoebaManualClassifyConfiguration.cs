@@ -17,9 +17,11 @@ public class FinAmoebaManualClassifyConfiguration : IEntityTypeConfiguration<Fin
         builder.Property(e => e.FMarkedBy).HasColumnName("F标记人").HasMaxLength(50);
         builder.Property(e => e.FSummaryPattern).HasColumnName("F摘要模式").HasMaxLength(200);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID").HasDefaultValue(192L);
-        
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+
         builder.HasIndex(e => e.FVoucherEntryId)
             .IsUnique()
             .HasDatabaseName("IX_FIN阿米巴手工分类_分录");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN阿米巴手工分类_租户ID");
     }
 }

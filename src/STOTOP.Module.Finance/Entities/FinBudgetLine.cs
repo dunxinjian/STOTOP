@@ -2,11 +2,12 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Finance.Entities;
 
-public class FinBudgetLine : BaseEntity, IOrgScoped
+public class FinBudgetLine : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FBudgetVersionId { get; set; }
     public string FPeriod { get; set; } = string.Empty;
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long? FAmoebaUnitId { get; set; }
     public long? FAccountId { get; set; }
     public string? FAccountCode { get; set; }

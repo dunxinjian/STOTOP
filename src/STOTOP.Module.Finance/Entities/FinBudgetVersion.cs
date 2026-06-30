@@ -2,7 +2,7 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Finance.Entities;
 
-public class FinBudgetVersion : BaseEntity, IOrgScoped
+public class FinBudgetVersion : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FAccountSetId { get; set; }
     public string FName { get; set; } = string.Empty;
@@ -12,6 +12,7 @@ public class FinBudgetVersion : BaseEntity, IOrgScoped
     public string FStatus { get; set; } = "draft";
     public long FOwnerOrgId { get; set; }
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string? FCreatedBy { get; set; }
     public DateTime FCreatedTime { get; set; }
     public string? FApprovedBy { get; set; }

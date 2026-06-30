@@ -9,6 +9,14 @@ public static class FinanceSeeder
 {
     private const string Module = "Finance";
 
+    /// <summary>阶段0 多租户隔离(Finance 试点)需加 F租户ID 的 13 张租户表（覆盖口径=全覆盖，见 design/24）。</summary>
+    private static readonly string[] Phase0TenantTables =
+    {
+        "FIN凭证", "FIN凭证分录", "FIN凭证模板", "FIN资金计划明细", "FIN操作日志",
+        "FIN预算版本", "FIN预算占用", "FIN预算明细", "FIN辅助核算项目", "FIN附件",
+        "FIN阿米巴映射规则", "FIN阿米巴手工分类", "FIN账套",
+    };
+
     /// <summary>
     /// 统一走 SeederHelper.ExecuteRawSql（纯 ADO，不经 EF 的 String.Format），
     /// SQL 字面量中的大括号（JSON、模板占位符）无需转义。
@@ -33,6 +41,8 @@ public static class FinanceSeeder
             new(9, "品牌版科目覆盖：删两账套旧科目重建(保留各账套真实1002/1012) (2026-06-18)", MigrateV9),
             new(10, "品牌版科目4项调整：220301/54010501改名 + 新增50010105 + 删54010502 (2026-06-19)", MigrateV10),
             new(11, "快递行业模板FID3明细=账套2科目快照(排1002/1012子科目)+sourceId口径 (2026-06-19)", MigrateV11),
+            new(12, "阶段0多租户(Finance试点): 13张租户表加 F租户ID 隔离键列(NOT NULL DEFAULT 0,不启用过滤器)+租户索引 (2026-06-30)", MigrateV12),
+            new(13, "阶段0多租户(Finance试点): 存量行 F租户ID 回填到 MDSTO 单租户(=根组织id) (2026-06-30)", MigrateV13),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -2260,5 +2270,55 @@ public static class FinanceSeeder
         ExecSql(ctx, @"UPDATE [FIN科目模板]
             SET [F说明]=N'源自太仓美申账套快照（排除各账套私有银行账户子科目）'
             WHERE [FID]=3;");
+    }
+
+    /// <summary>
+    /// 阶段0·多租户迁移(Finance 试点)：给 13 张租户表加 F租户ID 隔离键列 + 租户索引。仅 DDL、幂等(IF NOT EXISTS)。
+    /// 列定义 = bigint NOT NULL DEFAULT 0，与模型(long FTenantId + HasDefaultValue(0L))经 SchemaAutoSync 在 dev 自动生成的列一致，
+    /// 避免 dev/prod 漂移(prod 不跑 SchemaAutoSync，靠本步显式 ALTER 落列)。存量行先得 0(=未分配租户的哨兵)，回填见 V13。
+    /// 覆盖口径=全覆盖(见 design/24-tenant-migration-playbook.md)。
+    /// </summary>
+    private static void MigrateV12(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // ① 加列（幂等）。NOT NULL DEFAULT 0 与模型/SchemaAutoSync 一致；存量行先得 0，由 V13 回填。
+        foreach (var t in Phase0TenantTables)
+        {
+            ExecSql(ctx, $@"
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = N'{t}' AND COLUMN_NAME = N'F租户ID')
+            ALTER TABLE [{t}] ADD [F租户ID] bigint NOT NULL CONSTRAINT [DF_{t}_F租户ID] DEFAULT 0;");
+        }
+
+        // ② 建租户索引（幂等、独立 batch —— 与①分开，避免同批 ALTER ADD 后引用新列的延迟名称解析失败）。
+        //    索引名与各 Configuration 的 HasIndex 一致：新库由 CreateRelationalArtifacts 建、存量由此处建，互不冲突。
+        foreach (var t in Phase0TenantTables)
+        {
+            ExecSql(ctx, $@"
+            IF NOT EXISTS (SELECT * FROM sys.indexes
+                WHERE name = N'IX_{t}_租户ID' AND object_id = OBJECT_ID(N'{t}'))
+            CREATE INDEX [IX_{t}_租户ID] ON [{t}] ([F租户ID]);");
+        }
+    }
+
+    /// <summary>
+    /// 阶段0·回填(Finance 试点)：当前生产库整棵组织树属 MDSTO 单客户=单租户(见 design/23 v2 修订)，
+    /// 故所有存量行 F租户ID 全归该租户 = 根组织节点 FID(单根库自动推导，当前=1)。
+    /// 仅回填 WHERE F租户ID=0(未分配行)，幂等；fresh/新客户库建表时无存量业务行 → no-op，绝不误填别的租户。
+    /// tenant-id 约定 = MDSTO 根组织 id，PLT租户 建表后对齐。
+    /// 注：单租户回填为一次性全表 UPDATE，Finance 表量级适中；大表模块改走批量外部脚本(见 design/24 阻断B)。
+    /// </summary>
+    private static void MigrateV13(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        foreach (var t in Phase0TenantTables)
+        {
+            ExecSql(ctx, $@"
+            DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+            IF @tenant IS NOT NULL
+                UPDATE [{t}] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
+        }
     }
 }
