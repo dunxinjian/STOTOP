@@ -11,4 +11,14 @@ public interface IOrgContextAccessor
     /// 支持在 Hangfire Job 或 BatchContextScope 中显式设置，以切换组织上下文。
     /// </summary>
     long? CurrentOrgId { get; set; }
+
+    /// <summary>
+    /// v2 多租户：当前【租户=客户】id（区域公司间在租户内用 R8 数据范围，不是租户切换）。
+    /// 为 null 表示无租户上下文：fail-closed 过滤器读空集（不认 null、不认 0）。
+    /// 默认接口成员（默认 null/no-op），实现可覆盖；过渡期由中间件在请求层赋值（阶段1b）。
+    /// </summary>
+    long? CurrentTenantId { get => null; set { } }
+
+    /// <summary>平台/批量受控作用域：为 true 时跳过租户硬墙（仅平台层/seeder/迁移经受控工厂置位）。默认 false。</summary>
+    bool IsPlatformScope { get => false; set { } }
 }

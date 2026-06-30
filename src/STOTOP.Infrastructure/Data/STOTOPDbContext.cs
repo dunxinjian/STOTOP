@@ -21,6 +21,12 @@ public class STOTOPDbContext : DbContext
     /// </summary>
     private long? CurrentOrgId => _orgContextAccessor?.CurrentOrgId;
 
+    /// <summary>v2 租户隔离键（客户id）；供 fail-closed 全局过滤器引用，EF 每次查询重求值。</summary>
+    private long? CurrentTenantId => _orgContextAccessor?.CurrentTenantId;
+
+    /// <summary>平台/批量受控作用域：跳过租户硬墙。</summary>
+    private bool IsPlatformScope => _orgContextAccessor?.IsPlatformScope ?? false;
+
     public STOTOPDbContext(DbContextOptions<STOTOPDbContext> options, IOrgContextAccessor? orgContextAccessor = null)
         : base(options)
     {
@@ -131,6 +137,17 @@ public class STOTOPDbContext : DbContext
                     .Invoke(null, new object[] { modelBuilder, this });
             }
         }
+
+        // === v2 租户隔离 fail-closed 硬墙（ITenantScoped）===
+        // 必须显式加这第三轮循环——只定义接口/加列而不挂过滤器 = 裸读全租户（最危险的漏标）。
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            if (typeof(ITenantScoped).IsAssignableFrom(entityType.ClrType))
+            {
+                _configureTenantFilterMethod.MakeGenericMethod(entityType.ClrType)
+                    .Invoke(null, new object[] { modelBuilder, this });
+            }
+        }
     }
 
     private static readonly MethodInfo _configureOrgFilterMethod =
@@ -157,15 +174,30 @@ public class STOTOPDbContext : DbContext
         );
     }
 
+    private static readonly MethodInfo _configureTenantFilterMethod =
+        typeof(STOTOPDbContext).GetMethod(nameof(ConfigureTenantFilter), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    private static void ConfigureTenantFilter<TEntity>(ModelBuilder modelBuilder, STOTOPDbContext context)
+        where TEntity : class, ITenantScoped
+    {
+        // fail-closed 硬墙：平台作用域放行；否则必须有当前租户且相等。
+        // 无租户上下文(CurrentTenantId==null 且非平台) → 过滤器恒 false → 读空集（不认 null、不认 0；见 design/23 §6.2）。
+        modelBuilder.Entity<TEntity>().HasQueryFilter(
+            e => context.IsPlatformScope || (context.CurrentTenantId != null && e.FTenantId == context.CurrentTenantId)
+        );
+    }
+
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         FillOrgIdForNewEntities();
+        FillTenantIdForNewEntities();
         return await base.SaveChangesAsync(cancellationToken);
     }
 
     public override int SaveChanges()
     {
         FillOrgIdForNewEntities();
+        FillTenantIdForNewEntities();
         return base.SaveChanges();
     }
 
@@ -209,6 +241,25 @@ public class STOTOPDbContext : DbContext
                 {
                     entry.Entity.FOwnerOrgId = currentOrgId.Value;
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// v2 租户隔离写入回填（阶段1a·宽松）：有当前租户时给新增 ITenantScoped 实体回填 F租户ID(为 0 的)。
+    /// 平台作用域跳过；无租户上下文(CurrentTenantId==null)时本阶段【跳过不抛】——
+    /// "无上下文写入即 throw" 的 fail-closed 写硬墙 + seeder/启动豁免留到阶段1b，避免现在炸 seeder 启动。
+    /// </summary>
+    private void FillTenantIdForNewEntities()
+    {
+        if (IsPlatformScope) return;
+        var tenantId = CurrentTenantId;
+        if (tenantId == null) return;   // 1a 宽松；1b 改为 throw + 受控作用域豁免
+        foreach (var entry in ChangeTracker.Entries<ITenantScoped>())
+        {
+            if (entry.State == EntityState.Added && entry.Entity.FTenantId == 0)
+            {
+                entry.Entity.FTenantId = tenantId.Value;
             }
         }
     }
