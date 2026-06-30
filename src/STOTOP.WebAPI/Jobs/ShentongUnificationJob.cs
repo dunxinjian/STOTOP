@@ -63,6 +63,8 @@ public class ShentongUnificationJob
                 // 设置上下文是为统一查询过滤器口径并与请求内行为一致）。
                 var orgCtx = scope.ServiceProvider.GetRequiredService<IOrgContextAccessor>();
                 orgCtx.CurrentOrgId = orgId;
+                // v2 多租户：后台 Job 无 HttpContext，须显式设租户(单客户=组织树根)，否则写 ITenantScoped 实体 fail-closed 抛异常。
+                orgCtx.CurrentTenantId = scope.ServiceProvider.GetService<ITenantResolver>()?.GetRootTenantId();
 
                 var svc = scope.ServiceProvider.GetRequiredService<IQualityUnificationService>();
                 var result = await svc.UnifyShentongAsync(orgId);

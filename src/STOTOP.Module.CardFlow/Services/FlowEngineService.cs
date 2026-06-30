@@ -175,7 +175,11 @@ public class FlowEngineService : IFlowEngineService
         //    导致计价/成本等引擎按 IRepository 读取参考数据时跨组织串数据。此处以批次组织为准。
         var orgAccessor = _serviceProvider.GetService<IOrgContextAccessor>();
         if (orgAccessor != null)
+        {
             orgAccessor.CurrentOrgId = batch.FOrgId;
+            // v2 多租户：后台批次链无 HttpContext，须显式设租户(单客户=组织树根)，否则写 ITenantScoped 实体 fail-closed 抛异常。
+            orgAccessor.CurrentTenantId = _serviceProvider.GetService<ITenantResolver>()?.GetRootTenantId();
+        }
 
         // 1. 获取流程当前发布版本
         var version = await _dbContext.Set<CfFlowVersion>()
