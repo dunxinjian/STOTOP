@@ -118,35 +118,26 @@ public class STOTOPDbContext : DbContext
         // EF Core 默认行为：必需关系=Cascade，可选关系=ClientSetNull
         // 仅对已知会导致 SQL Server 多重级联路径的关系，在各自的 EntityConfiguration 中单独设置 Restrict
 
-        // === 组织数据隔离全局过滤器 ===
+        // === 行级数据隔离全局过滤器（组织 + 租户）===
+        // 关键：EF Core 对同一实体多次 HasQueryFilter 是【覆盖】不是叠加。
+        // 故对同时实现多个隔离接口的实体（如 IOrgScoped + ITenantScoped），必须一次性应用【组合】过滤器(AND)，
+        // 不能分多轮各调一次（否则后者覆盖前者，组织/租户隔离会被悄悄丢掉）。
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
-            if (typeof(IOrgScoped).IsAssignableFrom(entityType.ClrType))
-            {
-                _configureOrgFilterMethod.MakeGenericMethod(entityType.ClrType)
-                    .Invoke(null, new object[] { modelBuilder, this });
-            }
-        }
+            var clr = entityType.ClrType;
+            var isOrg = typeof(IOrgScoped).IsAssignableFrom(clr);
+            var isOwned = typeof(IOrgOwned).IsAssignableFrom(clr);
+            var isTenant = typeof(ITenantScoped).IsAssignableFrom(clr);
 
-        // === IOrgOwned 过滤器（组织扩展实体的数据隔离） ===
-        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
-        {
-            if (typeof(IOrgOwned).IsAssignableFrom(entityType.ClrType))
-            {
-                _configureOrgOwnerFilterMethod.MakeGenericMethod(entityType.ClrType)
-                    .Invoke(null, new object[] { modelBuilder, this });
-            }
-        }
+            var method =
+                isOrg && isTenant ? _configureOrgAndTenantFilterMethod :
+                isOwned && isTenant ? _configureOwnedAndTenantFilterMethod :
+                isOrg ? _configureOrgFilterMethod :
+                isOwned ? _configureOrgOwnerFilterMethod :
+                isTenant ? _configureTenantFilterMethod :
+                null;
 
-        // === v2 租户隔离 fail-closed 硬墙（ITenantScoped）===
-        // 必须显式加这第三轮循环——只定义接口/加列而不挂过滤器 = 裸读全租户（最危险的漏标）。
-        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
-        {
-            if (typeof(ITenantScoped).IsAssignableFrom(entityType.ClrType))
-            {
-                _configureTenantFilterMethod.MakeGenericMethod(entityType.ClrType)
-                    .Invoke(null, new object[] { modelBuilder, this });
-            }
+            method?.MakeGenericMethod(clr).Invoke(null, new object[] { modelBuilder, this });
         }
     }
 
@@ -185,6 +176,30 @@ public class STOTOPDbContext : DbContext
         modelBuilder.Entity<TEntity>().HasQueryFilter(
             e => context.IsPlatformScope || (context.CurrentTenantId != null && e.FTenantId == context.CurrentTenantId)
         );
+    }
+
+    private static readonly MethodInfo _configureOrgAndTenantFilterMethod =
+        typeof(STOTOPDbContext).GetMethod(nameof(ConfigureOrgAndTenantFilter), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    /// <summary>组合过滤器：同时实现 IOrgScoped + ITenantScoped 的实体——组织隔离 AND 租户 fail-closed 硬墙，一次性应用。</summary>
+    private static void ConfigureOrgAndTenantFilter<TEntity>(ModelBuilder modelBuilder, STOTOPDbContext context)
+        where TEntity : class, IOrgScoped, ITenantScoped
+    {
+        modelBuilder.Entity<TEntity>().HasQueryFilter(e =>
+            (context.CurrentOrgId == null || e.FOrgId == context.CurrentOrgId)
+            && (context.IsPlatformScope || (context.CurrentTenantId != null && e.FTenantId == context.CurrentTenantId)));
+    }
+
+    private static readonly MethodInfo _configureOwnedAndTenantFilterMethod =
+        typeof(STOTOPDbContext).GetMethod(nameof(ConfigureOwnedAndTenantFilter), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    /// <summary>组合过滤器：同时实现 IOrgOwned + ITenantScoped 的实体——组织扩展隔离 AND 租户 fail-closed 硬墙，一次性应用。</summary>
+    private static void ConfigureOwnedAndTenantFilter<TEntity>(ModelBuilder modelBuilder, STOTOPDbContext context)
+        where TEntity : class, IOrgOwned, ITenantScoped
+    {
+        modelBuilder.Entity<TEntity>().HasQueryFilter(e =>
+            (context.CurrentOrgId == null || e.FOwnerOrgId == context.CurrentOrgId || e.FOwnerOrgId == 0)
+            && (context.IsPlatformScope || (context.CurrentTenantId != null && e.FTenantId == context.CurrentTenantId)));
     }
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
