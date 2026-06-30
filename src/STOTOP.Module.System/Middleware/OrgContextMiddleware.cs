@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using STOTOP.Core.Models;
+using STOTOP.Core.Services;
 using STOTOP.Module.System.Services;
 using STOTOP.Module.System.Services.Interfaces;
 using System.Security.Claims;
@@ -61,6 +62,12 @@ public class OrgContextMiddleware
             await _next(context);
             return;
         }
+
+        // v2 多租户：设当前租户(客户)。过渡期(单客户)=组织树根 id；区域公司间在租户内用 R8 数据范围。
+        var tenantResolver = context.RequestServices.GetRequiredService<ITenantResolver>();
+        var currentTenantId = tenantResolver.GetRootTenantId();
+        if (currentTenantId.HasValue)
+            context.Items["CurrentTenantId"] = currentTenantId.Value;
 
         // 从请求头读取组织ID
         var orgContextHeader = context.Request.Headers["X-Org-Context"].FirstOrDefault();

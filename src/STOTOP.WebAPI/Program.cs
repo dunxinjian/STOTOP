@@ -309,6 +309,7 @@ builder.Services.AddSingleton<IDynamicDbContextFactory, DynamicDbContextFactory>
 // Org Context
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IOrgContextAccessor, HttpOrgContextAccessor>();
+builder.Services.AddSingleton<STOTOP.Core.Services.ITenantResolver, STOTOP.Module.System.Services.TenantResolver>();
 
 // System Module
 builder.Services.AddSystemModule();

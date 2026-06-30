@@ -246,21 +246,27 @@ public class STOTOPDbContext : DbContext
     }
 
     /// <summary>
-    /// v2 租户隔离写入回填（阶段1a·宽松）：有当前租户时给新增 ITenantScoped 实体回填 F租户ID(为 0 的)。
-    /// 平台作用域跳过；无租户上下文(CurrentTenantId==null)时本阶段【跳过不抛】——
-    /// "无上下文写入即 throw" 的 fail-closed 写硬墙 + seeder/启动豁免留到阶段1b，避免现在炸 seeder 启动。
+    /// v2 租户隔离写入回填 + fail-closed 写硬墙（阶段1b）：
+    /// 平台作用域放行；否则——含新增 ITenantScoped 实体但无租户上下文(CurrentTenantId==null) → 抛异常(禁止无上下文写租户数据)；
+    /// 新增实体 F租户ID=0 回填当前租户、非当前租户拒绝(防串租户)。
+    /// 护栏：循环体仅在遇到"新增的 ITenantScoped 实体"时才进入并校验——纯非租户写入(如 SysUser/组织)不触发，启动期 SQL 迁移亦不受影响。
     /// </summary>
     private void FillTenantIdForNewEntities()
     {
         if (IsPlatformScope) return;
+
         var tenantId = CurrentTenantId;
-        if (tenantId == null) return;   // 1a 宽松；1b 改为 throw + 受控作用域豁免
         foreach (var entry in ChangeTracker.Entries<ITenantScoped>())
         {
-            if (entry.State == EntityState.Added && entry.Entity.FTenantId == 0)
-            {
+            if (entry.State != EntityState.Added) continue;
+
+            if (tenantId == null)
+                throw new InvalidOperationException("无租户上下文下禁止写入租户隔离数据（HTTP 请求由中间件设租户；后台/平台场景须显式设置租户或平台作用域）");
+
+            if (entry.Entity.FTenantId == 0)
                 entry.Entity.FTenantId = tenantId.Value;
-            }
+            else if (entry.Entity.FTenantId != tenantId.Value)
+                throw new InvalidOperationException("跨租户写入被拒绝");
         }
     }
 }

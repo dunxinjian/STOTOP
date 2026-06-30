@@ -12,6 +12,8 @@ public class HttpOrgContextAccessor : IOrgContextAccessor
     private readonly IHttpContextAccessor _httpContextAccessor;
     private long? _overrideOrgId;
     private bool _hasOverride;
+    private long? _overrideTenantId;
+    private bool _hasTenantOverride;
 
     public HttpOrgContextAccessor(IHttpContextAccessor httpContextAccessor)
     {
@@ -38,6 +40,29 @@ public class HttpOrgContextAccessor : IOrgContextAccessor
         }
     }
 
+    /// <summary>v2 多租户：当前【租户=客户】id。由 OrgContextMiddleware 写入 Items["CurrentTenantId"]，或非HTTP场景经 setter 显式设置。</summary>
+    public long? CurrentTenantId
+    {
+        get
+        {
+            if (_hasTenantOverride)
+                return _overrideTenantId;
+
+            var item = _httpContextAccessor.HttpContext?.Items["CurrentTenantId"];
+            if (item is long tenantId)
+                return tenantId;
+            return null;
+        }
+        set
+        {
+            _overrideTenantId = value;
+            _hasTenantOverride = true;
+        }
+    }
+
+    /// <summary>平台/批量受控作用域：跳过租户硬墙（非HTTP/平台场景显式置位）。</summary>
+    public bool IsPlatformScope { get; set; }
+
     /// <summary>
     /// 清除显式设置，回退到从 HttpContext 读取
     /// </summary>
@@ -45,5 +70,8 @@ public class HttpOrgContextAccessor : IOrgContextAccessor
     {
         _hasOverride = false;
         _overrideOrgId = null;
+        _hasTenantOverride = false;
+        _overrideTenantId = null;
+        IsPlatformScope = false;
     }
 }
