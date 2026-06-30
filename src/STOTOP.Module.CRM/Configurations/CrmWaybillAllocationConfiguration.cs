@@ -21,6 +21,7 @@ public class CrmWaybillAllocationConfiguration : IEntityTypeConfiguration<CrmWay
         builder.Property(e => e.FOperatorId).HasColumnName("F操作人ID");
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasDefaultValue(1);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FCreatorName).HasColumnName("F创建人").HasMaxLength(50);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdaterName).HasColumnName("F更新人").HasMaxLength(50);
@@ -30,6 +31,7 @@ public class CrmWaybillAllocationConfiguration : IEntityTypeConfiguration<CrmWay
         builder.HasIndex(e => e.FCustomerId).HasDatabaseName("IX_CRM运单号发放_F客户ID");
         builder.HasIndex(e => e.FPoolId).HasDatabaseName("IX_CRM运单号发放_F号段池ID");
         builder.HasIndex(e => e.FOperatorId).HasDatabaseName("IX_CRM运单号发放_F操作人ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM运单号发放_租户ID");
 
         builder.HasOne(e => e.Customer)
             .WithMany()

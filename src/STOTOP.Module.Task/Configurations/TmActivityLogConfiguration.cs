@@ -12,6 +12,8 @@ public class TmActivityLogConfiguration : IEntityTypeConfiguration<TmActivityLog
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM活动日志_租户ID");
         builder.Property(e => e.FTaskId).HasColumnName("F任务ID");
         builder.Property(e => e.FActionType).HasColumnName("F动作类型");
         builder.Property(e => e.FOldValue).HasColumnName("F原值").HasMaxLength(200);

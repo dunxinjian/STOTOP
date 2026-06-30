@@ -2,10 +2,11 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Insurance.Entities;
 
-public class InsPolicy : BaseEntity, IOrgScoped
+public class InsPolicy : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FUID { get; set; } = Guid.NewGuid().ToString("N");
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     // 通用关联机制
     public int FBusinessType { get; set; }                         // 1=三轮车, 2=人员, 3=机动车, 4=财产
     public long FRelatedObjectId { get; set; }                     // 业务方主键

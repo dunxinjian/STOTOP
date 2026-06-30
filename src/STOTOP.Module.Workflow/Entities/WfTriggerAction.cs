@@ -3,9 +3,10 @@ using STOTOP.Core.Models;
 namespace STOTOP.Module.Workflow.Entities;
 
 /// <summary>WF触发动作 - 注册所有可发起的业务动作</summary>
-public class WfTriggerAction : BaseEntity, IOrgScoped
+public class WfTriggerAction : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string FKey { get; set; } = string.Empty;           // 唯一标识：datacenter.upload
     public string FLabel { get; set; } = string.Empty;         // 显示名称：上传数据
     public string? FIcon { get; set; }                         // 图标名（Ant Design Vue icon）

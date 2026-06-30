@@ -2,9 +2,10 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.CRM.Entities;
 
-public class CrmBonusPlan : BaseEntity, IOrgScoped
+public class CrmBonusPlan : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string FPeriod { get; set; } = string.Empty;
     public decimal FTotalAmount { get; set; } = 0;
     public string? FCalcRules { get; set; }

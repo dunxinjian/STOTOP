@@ -12,6 +12,7 @@ public class DorVisitorConfiguration : IEntityTypeConfiguration<DorVisitor>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FRoomId).HasColumnName("F房间ID").IsRequired();
         builder.Property(e => e.FVisitorName).HasColumnName("F访客姓名").HasMaxLength(100).IsRequired();
         builder.Property(e => e.FVisitorPhone).HasColumnName("F访客电话").HasMaxLength(50);
@@ -26,6 +27,7 @@ public class DorVisitorConfiguration : IEntityTypeConfiguration<DorVisitor>
 
         builder.HasIndex(e => e.FRoomId).HasDatabaseName("IX_DOR访客登记_房间ID");
         builder.HasIndex(e => e.FArrivalTime).HasDatabaseName("IX_DOR访客登记_到访时间");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_DOR访客登记_租户ID");
 
         builder.HasOne(e => e.Room)
             .WithMany()

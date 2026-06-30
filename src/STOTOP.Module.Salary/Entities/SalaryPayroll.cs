@@ -5,9 +5,10 @@ namespace STOTOP.Module.Salary.Entities;
 /// <summary>
 /// 月度工资单
 /// </summary>
-public class SalaryPayroll : BaseEntity, IOrgScoped
+public class SalaryPayroll : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long F员工ID { get; set; }
     /// <summary>期间，格式 yyyyMM</summary>
     public string F期间 { get; set; } = string.Empty;

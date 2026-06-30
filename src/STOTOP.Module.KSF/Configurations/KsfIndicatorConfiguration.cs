@@ -12,6 +12,7 @@ public class KsfIndicatorConfiguration : IEntityTypeConfiguration<KsfIndicator>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F编码).HasColumnName("F编码").HasMaxLength(64).IsRequired();
         builder.Property(e => e.F名称).HasColumnName("F名称").HasMaxLength(128).IsRequired();
         builder.Property(e => e.F计量单位).HasColumnName("F计量单位").HasMaxLength(64);
@@ -26,5 +27,7 @@ public class KsfIndicatorConfiguration : IEntityTypeConfiguration<KsfIndicator>
         builder.Property(e => e.F更新时间).HasColumnName("F更新时间").HasDefaultValueSql("GETDATE()");
 
         builder.HasIndex(e => new { e.FOrgId, e.F编码 }).IsUnique().HasDatabaseName("UQ_KSF指标_组织_编码");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_KSF指标定义_租户ID");
     }
 }

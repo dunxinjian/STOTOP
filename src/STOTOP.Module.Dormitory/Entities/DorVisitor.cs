@@ -5,9 +5,10 @@ namespace STOTOP.Module.Dormitory.Entities;
 /// <summary>
 /// 访客登记
 /// </summary>
-public class DorVisitor : BaseEntity, IOrgScoped
+public class DorVisitor : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FRoomId { get; set; }
     public string FVisitorName { get; set; } = string.Empty;
     public string? FVisitorPhone { get; set; }

@@ -12,6 +12,7 @@ public class CrmBonusPlanConfiguration : IEntityTypeConfiguration<CrmBonusPlan>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FPeriod).HasColumnName("F期间").HasMaxLength(10).IsRequired();
         builder.Property(e => e.FTotalAmount).HasColumnName("F奖金总额").HasColumnType("decimal(14,2)").HasDefaultValue(0m);
         builder.Property(e => e.FCalcRules).HasColumnName("F计算规则").HasColumnType("nvarchar(max)");
@@ -23,6 +24,7 @@ public class CrmBonusPlanConfiguration : IEntityTypeConfiguration<CrmBonusPlan>
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
 
         builder.HasIndex(e => e.FOrgId).HasDatabaseName("IX_CRM奖金方案_F组织ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM奖金方案_租户ID");
 
         builder.HasMany(e => e.Details)
             .WithOne(e => e.Plan)

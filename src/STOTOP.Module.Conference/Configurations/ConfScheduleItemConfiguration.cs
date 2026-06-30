@@ -12,6 +12,7 @@ public class ConfScheduleItemConfiguration : IEntityTypeConfiguration<ConfSchedu
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FScheduleId).HasColumnName("F日程ID");
         builder.Property(e => e.FItemName).HasColumnName("F物品名称").HasMaxLength(100).IsRequired();
         builder.Property(e => e.FQuantity).HasColumnName("F数量");
@@ -23,5 +24,7 @@ public class ConfScheduleItemConfiguration : IEntityTypeConfiguration<ConfSchedu
             .WithMany(e => e.ScheduleItems)
             .HasForeignKey(e => e.FScheduleId)
             .OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF日程物品_租户ID");
+
     }
 }

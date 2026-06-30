@@ -12,6 +12,8 @@ public class TmTaskMemberConfiguration : IEntityTypeConfiguration<TmTaskMember>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM任务参与者_租户ID");
         builder.Property(e => e.FTaskId).HasColumnName("F任务ID");
         builder.Property(e => e.FUserId).HasColumnName("F用户ID");
         builder.Property(e => e.FRole).HasColumnName("F角色");

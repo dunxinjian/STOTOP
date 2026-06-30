@@ -2,9 +2,10 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Contract.Entities;
 
-public class ConContractReminder : BaseEntity, IOrgScoped
+public class ConContractReminder : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FContractId { get; set; }
     public int FReminderType { get; set; }
     public DateTime FReminderDate { get; set; }

@@ -12,6 +12,8 @@ public class ExpPrepaymentConfiguration : IEntityTypeConfiguration<ExpPrepayment
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP预付款记录_租户ID");
         builder.Property(e => e.FBusinessObjectId).HasColumnName("F业务对象ID").HasMaxLength(50).IsRequired();
         builder.Property(e => e.FAmount).HasColumnName("F金额").HasPrecision(14, 2);
         builder.Property(e => e.FPaymentDate).HasColumnName("F付款日期");

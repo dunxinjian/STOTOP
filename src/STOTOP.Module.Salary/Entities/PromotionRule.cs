@@ -5,9 +5,10 @@ namespace STOTOP.Module.Salary.Entities;
 /// <summary>
 /// 晋升规则
 /// </summary>
-public class PromotionRule : BaseEntity, IOrgScoped
+public class PromotionRule : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string F规则名称 { get; set; } = string.Empty;
     public long F当前档位ID { get; set; }
     public long F目标档位ID { get; set; }

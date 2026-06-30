@@ -23,6 +23,8 @@ public class PrepaymentWaybillConcurrencyTests
     private sealed class SqliteOrgAccessor(long orgId) : IOrgContextAccessor
     {
         public long? CurrentOrgId { get; set; } = orgId;
+        public long? CurrentTenantId { get; set; } = 1;
+        public bool IsPlatformScope { get; set; }
     }
 
     // 同一临时文件库 + 多连接，模拟多请求并发。Dispose 时统一关连接、清池、删文件。

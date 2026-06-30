@@ -12,6 +12,7 @@ public class DorBedConfiguration : IEntityTypeConfiguration<DorBed>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FRoomId).HasColumnName("F房间ID");
         builder.Property(e => e.FBedNumber).HasColumnName("F床位号").HasMaxLength(20).IsRequired();
         builder.Property(e => e.FBedType).HasColumnName("F床位类型").HasMaxLength(20).HasDefaultValue("lower").IsRequired();
@@ -22,5 +23,6 @@ public class DorBedConfiguration : IEntityTypeConfiguration<DorBed>
 
         builder.HasIndex(e => new { e.FRoomId, e.FBedNumber }).IsUnique().HasDatabaseName("IX_DOR床位_房间床位号");
         builder.HasIndex(e => e.FRoomId).HasDatabaseName("IX_DOR床位_房间ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_DOR床位_租户ID");
     }
 }

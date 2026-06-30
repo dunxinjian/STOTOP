@@ -25,6 +25,7 @@ public class CfCardConfiguration : IEntityTypeConfiguration<CfCard>
         builder.Property(e => e.FDataJson).HasColumnName("F数据JSON");
         builder.Property(e => e.FCurrentRound).HasColumnName("F当前轮次");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
         builder.Property(e => e.FBatchId).HasColumnName("F批次ID");
         builder.Property(e => e.FOrchestrationInstanceId).HasColumnName("F编排实例ID");
@@ -48,5 +49,6 @@ public class CfCardConfiguration : IEntityTypeConfiguration<CfCard>
             .HasDatabaseName("IX_CF流程实例_编排实例");
         builder.HasIndex(e => new { e.FOrgId, e.FSourceModule, e.FSourceType, e.FSourceId })
             .HasDatabaseName("IX_CF流程实例_来源");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF流程实例_租户ID");
     }
 }

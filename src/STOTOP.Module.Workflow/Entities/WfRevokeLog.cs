@@ -3,9 +3,10 @@ using STOTOP.Core.Models;
 namespace STOTOP.Module.Workflow.Entities;
 
 /// <summary>WF撤销日志 - 记录撤销操作影响</summary>
-public class WfRevokeLog : BaseEntity, IOrgScoped
+public class WfRevokeLog : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string? FChainId { get; set; }
     public string? FDataScopeId { get; set; }
     public long FOperatorId { get; set; }

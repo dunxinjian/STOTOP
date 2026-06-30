@@ -18,6 +18,7 @@ public class CrmVisitRecordConfiguration : IEntityTypeConfiguration<CrmVisitReco
         builder.Property(e => e.FContent).HasColumnName("F内容").HasColumnType("nvarchar(max)");
         builder.Property(e => e.FNextFollowUpDate).HasColumnName("F下次跟进日期");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FCreatorName).HasColumnName("F创建人").HasMaxLength(50);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdaterName).HasColumnName("F更新人").HasMaxLength(50);
@@ -27,5 +28,6 @@ public class CrmVisitRecordConfiguration : IEntityTypeConfiguration<CrmVisitReco
         builder.HasIndex(e => e.FVisitorId).HasDatabaseName("IX_CRM拜访记录_F拜访人ID");
         builder.HasIndex(e => e.FVisitDate).HasDatabaseName("IX_CRM拜访记录_F拜访日期");
         builder.HasIndex(e => e.FNextFollowUpDate).HasDatabaseName("IX_CRM拜访记录_F下次跟进日期");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM拜访记录_租户ID");
     }
 }

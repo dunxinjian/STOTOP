@@ -5,10 +5,11 @@ namespace STOTOP.Module.Express.Entities;
 /// <summary>
 /// 政策返利方案
 /// </summary>
-public class ExpPolicyRebate : BaseEntity, IOrgScoped
+public class ExpPolicyRebate : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>组织ID</summary>
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>品牌ID</summary>
     public string FBrandCode { get; set; } = string.Empty;
     /// <summary>方案名称</summary>

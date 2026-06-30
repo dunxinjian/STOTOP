@@ -3,9 +3,10 @@ using STOTOP.Core.Models;
 namespace STOTOP.Module.Conference.Entities;
 
 /// <summary>仪式流程环节</summary>
-public class ConfCeremonyItem : BaseEntity, IOrgScoped
+public class ConfCeremonyItem : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FEventId { get; set; }
     public string FName { get; set; } = string.Empty;  // 环节名称
     public string FStartTime { get; set; } = string.Empty;  // HH:mm

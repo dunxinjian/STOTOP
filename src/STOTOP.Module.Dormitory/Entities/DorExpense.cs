@@ -5,9 +5,10 @@ namespace STOTOP.Module.Dormitory.Entities;
 /// <summary>
 /// 费用记录
 /// </summary>
-public class DorExpense : BaseEntity, IOrgScoped
+public class DorExpense : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FRoomId { get; set; }
     public string FExpenseType { get; set; } = string.Empty;
     public decimal FAmount { get; set; }

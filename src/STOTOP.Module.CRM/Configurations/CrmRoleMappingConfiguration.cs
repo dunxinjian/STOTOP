@@ -12,6 +12,7 @@ public class CrmRoleMappingConfiguration : IEntityTypeConfiguration<CrmRoleMappi
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FEmployeeId).HasColumnName("F员工ID");
         builder.Property(e => e.FRole).HasColumnName("F角色");
         builder.Property(e => e.FCreatorName).HasColumnName("F创建人").HasMaxLength(50);
@@ -22,5 +23,6 @@ public class CrmRoleMappingConfiguration : IEntityTypeConfiguration<CrmRoleMappi
         builder.HasIndex(e => e.FOrgId).HasDatabaseName("IX_CRM角色映射_F组织ID");
         builder.HasIndex(e => e.FEmployeeId).HasDatabaseName("IX_CRM角色映射_F员工ID");
         builder.HasIndex(e => new { e.FOrgId, e.FEmployeeId }).IsUnique().HasDatabaseName("UX_CRM角色映射_组织员工");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM角色映射_租户ID");
     }
 }

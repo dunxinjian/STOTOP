@@ -57,9 +57,10 @@ public enum DispatchMethod
 /// <summary>
 /// 异常单
 /// </summary>
-public class QlException : BaseEntity, IOrgScoped
+public class QlException : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string FExceptionNo { get; set; } = string.Empty;
     public string FTitle { get; set; } = string.Empty;
     public string FDescription { get; set; } = string.Empty;

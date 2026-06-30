@@ -63,6 +63,8 @@ public class AutoRouteUploadTests
             .UseInMemoryDatabase(dbName)
             .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .EnableSensitiveDataLogging());
+        // v2 多租户：DI 容器注册测试访问器（CurrentOrgId=null 保持组织 pass-through + CurrentTenantId=1），否则 ITenantScoped 实体 fail-closed 读空/写抛。
+        services.AddScoped<STOTOP.Core.Services.IOrgContextAccessor>(_ => new TestOrgContextAccessor());
         return (services.BuildServiceProvider(), dbName);
     }
 

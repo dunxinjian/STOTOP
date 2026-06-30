@@ -5,9 +5,10 @@ namespace STOTOP.Module.Quality.Entities;
 /// <summary>
 /// 检测规则
 /// </summary>
-public class QlRule : BaseEntity, IOrgScoped
+public class QlRule : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string FRuleName { get; set; } = string.Empty;
     public string FBusinessLine { get; set; } = string.Empty;
     public string? FConditionExpression { get; set; }

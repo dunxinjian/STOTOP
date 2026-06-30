@@ -12,6 +12,7 @@ public class ConfIncomeConfiguration : IEntityTypeConfiguration<ConfIncome>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FEventId).HasColumnName("F活动ID");
         builder.Property(e => e.FAttendeeId).HasColumnName("F参会人ID");
         builder.Property(e => e.FType).HasColumnName("F类型").HasMaxLength(20);
@@ -33,5 +34,7 @@ public class ConfIncomeConfiguration : IEntityTypeConfiguration<ConfIncome>
 
         builder.HasIndex(e => e.FEventId).HasDatabaseName("IX_CONF收入登记_活动ID");
         builder.HasIndex(e => e.FType).HasDatabaseName("IX_CONF收入登记_类型");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF收入登记_租户ID");
+
     }
 }

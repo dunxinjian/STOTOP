@@ -6,10 +6,11 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// CF 批次：批量触发（文件上传/定时/条件）创建的卡片集合
 /// 状态机：0=解析中, 1=已暂存, 2=质检中, 3=已创建卡片, 4=处理中, 5=已完成
 /// </summary>
-public class CfBatch : BaseEntity, IOrgScoped
+public class CfBatch : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FFlowDefinitionId { get; set; }
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FTriggeredById { get; set; }
     public DateTime FTriggeredTime { get; set; }
     /// <summary>触发类型：human / fileUpload / scheduled / conditional</summary>

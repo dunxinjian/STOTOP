@@ -28,6 +28,8 @@ public sealed class WaybillAllocationServiceTests : IDisposable
     private sealed class OrgAccessor(long orgId) : IOrgContextAccessor
     {
         public long? CurrentOrgId { get; set; } = orgId;
+        public long? CurrentTenantId { get; set; } = 1;
+        public bool IsPlatformScope { get; set; }
     }
 
     /// <summary>新建一个 SQLite :memory: 上下文（已建表）。连接保持打开以维持库存活，登记后由类销毁统一关闭。</summary>

@@ -89,7 +89,7 @@ public class ShentongQualityBatchE2ETests
         var options = new DbContextOptionsBuilder<STOTOPDbContext>()
             .UseSqlServer(conn)
             .Options;
-        return new STOTOPDbContext(options);
+        return new STOTOPDbContext(options, new TestOrgContextAccessor());
     }
 
     /// <summary>
@@ -100,6 +100,7 @@ public class ShentongQualityBatchE2ETests
         RegisterModules();
         var services = new ServiceCollection();
         services.AddDbContext<STOTOPDbContext>(opt => opt.UseSqlServer(conn));
+        services.AddScoped<STOTOP.Core.Services.IOrgContextAccessor>(_ => new TestOrgContextAccessor());
         return services.BuildServiceProvider();
     }
 

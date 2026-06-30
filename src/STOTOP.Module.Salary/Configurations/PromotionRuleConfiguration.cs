@@ -12,6 +12,7 @@ public class PromotionRuleConfiguration : IEntityTypeConfiguration<PromotionRule
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F规则名称).HasColumnName("F规则名称").HasMaxLength(128).IsRequired();
         builder.Property(e => e.F当前档位ID).HasColumnName("F当前档位ID");
         builder.Property(e => e.F目标档位ID).HasColumnName("F目标档位ID");
@@ -22,5 +23,6 @@ public class PromotionRuleConfiguration : IEntityTypeConfiguration<PromotionRule
         builder.Property(e => e.F更新时间).HasColumnName("F更新时间").HasDefaultValueSql("GETDATE()");
 
         builder.HasIndex(e => new { e.FOrgId, e.F当前档位ID, e.F目标档位ID }).IsUnique().HasDatabaseName("UQ_SAL晋升规则_组织_当前_目标");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_SAL晋升规则_租户ID");
     }
 }

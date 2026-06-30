@@ -12,6 +12,7 @@ public class ConfTableSeatConfiguration : IEntityTypeConfiguration<ConfTableSeat
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FTableId).HasColumnName("F桌次ID");
         builder.Property(e => e.FAttendeeId).HasColumnName("F参会人ID");
         builder.Property(e => e.FSeatNumber).HasColumnName("F座位号");
@@ -28,5 +29,7 @@ public class ConfTableSeatConfiguration : IEntityTypeConfiguration<ConfTableSeat
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(e => new { e.FTableId, e.FAttendeeId }).IsUnique().HasDatabaseName("IX_CONF桌次座位_唯一");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF桌次座位_租户ID");
+
     }
 }

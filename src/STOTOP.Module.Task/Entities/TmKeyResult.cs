@@ -2,10 +2,11 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Task.Entities;
 
-public class TmKeyResult : BaseEntity, IOrgScoped
+public class TmKeyResult : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FUID { get; set; } = Guid.NewGuid().ToString("N");
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FGoalId { get; set; }
     public string FTitle { get; set; } = string.Empty;
     public int FMeasureType { get; set; }

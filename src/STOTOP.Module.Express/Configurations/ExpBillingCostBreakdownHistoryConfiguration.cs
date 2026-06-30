@@ -15,6 +15,8 @@ public class ExpBillingCostBreakdownHistoryConfiguration : IEntityTypeConfigurat
         builder.Property(e => e.FCostItemId).HasColumnName("F成本项目ID");
         builder.Property(e => e.FAmount).HasColumnName("F金额").HasPrecision(12, 2);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP出港运单_计费结果_成本明细_历史_租户ID");
         builder.Property(e => e.FArchivedAt).HasColumnName("F归档时间");
 
         builder.HasIndex(e => e.FArchivedAt)

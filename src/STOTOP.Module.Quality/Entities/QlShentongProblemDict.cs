@@ -6,9 +6,10 @@ namespace STOTOP.Module.Quality.Entities;
 /// 申通质量问题字典：把各 STG 来源的问题类型原文归一为统一的问题类型编码/名称、严重度、是否考核、是否可归责。
 /// 表：QL申通_质量问题字典。FID 由 DbContext 统一配 IDENTITY 主键，实体不声明。
 /// </summary>
-public class QlShentongProblemDict : BaseEntity, IOrgScoped
+public class QlShentongProblemDict : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>承运商（固定"申通"）</summary>
     public string F承运商 { get; set; } = "申通";
     /// <summary>质量域（如 物流完整性/派送/签收/投诉/遗失 等）</summary>

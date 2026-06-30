@@ -13,6 +13,8 @@ public class TmKeyResultConfiguration : IEntityTypeConfiguration<TmKeyResult>
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(32).IsRequired();
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM关键成果_租户ID");
         builder.Property(e => e.FGoalId).HasColumnName("F目标ID");
         builder.Property(e => e.FTitle).HasColumnName("F标题").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FMeasureType).HasColumnName("F度量方式");

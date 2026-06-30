@@ -37,9 +37,11 @@ public class CfBatchErrorConfiguration : IEntityTypeConfiguration<CfBatchError>
         builder.Property(e => e.FRetryStatus).HasColumnName("F重跑状态").HasMaxLength(20);
         builder.Property(e => e.FRetryMessage).HasColumnName("F重跑消息").HasMaxLength(500);
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId").HasDefaultValue(0L);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
 
         builder.HasIndex(e => e.FBatchId).HasDatabaseName("IX_CF批次错误_批次");
         builder.HasIndex(e => new { e.FOrgId, e.FDispatchStatus }).HasDatabaseName("IX_CF批次错误_组织派发状态");
         builder.HasIndex(e => new { e.FOrgId, e.FResolutionStatus }).HasDatabaseName("IX_CF批次错误_组织处理状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF批次错误_租户ID");
     }
 }

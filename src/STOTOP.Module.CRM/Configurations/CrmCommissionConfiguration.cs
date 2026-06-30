@@ -21,6 +21,7 @@ public class CrmCommissionConfiguration : IEntityTypeConfiguration<CrmCommission
         builder.Property(e => e.FOaProcessInstanceId).HasColumnName("FOA流程实例ID");
         builder.Property(e => e.FPaymentOrderId).HasColumnName("F付款单ID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FCreatorName).HasColumnName("F创建人").HasMaxLength(50);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdaterName).HasColumnName("F更新人").HasMaxLength(50);
@@ -30,6 +31,7 @@ public class CrmCommissionConfiguration : IEntityTypeConfiguration<CrmCommission
         builder.HasIndex(e => e.FCustomerId).HasDatabaseName("IX_CRM返佣申请_F客户ID");
         builder.HasIndex(e => e.FContractId).HasDatabaseName("IX_CRM返佣申请_F合同ID");
         builder.HasIndex(e => e.FApplicantId).HasDatabaseName("IX_CRM返佣申请_F申请人ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM返佣申请_租户ID");
 
         builder.HasOne(e => e.Customer)
             .WithMany()

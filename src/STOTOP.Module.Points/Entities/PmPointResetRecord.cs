@@ -6,9 +6,10 @@ namespace STOTOP.Module.Points.Entities;
 /// PM积分清算记录 - 月清/年清留痕
 /// 唯一约束：(F组织ID, F员工ID, F账户类型, F清算期间, F清算类型) 保证幂等
 /// </summary>
-public class PmPointResetRecord : BaseEntity, IOrgScoped
+public class PmPointResetRecord : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>员工（用户）ID</summary>
     public long F员工ID { get; set; }
     /// <summary>账户类型：1=A 终身资本 / 2=B 周期清算（清算通常仅作用 B 分）</summary>

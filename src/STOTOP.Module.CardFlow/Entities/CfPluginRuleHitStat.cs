@@ -5,7 +5,7 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// <summary>
 /// CF 插件规则命中统计（从 CfAutoPluginRuleHitStat 迁移而来）
 /// </summary>
-public class CfPluginRuleHitStat : BaseEntity, IOrgScoped
+public class CfPluginRuleHitStat : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>规则ID</summary>
     public long FRuleId { get; set; }
@@ -24,4 +24,5 @@ public class CfPluginRuleHitStat : BaseEntity, IOrgScoped
     /// <summary>是否已失效</summary>
     public bool FInvalidated { get; set; }
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
 }

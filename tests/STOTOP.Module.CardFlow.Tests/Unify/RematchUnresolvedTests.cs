@@ -285,7 +285,7 @@ public class RematchUnresolvedTests
         var options = new DbContextOptionsBuilder<STOTOPDbContext>()
             .UseSqlServer(conn)
             .Options;
-        return new STOTOPDbContext(options);
+        return new STOTOPDbContext(options, new TestOrgContextAccessor());
     }
 
     private static async Task ExecAsync(string conn, string sql, params (string name, object val)[] ps)

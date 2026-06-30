@@ -12,6 +12,7 @@ public class SupBankAccountConfiguration : IEntityTypeConfiguration<SupBankAccou
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FSupplierId).HasColumnName("F供应商ID");
         builder.Property(e => e.FAccountName).HasColumnName("F账户名称").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FBankName).HasColumnName("F银行名称").HasMaxLength(200).IsRequired();
@@ -24,5 +25,6 @@ public class SupBankAccountConfiguration : IEntityTypeConfiguration<SupBankAccou
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
 
         builder.HasIndex(e => e.FSupplierId).HasDatabaseName("IX_SUP收款账户_供应商ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_SUP供应商收款账户_租户ID");
     }
 }

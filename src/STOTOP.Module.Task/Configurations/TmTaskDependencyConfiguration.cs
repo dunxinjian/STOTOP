@@ -12,6 +12,8 @@ public class TmTaskDependencyConfiguration : IEntityTypeConfiguration<TmTaskDepe
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM任务依赖_租户ID");
         builder.Property(e => e.FTaskId).HasColumnName("F任务ID");
         builder.Property(e => e.FDependsOnTaskId).HasColumnName("F依赖任务ID");
         builder.Property(e => e.FDependencyType).HasColumnName("F依赖类型").HasDefaultValue(0);

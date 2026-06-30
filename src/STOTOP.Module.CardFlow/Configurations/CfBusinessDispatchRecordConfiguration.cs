@@ -31,9 +31,11 @@ public class CfBusinessDispatchRecordConfiguration : IEntityTypeConfiguration<Cf
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间").HasDefaultValueSql("GETDATE()");
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId").HasDefaultValue(0L);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
 
         builder.HasIndex(e => e.FBatchId).HasDatabaseName("IX_CF业务派发记录_批次");
         builder.HasIndex(e => e.FStatus).HasDatabaseName("IX_CF业务派发记录_状态");
         builder.HasIndex(e => e.FAssignee).HasDatabaseName("IX_CF业务派发记录_处理人");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF业务派发记录_租户ID");
     }
 }

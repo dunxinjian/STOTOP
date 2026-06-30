@@ -12,6 +12,8 @@ public class TmNotificationConfiguration : IEntityTypeConfiguration<TmNotificati
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM站内通知_租户ID");
         builder.Property(e => e.FReceiverId).HasColumnName("F接收人ID");
         builder.Property(e => e.FEventType).HasColumnName("F事件类型");
         builder.Property(e => e.FTitle).HasColumnName("F标题").HasMaxLength(200).IsRequired();

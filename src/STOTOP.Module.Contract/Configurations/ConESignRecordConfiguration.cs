@@ -12,6 +12,7 @@ public class ConESignRecordConfiguration : IEntityTypeConfiguration<ConESignReco
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FContractId).HasColumnName("F合同ID");
         builder.Property(e => e.FSigner).HasColumnName("F签署人").HasMaxLength(100).IsRequired();
         builder.Property(e => e.FSignerRole).HasColumnName("F签署角色").HasMaxLength(50);
@@ -26,5 +27,6 @@ public class ConESignRecordConfiguration : IEntityTypeConfiguration<ConESignReco
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
 
         builder.HasIndex(e => e.FContractId).HasDatabaseName("IX_CON电子签记录_F合同ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CON电子签记录_租户ID");
     }
 }

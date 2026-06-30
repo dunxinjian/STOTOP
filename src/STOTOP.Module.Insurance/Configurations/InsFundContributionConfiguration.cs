@@ -13,6 +13,7 @@ public class InsFundContributionConfiguration : IEntityTypeConfiguration<InsFund
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(50);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FFundId).HasColumnName("F基金ID").IsRequired();
         builder.Property(e => e.FPolicyId).HasColumnName("F保单ID");
         builder.Property(e => e.FBusinessType).HasColumnName("F业务类型").IsRequired();
@@ -33,5 +34,6 @@ public class InsFundContributionConfiguration : IEntityTypeConfiguration<InsFund
             .HasDatabaseName("IX_INS共保基金缴费_基金ID");
         builder.HasIndex(e => new { e.FBusinessType, e.FRelatedObjectId })
             .HasDatabaseName("IX_INS共保基金缴费_业务关联");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_INS共保基金缴费_租户ID");
     }
 }

@@ -18,6 +18,8 @@ public class ExpClientFeeWaiverConfiguration : IEntityTypeConfiguration<ExpClien
         builder.Property(e => e.FEffectiveDate).HasColumnName("F生效日期");
         builder.Property(e => e.FExpiryDate).HasColumnName("F失效日期");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP费用减免_租户ID");
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
 
         builder.HasIndex(e => new { e.FBusinessObjectId, e.FIsActive }).HasDatabaseName("IX_EXP费用减免_业务对象启用");

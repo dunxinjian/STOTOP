@@ -16,6 +16,8 @@ public class ExpVolumeTierConfiguration : IEntityTypeConfiguration<ExpVolumeTier
         builder.Property(e => e.FQuotationPlanId).HasColumnName("F报价方案ID");
         builder.Property(e => e.FIsActive).HasColumnName("F启用").HasDefaultValue(true);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID").HasDefaultValue(0);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP发件量阶梯_租户ID");
         builder.Property(e => e.FBrandCode).HasColumnName("F品牌编码").HasColumnType("nchar(2)");
 
         builder.HasIndex(e => new { e.FBusinessObjectId, e.FBrandCode, e.FMinMonthlyVolume })

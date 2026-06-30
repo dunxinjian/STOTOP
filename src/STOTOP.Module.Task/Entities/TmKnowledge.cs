@@ -2,13 +2,14 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Task.Entities;
 
-public class TmKnowledge : BaseEntity, IOrgScoped
+public class TmKnowledge : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FUID { get; set; } = Guid.NewGuid().ToString("N");
     public string FTitle { get; set; } = string.Empty;
     public string? FContent { get; set; }
     public int FCategory { get; set; }
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FAuthorId { get; set; }
     public long? FSourceReviewId { get; set; }
     public long? FSourceTaskId { get; set; }

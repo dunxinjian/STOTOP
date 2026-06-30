@@ -27,9 +27,11 @@ public class CfTodoItemConfiguration : IEntityTypeConfiguration<CfTodoItem>
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FCompletedTime).HasColumnName("F完成时间");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
 
         builder.HasIndex(e => new { e.FHandlerId, e.FStatus }).HasDatabaseName("IX_CF待办项_处理人");
         builder.HasIndex(e => e.FCardId).HasDatabaseName("IX_CF待办项_卡片");
         builder.HasIndex(e => new { e.FOrgId, e.FStatus, e.FPriority }).HasDatabaseName("IX_CF待办项_组织状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF待办项_租户ID");
     }
 }

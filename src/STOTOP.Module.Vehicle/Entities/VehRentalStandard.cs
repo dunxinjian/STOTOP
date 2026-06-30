@@ -2,10 +2,11 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Vehicle.Entities;
 
-public class VehRentalStandard : BaseEntity, IOrgScoped
+public class VehRentalStandard : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FUID { get; set; } = Guid.NewGuid().ToString("N");
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string FName { get; set; } = string.Empty;          // 费用标准名称
     public decimal FAmount { get; set; }                       // 金额
     public int FChargeCycle { get; set; }                      // 1=月, 2=季, 3=年

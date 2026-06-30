@@ -12,6 +12,7 @@ public class SysFeedbackActivityConfiguration : IEntityTypeConfiguration<SysFeed
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FFeedbackId).HasColumnName("F反馈ID");
         builder.Property(e => e.FActorId).HasColumnName("F操作人ID");
         builder.Property(e => e.FAction).HasColumnName("F动作").HasMaxLength(50).IsRequired();
@@ -22,5 +23,6 @@ public class SysFeedbackActivityConfiguration : IEntityTypeConfiguration<SysFeed
 
         builder.HasIndex(e => e.FFeedbackId).HasDatabaseName("IX_SYS反馈动态_反馈ID");
         builder.HasIndex(e => new { e.FOrgId, e.FCreateTime }).HasDatabaseName("IX_SYS反馈动态_组织_时间");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_SYS反馈动态_租户ID");
     }
 }

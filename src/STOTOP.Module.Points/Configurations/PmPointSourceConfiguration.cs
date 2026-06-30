@@ -12,6 +12,7 @@ public class PmPointSourceConfiguration : IEntityTypeConfiguration<PmPointSource
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FSourceName).HasColumnName("F来源名称").HasMaxLength(50).IsRequired();
         builder.Property(e => e.FSourceCode).HasColumnName("F来源编码").HasMaxLength(30).IsRequired();
         builder.Property(e => e.FIcon).HasColumnName("F图标").HasMaxLength(50);
@@ -21,5 +22,6 @@ public class PmPointSourceConfiguration : IEntityTypeConfiguration<PmPointSource
         builder.Property(e => e.FIsEnabled).HasColumnName("F是否启用").HasDefaultValue(true);
 
         builder.HasIndex(e => new { e.FOrgId, e.FSourceCode }).IsUnique().HasDatabaseName("UQ_PM积分来源_组织_编码");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_PM积分来源_租户ID");
     }
 }

@@ -12,6 +12,8 @@ public class ExpPriceSurchargeConfiguration : IEntityTypeConfiguration<ExpPriceS
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP快递报价_出港加收_租户ID");
         builder.Property(e => e.FBrandCode).HasColumnName("F品牌编码").HasColumnType("NCHAR(2)").IsRequired().HasDefaultValue("");
         builder.Property(e => e.FSourceId).HasColumnName("F源FID");
         builder.Property(e => e.FName).HasColumnName("F名称").HasMaxLength(200).IsRequired();

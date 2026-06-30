@@ -12,6 +12,7 @@ public class ConfMealAttendeeConfiguration : IEntityTypeConfiguration<ConfMealAt
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FMealPlanId).HasColumnName("F餐食计划ID");
         builder.Property(e => e.FAttendeeId).HasColumnName("F参会人ID");
         builder.Property(e => e.FDietNote).HasColumnName("F饮食备注").HasMaxLength(100);
@@ -27,5 +28,7 @@ public class ConfMealAttendeeConfiguration : IEntityTypeConfiguration<ConfMealAt
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(e => new { e.FMealPlanId, e.FAttendeeId }).IsUnique().HasDatabaseName("IX_CONF餐食人员_唯一");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF餐食人员_租户ID");
+
     }
 }

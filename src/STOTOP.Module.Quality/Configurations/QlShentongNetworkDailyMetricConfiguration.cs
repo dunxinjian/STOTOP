@@ -12,6 +12,7 @@ public class QlShentongNetworkDailyMetricConfiguration : IEntityTypeConfiguratio
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F承运商).HasColumnName("F承运商").HasMaxLength(50).IsRequired();
         builder.Property(e => e.F业务日期).HasColumnName("F业务日期");
         builder.Property(e => e.F统计年月).HasColumnName("F统计年月").HasMaxLength(20);
@@ -90,5 +91,7 @@ public class QlShentongNetworkDailyMetricConfiguration : IEntityTypeConfiguratio
         builder.HasIndex(e => new { e.FOrgId, e.F承运商, e.F业务日期, e.F网点编码 })
             .IsUnique()
             .HasDatabaseName("UX_QL申通_网点日质量指标_日期网点");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_QL申通_网点日质量指标_租户ID");
     }
 }

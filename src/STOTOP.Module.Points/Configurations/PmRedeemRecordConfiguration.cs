@@ -12,6 +12,7 @@ public class PmRedeemRecordConfiguration : IEntityTypeConfiguration<PmRedeemReco
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FUserId).HasColumnName("F用户ID");
         builder.Property(e => e.FItemId).HasColumnName("F商品ID");
         builder.Property(e => e.FDeductedPoints).HasColumnName("F扣除积分");
@@ -23,5 +24,6 @@ public class PmRedeemRecordConfiguration : IEntityTypeConfiguration<PmRedeemReco
 
         builder.HasIndex(e => e.FUserId).HasDatabaseName("IX_PM兑换记录_用户ID");
         builder.HasIndex(e => e.FStatus).HasDatabaseName("IX_PM兑换记录_状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_PM兑换记录_租户ID");
     }
 }

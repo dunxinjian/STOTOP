@@ -2,10 +2,11 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Vehicle.Entities;
 
-public class VehVehicle : BaseEntity, IOrgScoped
+public class VehVehicle : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FUID { get; set; } = Guid.NewGuid().ToString("N");
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string FCode { get; set; } = string.Empty;        // 车辆编号
     public string? FPlateNumber { get; set; }                  // 车牌号
     public string? FBrand { get; set; }                        // 品牌型号

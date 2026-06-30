@@ -14,6 +14,8 @@ public class TmPerformancePeriodConfiguration : IEntityTypeConfiguration<TmPerfo
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(32).IsRequired();
         builder.Property(e => e.FName).HasColumnName("F名称").HasMaxLength(100).IsRequired();
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM绩效考核周期_租户ID");
         builder.Property(e => e.FType).HasColumnName("F类型");
         builder.Property(e => e.FStartDate).HasColumnName("F开始日期");
         builder.Property(e => e.FEndDate).HasColumnName("F截止日期");

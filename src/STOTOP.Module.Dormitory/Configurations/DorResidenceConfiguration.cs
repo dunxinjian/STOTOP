@@ -12,6 +12,7 @@ public class DorResidenceConfiguration : IEntityTypeConfiguration<DorResidence>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FBedId).HasColumnName("F床位ID").IsRequired();
         builder.Property(e => e.FEmployeeId).HasColumnName("F员工ID").IsRequired();
         builder.Property(e => e.FCheckInDate).HasColumnName("F入住日期").IsRequired();
@@ -24,6 +25,7 @@ public class DorResidenceConfiguration : IEntityTypeConfiguration<DorResidence>
 
         builder.HasIndex(e => e.FEmployeeId).HasDatabaseName("IX_DOR入住记录_员工ID");
         builder.HasIndex(e => e.FBedId).HasDatabaseName("IX_DOR入住记录_床位ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_DOR入住记录_租户ID");
 
         builder.HasOne(e => e.Bed)
             .WithMany()

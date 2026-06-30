@@ -6,9 +6,10 @@ namespace STOTOP.Module.Quality.Entities;
 /// 申通员工日质量指标：按 业务日期×网点×员工 聚合的员工口径质量指标。
 /// 表：QL申通_员工日质量指标。FID 由 DbContext 统一配 IDENTITY 主键，实体不声明。
 /// </summary>
-public class QlShentongEmployeeDailyMetric : BaseEntity, IOrgScoped
+public class QlShentongEmployeeDailyMetric : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>承运商（固定"申通"）</summary>
     public string F承运商 { get; set; } = "申通";
     /// <summary>业务日期</summary>

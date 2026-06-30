@@ -39,6 +39,8 @@ public class ExpBillingResultConfiguration : IEntityTypeConfiguration<ExpBilling
         builder.Property(e => e.FNetworkPointCode).HasColumnName("F归属网点编号").HasMaxLength(50);
         builder.Property(e => e.FTotalCost).HasColumnName("F成本合计").HasColumnType("DECIMAL(12,2)");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP出港运单_计费结果_租户ID");
         builder.Property(e => e.FCostMode).HasColumnName("F成本计算模式").HasDefaultValue(1);
 
         builder.HasIndex(e => new { e.FPartyClientId, e.FWaybillDate, e.FInvoiceId })

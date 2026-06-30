@@ -12,6 +12,8 @@ public class ExpPrepaymentTransactionConfiguration : IEntityTypeConfiguration<Ex
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP预付款流水_租户ID");
         builder.Property(e => e.FBusinessObjectId).HasColumnName("F业务对象ID").HasMaxLength(50).IsRequired();
         builder.Property(e => e.FTransactionType).HasColumnName("F交易类型");
         builder.Property(e => e.FAmount).HasColumnName("F金额").HasPrecision(14, 2);

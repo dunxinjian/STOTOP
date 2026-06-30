@@ -12,6 +12,7 @@ public class SalaryArchiveConfiguration : IEntityTypeConfiguration<SalaryArchive
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F员工ID).HasColumnName("F员工ID");
         builder.Property(e => e.F档位ID).HasColumnName("F档位ID");
         builder.Property(e => e.F入档日期).HasColumnName("F入档日期");
@@ -25,5 +26,6 @@ public class SalaryArchiveConfiguration : IEntityTypeConfiguration<SalaryArchive
         builder.Property(e => e.F更新时间).HasColumnName("F更新时间").HasDefaultValueSql("GETDATE()");
 
         builder.HasIndex(e => new { e.FOrgId, e.F员工ID }).IsUnique().HasDatabaseName("UQ_SAL员工薪酬档案_组织_员工");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_SAL员工薪酬档案_租户ID");
     }
 }

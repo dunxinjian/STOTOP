@@ -12,6 +12,7 @@ public class WfRevokeLogConfiguration : IEntityTypeConfiguration<WfRevokeLog>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FChainId).HasColumnName("F链路ID").HasMaxLength(64);
         builder.Property(e => e.FDataScopeId).HasColumnName("F数据作用域ID").HasMaxLength(64);
         builder.Property(e => e.FOperatorId).HasColumnName("F操作人ID");
@@ -28,5 +29,6 @@ public class WfRevokeLogConfiguration : IEntityTypeConfiguration<WfRevokeLog>
         // 索引
         builder.HasIndex(e => e.FChainId).HasDatabaseName("IX_WF撤销日志_链路ID");
         builder.HasIndex(e => e.FDataScopeId).HasDatabaseName("IX_WF撤销日志_数据作用域");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_WF撤销日志_租户ID");
     }
 }

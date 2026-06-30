@@ -13,6 +13,7 @@ public class PmRedeemItemConfiguration : IEntityTypeConfiguration<PmRedeemItem>
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(64).IsRequired();
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FName).HasColumnName("F名称").HasMaxLength(100).IsRequired();
         builder.Property(e => e.FCategory).HasColumnName("F分类").HasDefaultValue(0);
         builder.Property(e => e.FDescription).HasColumnName("F描述").HasMaxLength(500).IsRequired();
@@ -27,5 +28,6 @@ public class PmRedeemItemConfiguration : IEntityTypeConfiguration<PmRedeemItem>
 
         builder.HasIndex(e => e.FUID).IsUnique();
         builder.HasIndex(e => new { e.FOrgId, e.FStatus }).HasDatabaseName("IX_PM兑换商品_组织_状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_PM兑换商品_租户ID");
     }
 }

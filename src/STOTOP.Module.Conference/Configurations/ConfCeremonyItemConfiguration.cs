@@ -12,6 +12,7 @@ public class ConfCeremonyItemConfiguration : IEntityTypeConfiguration<ConfCeremo
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FEventId).HasColumnName("F活动ID");
         builder.Property(e => e.FName).HasColumnName("F环节名称").HasMaxLength(100).IsRequired();
         builder.Property(e => e.FStartTime).HasColumnName("F开始时间").HasMaxLength(10);
@@ -32,5 +33,7 @@ public class ConfCeremonyItemConfiguration : IEntityTypeConfiguration<ConfCeremo
 
         builder.HasIndex(e => e.FEventId).HasDatabaseName("IX_CONF仪式流程_活动ID");
         builder.HasIndex(e => e.FSort).HasDatabaseName("IX_CONF仪式流程_排序");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF仪式流程_租户ID");
+
     }
 }

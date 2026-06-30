@@ -12,6 +12,7 @@ public class DorFacilityConfiguration : IEntityTypeConfiguration<DorFacility>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FRoomId).HasColumnName("F房间ID").IsRequired();
         builder.Property(e => e.FFacilityName).HasColumnName("F设施名称").HasMaxLength(100).IsRequired();
         builder.Property(e => e.FQuantity).HasColumnName("F数量").HasDefaultValue(1);
@@ -21,6 +22,7 @@ public class DorFacilityConfiguration : IEntityTypeConfiguration<DorFacility>
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
 
         builder.HasIndex(e => e.FRoomId).HasDatabaseName("IX_DOR设施登记_房间ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_DOR设施登记_租户ID");
 
         builder.HasOne(e => e.Room)
             .WithMany()

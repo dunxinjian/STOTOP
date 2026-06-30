@@ -12,6 +12,7 @@ public class ConContractTemplateConfiguration : IEntityTypeConfiguration<ConCont
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FTypeId).HasColumnName("F类型ID");
         builder.Property(e => e.FTemplateName).HasColumnName("F模板名称").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FTemplateContent).HasColumnName("F模板内容").HasColumnType("nvarchar(max)");
@@ -23,6 +24,7 @@ public class ConContractTemplateConfiguration : IEntityTypeConfiguration<ConCont
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
 
         builder.HasIndex(e => e.FTypeId).HasDatabaseName("IX_CON合同模板_F类型ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CON合同模板_租户ID");
 
         builder.HasOne(e => e.Type)
             .WithMany()

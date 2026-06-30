@@ -12,6 +12,7 @@ public class CfPluginDefConfiguration : IEntityTypeConfiguration<CfPluginDef>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F插件名称).HasColumnName("F插件名称").HasMaxLength(100);
         builder.Property(e => e.F插件类型).HasColumnName("F插件类型").HasMaxLength(50);
         builder.Property(e => e.F插件实现类型).HasColumnName("F插件实现类型").HasMaxLength(200);
@@ -28,6 +29,7 @@ public class CfPluginDefConfiguration : IEntityTypeConfiguration<CfPluginDef>
         builder.Property(e => e.F规则ID).HasColumnName("F规则ID");
 
         builder.HasIndex(e => e.FOrgId).HasDatabaseName("IX_CF自动插件_组织ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF自动插件_租户ID");
 
         builder.HasOne(e => e.Rule)
             .WithMany()

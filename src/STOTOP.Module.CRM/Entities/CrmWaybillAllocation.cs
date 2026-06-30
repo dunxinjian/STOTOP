@@ -2,7 +2,7 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.CRM.Entities;
 
-public class CrmWaybillAllocation : BaseEntity, IOrgScoped
+public class CrmWaybillAllocation : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FPrepaymentId { get; set; }
     public string FCustomerId { get; set; } = string.Empty;
@@ -14,6 +14,7 @@ public class CrmWaybillAllocation : BaseEntity, IOrgScoped
     public long FOperatorId { get; set; }
     public int FStatus { get; set; } = 1;
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string? FCreatorName { get; set; }
     public DateTime FCreatedTime { get; set; } = DateTime.Now;
     public string? FUpdaterName { get; set; }

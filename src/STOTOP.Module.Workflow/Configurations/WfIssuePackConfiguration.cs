@@ -13,6 +13,7 @@ public class WfIssuePackConfiguration : IEntityTypeConfiguration<WfIssuePack>
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(32).IsRequired();
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FChainId).HasColumnName("F链路ID").HasMaxLength(64);
         builder.Property(e => e.FWorkItemId).HasColumnName("F工作项ID");
         builder.Property(e => e.FIssueType).HasColumnName("F问题类型").HasMaxLength(100).IsRequired();
@@ -28,6 +29,7 @@ public class WfIssuePackConfiguration : IEntityTypeConfiguration<WfIssuePack>
         builder.HasIndex(e => e.FChainId).HasDatabaseName("IX_WF问题包_链路ID");
         builder.HasIndex(e => e.FWorkItemId).HasDatabaseName("IX_WF问题包_工作项ID");
         builder.HasIndex(e => e.FBatchId).HasDatabaseName("IX_WF问题包_批次ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_WF问题包_租户ID");
 
         // 关系
         builder.HasOne(e => e.WorkItem)

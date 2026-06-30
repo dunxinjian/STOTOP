@@ -21,6 +21,7 @@ public class CrmCustomerConfiguration : IEntityTypeConfiguration<CrmCustomer>
         builder.Property(e => e.FScale).HasColumnName("F规模").HasMaxLength(50);
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasDefaultValue(1);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FBdEmployeeId).HasColumnName("FBD员工ID");
         builder.Property(e => e.FMaintenanceEmployeeId).HasColumnName("F运维员工ID");
         builder.Property(e => e.FCreatorName).HasColumnName("F创建人").HasMaxLength(50);
@@ -54,6 +55,7 @@ public class CrmCustomerConfiguration : IEntityTypeConfiguration<CrmCustomer>
         builder.HasIndex(e => e.FBdEmployeeId).HasDatabaseName("IX_CRM客户_FBD员工ID");
         builder.HasIndex(e => e.FMaintenanceEmployeeId).HasDatabaseName("IX_CRM客户_F运维员工ID");
         builder.HasIndex(e => e.FStatus).HasDatabaseName("IX_CRM客户_F状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM客户_租户ID");
 
         builder.HasMany(e => e.Contacts)
             .WithOne(e => e.Customer)

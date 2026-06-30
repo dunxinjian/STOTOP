@@ -5,7 +5,7 @@ namespace STOTOP.Module.Express.Entities;
 /// <summary>
 /// 计费结果历史（归档）
 /// </summary>
-public class ExpBillingResultHistory : BaseEntity, IOrgScoped
+public class ExpBillingResultHistory : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>批次ID</summary>
     public long FBatchId { get; set; }
@@ -61,6 +61,7 @@ public class ExpBillingResultHistory : BaseEntity, IOrgScoped
     public decimal FTotalCost { get; set; }
     /// <summary>组织ID</summary>
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>归档时间</summary>
     public DateTime FArchivedAt { get; set; } = DateTime.Now;
 }

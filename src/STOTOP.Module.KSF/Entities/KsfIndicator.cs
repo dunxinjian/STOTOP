@@ -5,9 +5,10 @@ namespace STOTOP.Module.KSF.Entities;
 /// <summary>
 /// KSF 指标定义
 /// </summary>
-public class KsfIndicator : BaseEntity, IOrgScoped
+public class KsfIndicator : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>指标编码（组织内唯一）</summary>
     public string F编码 { get; set; } = string.Empty;
     /// <summary>指标名称</summary>

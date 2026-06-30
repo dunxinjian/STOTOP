@@ -12,6 +12,7 @@ public class SalaryPayrollConfiguration : IEntityTypeConfiguration<SalaryPayroll
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F员工ID).HasColumnName("F员工ID");
         builder.Property(e => e.F期间).HasColumnName("F期间").HasMaxLength(6).IsRequired();
         builder.Property(e => e.F基本工资).HasColumnName("F基本工资").HasColumnType("decimal(18,2)").HasDefaultValue(0m);
@@ -31,5 +32,6 @@ public class SalaryPayrollConfiguration : IEntityTypeConfiguration<SalaryPayroll
         builder.Property(e => e.F创建时间).HasColumnName("F创建时间").HasDefaultValueSql("GETDATE()");
 
         builder.HasIndex(e => new { e.FOrgId, e.F员工ID, e.F期间 }).IsUnique().HasDatabaseName("UQ_SAL月度工资单_员工_期间");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_SAL月度工资单_租户ID");
     }
 }

@@ -19,8 +19,10 @@ public class CfCardRelationConfiguration : IEntityTypeConfiguration<CfCardRelati
         builder.Property(e => e.FSnapshotDataJson).HasColumnName("F快照数据JSON");
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
 
         builder.HasIndex(e => e.FSourceCardId).HasDatabaseName("IX_CF卡片关联_源");
         builder.HasIndex(e => e.FTargetCardId).HasDatabaseName("IX_CF卡片关联_目标");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF卡片关联_租户ID");
     }
 }

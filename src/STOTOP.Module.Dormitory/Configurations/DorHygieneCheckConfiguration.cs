@@ -12,6 +12,7 @@ public class DorHygieneCheckConfiguration : IEntityTypeConfiguration<DorHygieneC
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FRoomId).HasColumnName("F房间ID").IsRequired();
         builder.Property(e => e.FInspectorId).HasColumnName("F检查人ID").IsRequired();
         builder.Property(e => e.FCheckDate).HasColumnName("F检查日期").IsRequired();
@@ -22,6 +23,7 @@ public class DorHygieneCheckConfiguration : IEntityTypeConfiguration<DorHygieneC
 
         builder.HasIndex(e => e.FRoomId).HasDatabaseName("IX_DOR卫生检查_房间ID");
         builder.HasIndex(e => e.FCheckDate).HasDatabaseName("IX_DOR卫生检查_检查日期");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_DOR卫生检查_租户ID");
 
         builder.HasOne(e => e.Room)
             .WithMany()

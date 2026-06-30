@@ -3,9 +3,10 @@ using STOTOP.Core.Models;
 namespace STOTOP.Module.Conference.Entities;
 
 /// <summary>参会人员</summary>
-public class ConfAttendee : BaseEntity, IOrgScoped
+public class ConfAttendee : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FEventId { get; set; }
     public string FName { get; set; } = string.Empty;
     public string? FGender { get; set; }

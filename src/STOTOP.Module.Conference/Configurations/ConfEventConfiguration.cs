@@ -12,6 +12,7 @@ public class ConfEventConfiguration : IEntityTypeConfiguration<ConfEvent>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FName).HasColumnName("F名称").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FDescription).HasColumnName("F描述");
         builder.Property(e => e.FStartDate).HasColumnName("F开始日期").HasColumnType("date");
@@ -88,5 +89,7 @@ public class ConfEventConfiguration : IEntityTypeConfiguration<ConfEvent>
             .WithOne(e => e.Event)
             .HasForeignKey(e => e.FEventId)
             .OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF活动_租户ID");
+
     }
 }

@@ -5,9 +5,10 @@ namespace STOTOP.Module.KSF.Entities;
 /// <summary>
 /// KSF 结果明细
 /// </summary>
-public class KsfResultDetail : BaseEntity, IOrgScoped
+public class KsfResultDetail : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>FK → KsfResult.FID</summary>
     public long F结果ID { get; set; }
     public long F指标ID { get; set; }

@@ -12,6 +12,8 @@ public class ExpPolicyRebateSettlementConfiguration : IEntityTypeConfiguration<E
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP政策返利结算_租户ID");
         builder.Property(e => e.FPolicyRebateId).HasColumnName("F政策返利ID");
         builder.Property(e => e.FBrandCode).HasColumnName("F品牌编码").HasColumnType("NCHAR(2)");
         builder.Property(e => e.F品牌ID).HasColumnName("F品牌ID");

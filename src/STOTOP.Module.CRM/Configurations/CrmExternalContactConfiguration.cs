@@ -19,9 +19,12 @@ public class CrmExternalContactConfiguration : IEntityTypeConfiguration<CrmExter
         builder.Property(e => e.FRemark).HasColumnName("F备注").HasMaxLength(500);
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasDefaultValue(0);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FCreatorName).HasColumnName("F创建人").HasMaxLength(50);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdaterName).HasColumnName("F更新人").HasMaxLength(50);
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM外部联系人_租户ID");
     }
 }

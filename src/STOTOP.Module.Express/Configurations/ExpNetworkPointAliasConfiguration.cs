@@ -15,6 +15,8 @@ public class ExpNetworkPointAliasConfiguration : IEntityTypeConfiguration<ExpNet
         builder.Property(e => e.FName).HasColumnName("F名称").HasMaxLength(100).IsRequired();
         builder.Property(e => e.FNetworkPointCode).HasColumnName("F网点编号").HasMaxLength(50).IsRequired();
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP快递网点名称映射_租户ID");
 
         builder.HasIndex(e => e.FNetworkPointCode).HasDatabaseName("IX_快递网点名称映射_网点编号");
         builder.HasIndex(e => new { e.FName, e.FOrgId }).IsUnique().HasDatabaseName("UQ_快递网点名称映射_名称组织");

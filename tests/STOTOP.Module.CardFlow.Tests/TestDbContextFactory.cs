@@ -27,7 +27,7 @@ public static class TestDbContextFactory
             .EnableSensitiveDataLogging()
             .Options;
 
-        return new STOTOPDbContext(options);
+        return new STOTOPDbContext(options, new TestOrgContextAccessor());
     }
 
     public static STOTOPDbContext Create(string databaseName, long? currentOrgId)

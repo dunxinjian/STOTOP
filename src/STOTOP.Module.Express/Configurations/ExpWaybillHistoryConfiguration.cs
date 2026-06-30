@@ -12,6 +12,8 @@ public class ExpWaybillHistoryConfiguration : IEntityTypeConfiguration<ExpWaybil
 
         builder.Property(e => e.FID).HasColumnName("FID").ValueGeneratedNever();
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP出港运单_历史_租户ID");
         builder.Property(e => e.FWaybillNo).HasColumnName("F运单编号").HasMaxLength(30).IsRequired();
         builder.Property(e => e.FBrandCode).HasColumnName("F品牌编码").HasColumnType("NCHAR(2)");
         builder.Property(e => e.FShopName).HasColumnName("F店铺名称").HasMaxLength(100).IsRequired();

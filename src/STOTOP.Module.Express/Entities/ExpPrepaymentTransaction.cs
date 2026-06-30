@@ -5,10 +5,11 @@ namespace STOTOP.Module.Express.Entities;
 /// <summary>
 /// 预付款流水
 /// </summary>
-public class ExpPrepaymentTransaction : BaseEntity, IOrgScoped
+public class ExpPrepaymentTransaction : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>组织ID</summary>
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>业务对象ID（F编号）</summary>
     public string FBusinessObjectId { get; set; } = string.Empty;
     /// <summary>交易类型 1充值 2核销 3退款</summary>

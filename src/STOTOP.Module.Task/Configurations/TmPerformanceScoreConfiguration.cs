@@ -12,6 +12,8 @@ public class TmPerformanceScoreConfiguration : IEntityTypeConfiguration<TmPerfor
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM绩效维度评分_租户ID");
         builder.Property(e => e.FRecordId).HasColumnName("F考核记录ID");
         builder.Property(e => e.FDimensionId).HasColumnName("F维度ID");
         builder.Property(e => e.FScore).HasColumnName("F得分").HasColumnType("decimal(5,2)");

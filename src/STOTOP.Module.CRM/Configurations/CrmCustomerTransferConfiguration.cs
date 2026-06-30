@@ -22,6 +22,7 @@ public class CrmCustomerTransferConfiguration : IEntityTypeConfiguration<CrmCust
         builder.Property(e => e.FReason).HasColumnName("F原因").HasMaxLength(500);
         builder.Property(e => e.FOperatorId).HasColumnName("F操作人ID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FCreatorName).HasColumnName("F创建人").HasMaxLength(50);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdaterName).HasColumnName("F更新人").HasMaxLength(50);
@@ -29,5 +30,6 @@ public class CrmCustomerTransferConfiguration : IEntityTypeConfiguration<CrmCust
 
         builder.HasIndex(e => e.FCustomerId).HasDatabaseName("IX_CRM客户流转记录_F客户ID");
         builder.HasIndex(e => e.FOperatorId).HasDatabaseName("IX_CRM客户流转记录_F操作人ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM客户流转记录_租户ID");
     }
 }

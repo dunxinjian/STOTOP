@@ -49,7 +49,7 @@ public class InfoIndexMultiSheetImportIntegrationTests
         var options = new DbContextOptionsBuilder<STOTOPDbContext>()
             .UseSqlServer(conn)
             .Options;
-        return new STOTOPDbContext(options);
+        return new STOTOPDbContext(options, new TestOrgContextAccessor());
     }
 
     private sealed class NoopProgressReporter : IPluginProgressReporter

@@ -16,6 +16,7 @@ public class CrmBonusDetailConfiguration : IEntityTypeConfiguration<CrmBonusDeta
         builder.Property(e => e.FAmount).HasColumnName("F金额").HasColumnType("decimal(14,2)").HasDefaultValue(0m);
         builder.Property(e => e.FBonusType).HasColumnName("F奖金类型");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FCreatorName).HasColumnName("F创建人").HasMaxLength(50);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdaterName).HasColumnName("F更新人").HasMaxLength(50);
@@ -23,5 +24,6 @@ public class CrmBonusDetailConfiguration : IEntityTypeConfiguration<CrmBonusDeta
 
         builder.HasIndex(e => e.FPlanId).HasDatabaseName("IX_CRM奖金明细_F方案ID");
         builder.HasIndex(e => e.FEmployeeId).HasDatabaseName("IX_CRM奖金明细_F员工ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM奖金明细_租户ID");
     }
 }

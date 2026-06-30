@@ -20,6 +20,7 @@ public class CfFlowDefinitionConfiguration : IEntityTypeConfiguration<CfFlowDefi
         builder.Property(e => e.FAllowedRolesJson).HasColumnName("F可发起角色JSON");
         builder.Property(e => e.FFlowGroupId).HasColumnName("F流程组ID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FAccountSetId).HasColumnName("F账套ID");
         builder.Property(e => e.FTriggerConfigJson).HasColumnName("F触发配置JSON");
         builder.Property(e => e.FMatchPattern).HasColumnName("F匹配规则").HasColumnType("nvarchar(max)");
@@ -31,5 +32,6 @@ public class CfFlowDefinitionConfiguration : IEntityTypeConfiguration<CfFlowDefi
 
         builder.HasIndex(e => new { e.FFlowCode, e.FOrgId }).IsUnique().HasDatabaseName("IX_CF卡片流程_编码_组织");
         builder.HasIndex(e => new { e.FOrgId, e.FStatus }).HasDatabaseName("IX_CF卡片流程_组织状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF卡片流程_租户ID");
     }
 }

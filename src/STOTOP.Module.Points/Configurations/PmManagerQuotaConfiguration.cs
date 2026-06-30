@@ -12,6 +12,7 @@ public class PmManagerQuotaConfiguration : IEntityTypeConfiguration<PmManagerQuo
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FManagerId).HasColumnName("F管理者ID");
         builder.Property(e => e.FYearMonth).HasColumnName("F年月").HasMaxLength(7).IsRequired();
         builder.Property(e => e.FAwardQuota).HasColumnName("F奖分配额");
@@ -22,5 +23,6 @@ public class PmManagerQuotaConfiguration : IEntityTypeConfiguration<PmManagerQuo
         builder.Property(e => e.FCreateTime).HasColumnName("F创建时间").HasDefaultValueSql("GETDATE()");
 
         builder.HasIndex(e => new { e.FOrgId, e.FManagerId, e.FYearMonth }).IsUnique().HasDatabaseName("UQ_PM管理层奖扣任务_组织_管理者_年月");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_PM管理层奖扣任务_租户ID");
     }
 }

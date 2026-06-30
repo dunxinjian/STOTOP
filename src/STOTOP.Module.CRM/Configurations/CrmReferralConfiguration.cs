@@ -13,6 +13,7 @@ public class CrmReferralConfiguration : IEntityTypeConfiguration<CrmReferral>
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FCustomerId).HasColumnName("F客户ID").HasMaxLength(50);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FReferrerType).HasColumnName("F推荐人类型");
         builder.Property(e => e.FEmployeeId).HasColumnName("F员工ID");
         builder.Property(e => e.FExternalContactId).HasColumnName("F外部联系人ID");
@@ -28,6 +29,7 @@ public class CrmReferralConfiguration : IEntityTypeConfiguration<CrmReferral>
         builder.HasIndex(e => e.FOrgId).HasDatabaseName("IX_CRM推荐记录_F组织ID");
         builder.HasIndex(e => e.FEmployeeId).HasDatabaseName("IX_CRM推荐记录_F员工ID");
         builder.HasIndex(e => e.FExternalContactId).HasDatabaseName("IX_CRM推荐记录_F外部联系人ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM推荐记录_租户ID");
 
         builder.HasOne(e => e.Customer)
             .WithMany()

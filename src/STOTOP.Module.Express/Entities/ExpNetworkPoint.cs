@@ -6,7 +6,7 @@ namespace STOTOP.Module.Express.Entities;
 /// <summary>
 /// 快递网点（主键为 F编号，不继承 BaseEntity）
 /// </summary>
-public class ExpNetworkPoint : IOrgOwned
+public class ExpNetworkPoint : IOrgOwned, ITenantScoped
 {
     /// <summary>编号（主键）</summary>
     public string FCode { get; set; } = string.Empty;
@@ -16,6 +16,7 @@ public class ExpNetworkPoint : IOrgOwned
     public long FOrgId { get; set; }
     /// <summary>所属组织ID（数据隔离用）</summary>
     public long FOwnerOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>网点级别</summary>
     public int FPointLevel { get; set; } = 1;
     /// <summary>是否一级网点 1是 0否</summary>

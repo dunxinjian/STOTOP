@@ -12,6 +12,7 @@ public class DorExpenseConfiguration : IEntityTypeConfiguration<DorExpense>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FRoomId).HasColumnName("F房间ID").IsRequired();
         builder.Property(e => e.FExpenseType).HasColumnName("F费用类型").HasMaxLength(50).IsRequired();
         builder.Property(e => e.FAmount).HasColumnName("F金额").HasPrecision(18, 2).IsRequired();
@@ -25,6 +26,7 @@ public class DorExpenseConfiguration : IEntityTypeConfiguration<DorExpense>
 
         builder.HasIndex(e => e.FRoomId).HasDatabaseName("IX_DOR费用记录_房间ID");
         builder.HasIndex(e => e.FMonth).HasDatabaseName("IX_DOR费用记录_月份");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_DOR费用记录_租户ID");
 
         builder.HasOne(e => e.Room)
             .WithMany()

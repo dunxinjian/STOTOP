@@ -16,11 +16,13 @@ public static class TestDbContextFactory
             .EnableSensitiveDataLogging()
             .Options;
 
-        return new STOTOPDbContext(options, orgId.HasValue ? new TestOrgContextAccessor(orgId.Value) : null);
+        return new STOTOPDbContext(options, new TestOrgContextAccessor { CurrentOrgId = orgId });
     }
 
-    private sealed class TestOrgContextAccessor(long orgId) : IOrgContextAccessor
+    private sealed class TestOrgContextAccessor : IOrgContextAccessor
     {
-        public long? CurrentOrgId { get; set; } = orgId;
+        public long? CurrentOrgId { get; set; }
+        public long? CurrentTenantId { get; set; } = 1;
+        public bool IsPlatformScope { get; set; }
     }
 }

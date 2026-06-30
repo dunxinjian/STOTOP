@@ -14,6 +14,8 @@ public class ExpNetworkPointConfiguration : IEntityTypeConfiguration<ExpNetworkP
         builder.Property(e => e.FCode).HasColumnName("F编号").HasMaxLength(50);
         builder.Property(e => e.FShortName).HasColumnName("F网点简称").HasMaxLength(50);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP快递网点_租户ID");
         builder.Property(e => e.FOwnerOrgId).HasColumnName("F所属组织ID");
         builder.Property(e => e.FPointLevel).HasColumnName("F网点级别").HasDefaultValue(1);
         builder.Property(e => e.FIsPrimaryPoint).HasColumnName("F是否一级网点").HasDefaultValue(1);

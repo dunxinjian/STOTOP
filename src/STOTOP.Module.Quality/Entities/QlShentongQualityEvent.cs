@@ -6,9 +6,10 @@ namespace STOTOP.Module.Quality.Entities;
 /// 申通承运商质量事件：各 STG 来源明细归一后的单条质量事件（一行一事件），是统一质控的事实表。
 /// 表：QL申通_承运商质量事件。FID 由 DbContext 统一配 IDENTITY 主键，实体不声明。
 /// </summary>
-public class QlShentongQualityEvent : BaseEntity, IOrgScoped
+public class QlShentongQualityEvent : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>承运商（固定"申通"）</summary>
     public string F承运商 { get; set; } = "申通";
     /// <summary>业务日期</summary>

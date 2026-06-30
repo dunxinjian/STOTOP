@@ -2,10 +2,11 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.CRM.Entities;
 
-public class CrmServiceFeedback : BaseEntity, IOrgScoped
+public class CrmServiceFeedback : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FSubmitterId { get; set; }
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string? FCustomerId { get; set; }
     public long? FOrderId { get; set; }
     public int FCategory { get; set; }

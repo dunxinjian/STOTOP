@@ -15,6 +15,7 @@ public class CfOrchestrationTemplateConfiguration : IEntityTypeConfiguration<CfO
         builder.Property(e => e.FName).HasColumnName("F名称").HasMaxLength(100);
         builder.Property(e => e.FDescription).HasColumnName("F描述").HasMaxLength(500);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FNodesJson).HasColumnName("F节点JSON");
         builder.Property(e => e.FEdgesJson).HasColumnName("F边JSON");
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasMaxLength(20);
@@ -29,5 +30,6 @@ public class CfOrchestrationTemplateConfiguration : IEntityTypeConfiguration<CfO
             .HasDatabaseName("IX_CF编排模板_编码_组织");
         builder.HasIndex(e => new { e.FOrgId, e.FStatus })
             .HasDatabaseName("IX_CF编排模板_组织状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF编排模板_租户ID");
     }
 }

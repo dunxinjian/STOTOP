@@ -13,6 +13,7 @@ public class SysFeedbackCardConfiguration : IEntityTypeConfiguration<SysFeedback
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(64).IsRequired();
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FTitle).HasColumnName("F标题").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FType).HasColumnName("F类型");
         builder.Property(e => e.FModule).HasColumnName("F所属模块").HasMaxLength(100).IsRequired();
@@ -38,5 +39,6 @@ public class SysFeedbackCardConfiguration : IEntityTypeConfiguration<SysFeedback
         builder.HasIndex(e => new { e.FOrgId, e.FSeverity }).HasDatabaseName("IX_SYS反馈卡片_组织_严重程度");
         builder.HasIndex(e => e.FSubmitterId).HasDatabaseName("IX_SYS反馈卡片_提交人");
         builder.HasIndex(e => e.FAssigneeId).HasDatabaseName("IX_SYS反馈卡片_负责人");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_SYS反馈卡片_租户ID");
     }
 }

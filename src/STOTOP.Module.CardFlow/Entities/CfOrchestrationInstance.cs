@@ -6,10 +6,11 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// CF 编排实例：编排模板的一次运行实例。
 /// 状态机：running / completed / terminated / failed / cancelled / paused
 /// </summary>
-public class CfOrchestrationInstance : BaseEntity, IOrgScoped
+public class CfOrchestrationInstance : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FTemplateId { get; set; }
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>running / completed / terminated / failed / cancelled / paused</summary>
     public string FStatus { get; set; } = "running";
     /// <summary>reached_end / all_skipped / manual_cancel / node_failed</summary>

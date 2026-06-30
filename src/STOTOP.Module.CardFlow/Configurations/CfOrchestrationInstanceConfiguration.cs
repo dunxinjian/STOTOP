@@ -13,6 +13,7 @@ public class CfOrchestrationInstanceConfiguration : IEntityTypeConfiguration<CfO
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FTemplateId).HasColumnName("F编排模板ID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasMaxLength(20);
         builder.Property(e => e.FCompletionReason).HasColumnName("F完成原因").HasMaxLength(20);
         builder.Property(e => e.FSnapshotNodesJson).HasColumnName("F快照节点JSON");
@@ -28,5 +29,6 @@ public class CfOrchestrationInstanceConfiguration : IEntityTypeConfiguration<CfO
         builder.HasIndex(e => e.FTemplateId).HasDatabaseName("IX_CF编排实例_模板");
         builder.HasIndex(e => new { e.FOrgId, e.FStatus }).HasDatabaseName("IX_CF编排实例_组织状态");
         builder.HasIndex(e => e.FInitiatorId).HasDatabaseName("IX_CF编排实例_发起人");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF编排实例_租户ID");
     }
 }

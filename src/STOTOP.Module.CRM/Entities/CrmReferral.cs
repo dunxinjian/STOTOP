@@ -2,10 +2,11 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.CRM.Entities;
 
-public class CrmReferral : BaseEntity, IOrgScoped
+public class CrmReferral : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FCustomerId { get; set; } = string.Empty;
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public int FReferrerType { get; set; }
     public long? FEmployeeId { get; set; }
     public long? FExternalContactId { get; set; }

@@ -14,6 +14,8 @@ public class TmPerformanceRecordConfiguration : IEntityTypeConfiguration<TmPerfo
         builder.Property(e => e.FPeriodId).HasColumnName("F考核周期ID");
         builder.Property(e => e.FEmployeeId).HasColumnName("F被考核人ID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM绩效考核记录_租户ID");
         builder.Property(e => e.FTaskTotal).HasColumnName("F任务总数").HasDefaultValue(0);
         builder.Property(e => e.FCompletedCount).HasColumnName("F完成数").HasDefaultValue(0);
         builder.Property(e => e.FOnTimeCount).HasColumnName("F按时完成数").HasDefaultValue(0);

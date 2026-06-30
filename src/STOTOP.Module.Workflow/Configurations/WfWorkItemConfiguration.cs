@@ -13,6 +13,7 @@ public class WfWorkItemConfiguration : IEntityTypeConfiguration<WfWorkItem>
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(32).IsRequired();
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FTitle).HasColumnName("F标题").HasMaxLength(500).IsRequired();
         builder.Property(e => e.FDescription).HasColumnName("F描述").HasMaxLength(4000);
         builder.Property(e => e.FType).HasColumnName("F类型");
@@ -51,6 +52,7 @@ public class WfWorkItemConfiguration : IEntityTypeConfiguration<WfWorkItem>
         builder.HasIndex(e => e.FDataScopeId).HasDatabaseName("IX_WF工作项_数据作用域");
         builder.HasIndex(e => new { e.FModule, e.FBizType }).HasDatabaseName("IX_WF工作项_模块业务类型");
         builder.HasIndex(e => new { e.FCategory, e.FIsOverdue }).HasDatabaseName("IX_WF工作项_分类超时");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_WF工作项_租户ID");
 
         // 关系
         builder.HasOne(e => e.ParentWorkItem)

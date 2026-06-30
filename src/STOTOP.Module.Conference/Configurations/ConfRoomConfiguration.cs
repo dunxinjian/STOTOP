@@ -12,6 +12,7 @@ public class ConfRoomConfiguration : IEntityTypeConfiguration<ConfRoom>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FHotelId).HasColumnName("F酒店ID");
         builder.Property(e => e.FRoomNumber).HasColumnName("F房间号").HasMaxLength(20);
         builder.Property(e => e.FRoomType).HasColumnName("F房型").HasMaxLength(20);
@@ -27,5 +28,7 @@ public class ConfRoomConfiguration : IEntityTypeConfiguration<ConfRoom>
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(e => e.FHotelId).HasDatabaseName("IX_CONF住宿房间_酒店ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF住宿房间_租户ID");
+
     }
 }

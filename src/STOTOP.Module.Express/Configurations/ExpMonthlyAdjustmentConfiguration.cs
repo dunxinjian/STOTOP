@@ -19,6 +19,8 @@ public class ExpMonthlyAdjustmentConfiguration : IEntityTypeConfiguration<ExpMon
         builder.Property(e => e.FAmount).HasColumnName("F金额").HasColumnType("decimal(14,2)");
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasDefaultValue(0);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP月度调整_租户ID");
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
 
         builder.HasIndex(e => new { e.FBusinessObjectId, e.FMonth })

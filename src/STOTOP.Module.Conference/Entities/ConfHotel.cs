@@ -3,9 +3,10 @@ using STOTOP.Core.Models;
 namespace STOTOP.Module.Conference.Entities;
 
 /// <summary>住宿酒店</summary>
-public class ConfHotel : BaseEntity, IOrgScoped
+public class ConfHotel : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FEventId { get; set; }
     public string FHotelName { get; set; } = string.Empty;
     public string? FAddress { get; set; }

@@ -17,6 +17,7 @@ public class CrmServiceOrderLogConfiguration : IEntityTypeConfiguration<CrmServi
         builder.Property(e => e.FContent).HasColumnName("F内容").HasColumnType("nvarchar(max)");
         builder.Property(e => e.FAttachments).HasColumnName("F附件").HasColumnType("nvarchar(max)");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FCreatorName).HasColumnName("F创建人").HasMaxLength(50);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdaterName).HasColumnName("F更新人").HasMaxLength(50);
@@ -24,5 +25,6 @@ public class CrmServiceOrderLogConfiguration : IEntityTypeConfiguration<CrmServi
 
         builder.HasIndex(e => e.FOrderId).HasDatabaseName("IX_CRM工单处理记录_F工单ID");
         builder.HasIndex(e => e.FOperatorId).HasDatabaseName("IX_CRM工单处理记录_F操作人ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM工单处理记录_租户ID");
     }
 }

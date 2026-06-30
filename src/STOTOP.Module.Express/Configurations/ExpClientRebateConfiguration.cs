@@ -24,6 +24,8 @@ public class ExpClientRebateConfiguration : IEntityTypeConfiguration<ExpClientRe
         builder.Property(e => e.FExpiryDate).HasColumnName("F失效日期");
         builder.Property(e => e.FIsActive).HasColumnName("F启用").HasDefaultValue(true);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP客户返利_租户ID");
         builder.Property(e => e.FRemark).HasColumnName("F备注").HasMaxLength(200);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
 

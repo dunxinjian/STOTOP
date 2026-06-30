@@ -12,6 +12,7 @@ public class ConfScheduleAttendeeConfiguration : IEntityTypeConfiguration<ConfSc
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FScheduleId).HasColumnName("F日程ID");
         builder.Property(e => e.FAttendeeId).HasColumnName("F参会人ID");
 
@@ -26,5 +27,7 @@ public class ConfScheduleAttendeeConfiguration : IEntityTypeConfiguration<ConfSc
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(e => new { e.FScheduleId, e.FAttendeeId }).IsUnique().HasDatabaseName("IX_CONF日程参会人_唯一");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF日程参会人_租户ID");
+
     }
 }

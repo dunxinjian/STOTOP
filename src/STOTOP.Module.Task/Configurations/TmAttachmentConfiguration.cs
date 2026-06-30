@@ -12,6 +12,8 @@ public class TmAttachmentConfiguration : IEntityTypeConfiguration<TmAttachment>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM附件_租户ID");
         builder.Property(e => e.FRelationType).HasColumnName("F关联类型");
         builder.Property(e => e.FRelationId).HasColumnName("F关联ID");
         builder.Property(e => e.FUserId).HasColumnName("F用户ID");

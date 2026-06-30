@@ -12,6 +12,7 @@ public class ConfScheduleConfiguration : IEntityTypeConfiguration<ConfSchedule>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FEventId).HasColumnName("F活动ID");
         builder.Property(e => e.FDate).HasColumnName("F日期").HasColumnType("date");
         builder.Property(e => e.FStartTime).HasColumnName("F开始时间").HasColumnType("time");
@@ -25,5 +26,7 @@ public class ConfScheduleConfiguration : IEntityTypeConfiguration<ConfSchedule>
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
 
         builder.HasIndex(e => new { e.FEventId, e.FDate }).HasDatabaseName("IX_CONF日程_活动日期");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF日程_租户ID");
+
     }
 }

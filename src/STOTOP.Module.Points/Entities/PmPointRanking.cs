@@ -2,9 +2,10 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Points.Entities;
 
-public class PmPointRanking : BaseEntity, IOrgScoped
+public class PmPointRanking : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FUserId { get; set; }
     public long? FDepartmentId { get; set; }
     public int FDimension { get; set; }

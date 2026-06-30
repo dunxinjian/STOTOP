@@ -13,6 +13,7 @@ public class InsCoInsuranceFundConfiguration : IEntityTypeConfiguration<InsCoIns
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(50);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FFundName).HasColumnName("F基金名称").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FFundCode).HasColumnName("F基金编码").HasMaxLength(50).IsRequired();
         builder.Property(e => e.FBusinessType).HasColumnName("F业务类型").HasDefaultValue(1);
@@ -35,6 +36,8 @@ public class InsCoInsuranceFundConfiguration : IEntityTypeConfiguration<InsCoIns
         builder.HasIndex(e => new { e.FOrgId, e.FFundCode })
             .IsUnique()
             .HasDatabaseName("IX_INS共保基金_编码");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_INS共保基金_租户ID");
 
         builder.HasMany(e => e.Policies)
             .WithOne(e => e.CoInsuranceFund)

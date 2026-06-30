@@ -5,10 +5,11 @@ namespace STOTOP.Module.Express.Entities;
 /// <summary>
 /// 快递报价（核心聚合根）
 /// </summary>
-public class ExpQuotation : BaseEntity, IOrgScoped
+public class ExpQuotation : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>组织ID</summary>
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>品牌ID</summary>
     public string FBrandCode { get; set; } = string.Empty;
     /// <summary>方案编号（业务编号，如 STO-BJ01-KH001-20260501-01）</summary>

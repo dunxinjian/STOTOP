@@ -15,6 +15,8 @@ public class ExpCostPlanConfiguration : IEntityTypeConfiguration<ExpCostPlan>
         builder.Property(e => e.FPlanName).HasColumnName("F方案名称").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasDefaultValue(0);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP成本方案_租户ID");
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
 

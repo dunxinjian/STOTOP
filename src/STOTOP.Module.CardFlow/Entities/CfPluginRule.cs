@@ -3,10 +3,11 @@ using STOTOP.Core.Models;
 namespace STOTOP.Module.CardFlow.Entities;
 
 /// <summary>插件规则（从 CfAutoPluginRule 迁移而来）</summary>
-public class CfPluginRule : BaseEntity, IOrgScoped
+public class CfPluginRule : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>组织ID（所属组织，必须>0）</summary>
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>类型编码</summary>
     public string F类型编码 { get; set; } = string.Empty;
     /// <summary>规则名称</summary>

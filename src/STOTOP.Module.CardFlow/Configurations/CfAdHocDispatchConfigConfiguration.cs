@@ -16,6 +16,7 @@ public class CfAdHocDispatchConfigConfiguration : IEntityTypeConfiguration<CfAdH
         builder.Property(e => e.FName).HasColumnName("F名称").HasMaxLength(100);
         builder.Property(e => e.FDataProtocolJson).HasColumnName("F数据协议JSON");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FIsEnabled).HasColumnName("F是否启用");
         builder.Property(e => e.FRowVersion).HasColumnName("F乐观锁").IsRowVersion();
 
@@ -24,5 +25,6 @@ public class CfAdHocDispatchConfigConfiguration : IEntityTypeConfiguration<CfAdH
             .HasDatabaseName("IX_CF自由派发配置_源目标组织");
         builder.HasIndex(e => new { e.FSourceFlowCode, e.FOrgId, e.FIsEnabled })
             .HasDatabaseName("IX_CF自由派发配置_源编码查询");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF自由派发配置_租户ID");
     }
 }

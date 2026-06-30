@@ -3,9 +3,10 @@ using STOTOP.Core.Models;
 namespace STOTOP.Module.Conference.Entities;
 
 /// <summary>收入登记</summary>
-public class ConfIncome : BaseEntity, IOrgScoped
+public class ConfIncome : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FEventId { get; set; }
     public long? FAttendeeId { get; set; }
     public string? FType { get; set; }

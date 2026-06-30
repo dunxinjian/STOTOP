@@ -12,6 +12,7 @@ public class QlPerformanceConfiguration : IEntityTypeConfiguration<QlPerformance
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FUserId).HasColumnName("F用户ID");
         builder.Property(e => e.FPeriod).HasColumnName("F周期").HasMaxLength(20).IsRequired();
         builder.Property(e => e.FExceptionCount).HasColumnName("F异常数");
@@ -23,5 +24,6 @@ public class QlPerformanceConfiguration : IEntityTypeConfiguration<QlPerformance
         builder.Property(e => e.FUpdateTime).HasColumnName("F更新时间").HasDefaultValueSql("GETDATE()");
 
         builder.HasIndex(e => new { e.FOrgId, e.FUserId, e.FPeriod }).HasDatabaseName("IX_QL绩效记录_组织_用户_周期").IsUnique();
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_QL绩效记录_租户ID");
     }
 }

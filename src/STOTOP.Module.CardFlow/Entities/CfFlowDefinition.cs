@@ -2,7 +2,7 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.CardFlow.Entities;
 
-public class CfFlowDefinition : BaseEntity, IOrgScoped
+public class CfFlowDefinition : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FFlowName { get; set; } = string.Empty;
     public string FFlowCode { get; set; } = string.Empty;
@@ -13,6 +13,7 @@ public class CfFlowDefinition : BaseEntity, IOrgScoped
     public string? FAllowedRolesJson { get; set; }
     public long? FFlowGroupId { get; set; }
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>流程绑定的目标账套ID（跨账套场景必填）</summary>
     public long? FAccountSetId { get; set; }
     /// <summary>触发方式配置 JSON（human/fileUpload/scheduled/conditional + 参数）</summary>

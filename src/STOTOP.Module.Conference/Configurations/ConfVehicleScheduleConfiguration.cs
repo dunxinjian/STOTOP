@@ -12,6 +12,7 @@ public class ConfVehicleScheduleConfiguration : IEntityTypeConfiguration<ConfVeh
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FEventId).HasColumnName("F活动ID");
         builder.Property(e => e.FVehicleId).HasColumnName("F车辆ID");
         builder.Property(e => e.FDate).HasColumnName("F日期").HasColumnType("date");
@@ -38,5 +39,7 @@ public class ConfVehicleScheduleConfiguration : IEntityTypeConfiguration<ConfVeh
 
         builder.HasIndex(e => new { e.FVehicleId, e.FDate }).HasDatabaseName("IX_CONF车辆日程_车辆日期");
         builder.HasIndex(e => e.FEventId).HasDatabaseName("IX_CONF车辆日程_活动ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF车辆日程_租户ID");
+
     }
 }

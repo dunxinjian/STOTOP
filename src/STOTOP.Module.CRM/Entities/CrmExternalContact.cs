@@ -2,7 +2,7 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.CRM.Entities;
 
-public class CrmExternalContact : BaseEntity, IOrgScoped
+public class CrmExternalContact : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FName { get; set; } = string.Empty;
     public string? FPhone { get; set; }
@@ -12,6 +12,7 @@ public class CrmExternalContact : BaseEntity, IOrgScoped
     public string? FRemark { get; set; }
     public int FStatus { get; set; } = 0;
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string? FCreatorName { get; set; }
     public DateTime FCreatedTime { get; set; } = DateTime.Now;
     public string? FUpdaterName { get; set; }

@@ -12,6 +12,7 @@ public class PpvViolationConfiguration : IEntityTypeConfiguration<PpvViolation>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F员工ID).HasColumnName("F员工ID");
         builder.Property(e => e.F期间).HasColumnName("F期间").HasMaxLength(6).IsRequired();
         builder.Property(e => e.F违规类型).HasColumnName("F违规类型");
@@ -24,5 +25,7 @@ public class PpvViolationConfiguration : IEntityTypeConfiguration<PpvViolation>
         builder.HasIndex(e => new { e.FOrgId, e.F员工ID, e.F期间, e.F违规类型, e.F关联单据ID })
             .IsUnique()
             .HasDatabaseName("UQ_PPV违规_组织_员工_期间_类型_单据");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_PPV违规记录_租户ID");
     }
 }

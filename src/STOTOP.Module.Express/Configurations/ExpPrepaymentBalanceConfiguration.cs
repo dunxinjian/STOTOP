@@ -12,6 +12,8 @@ public class ExpPrepaymentBalanceConfiguration : IEntityTypeConfiguration<ExpPre
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP预付款余额_租户ID");
         builder.Property(e => e.FBusinessObjectId).HasColumnName("F业务对象ID").HasMaxLength(50).IsRequired();
         builder.Property(e => e.FBalance).HasColumnName("F余额").HasPrecision(14, 2).HasDefaultValue(0m);
         builder.Property(e => e.FTotalRecharge).HasColumnName("F累计充值").HasPrecision(14, 2).HasDefaultValue(0m);

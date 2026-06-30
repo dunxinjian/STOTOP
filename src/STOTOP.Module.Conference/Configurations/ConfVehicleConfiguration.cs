@@ -12,6 +12,7 @@ public class ConfVehicleConfiguration : IEntityTypeConfiguration<ConfVehicle>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FEventId).HasColumnName("F活动ID");
         builder.Property(e => e.FPlateNumber).HasColumnName("F车牌号").HasMaxLength(20).IsRequired();
         builder.Property(e => e.FVehicleType).HasColumnName("F车型").HasMaxLength(50);
@@ -25,5 +26,7 @@ public class ConfVehicleConfiguration : IEntityTypeConfiguration<ConfVehicle>
 
         builder.HasIndex(e => e.FEventId).HasDatabaseName("IX_CONF车辆_活动ID");
         builder.HasIndex(e => e.FPlateNumber).HasDatabaseName("IX_CONF车辆_车牌号");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF车辆_租户ID");
+
     }
 }

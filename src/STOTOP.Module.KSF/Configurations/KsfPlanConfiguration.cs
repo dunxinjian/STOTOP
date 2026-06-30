@@ -12,6 +12,7 @@ public class KsfPlanConfiguration : IEntityTypeConfiguration<KsfPlan>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F名称).HasColumnName("F名称").HasMaxLength(128).IsRequired();
         builder.Property(e => e.F岗位ID).HasColumnName("F岗位ID");
         builder.Property(e => e.F生效起期).HasColumnName("F生效起期");
@@ -25,5 +26,7 @@ public class KsfPlanConfiguration : IEntityTypeConfiguration<KsfPlan>
         builder.Property(e => e.F更新时间).HasColumnName("F更新时间").HasDefaultValueSql("GETDATE()");
 
         builder.HasIndex(e => new { e.FOrgId, e.F岗位ID }).HasDatabaseName("IX_KSF岗位方案_组织_岗位");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_KSF岗位方案_租户ID");
     }
 }

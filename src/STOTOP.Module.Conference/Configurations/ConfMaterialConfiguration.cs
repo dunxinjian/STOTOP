@@ -12,6 +12,7 @@ public class ConfMaterialConfiguration : IEntityTypeConfiguration<ConfMaterial>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FEventId).HasColumnName("F活动ID");
         builder.Property(e => e.FName).HasColumnName("F名称").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FCategory).HasColumnName("F类别").HasMaxLength(20);
@@ -42,5 +43,7 @@ public class ConfMaterialConfiguration : IEntityTypeConfiguration<ConfMaterial>
         builder.HasIndex(e => e.FEventId).HasDatabaseName("IX_CONF物品_活动ID");
         builder.HasIndex(e => e.FCategory).HasDatabaseName("IX_CONF物品_类别");
         builder.HasIndex(e => e.FStatus).HasDatabaseName("IX_CONF物品_状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF物品_租户ID");
+
     }
 }

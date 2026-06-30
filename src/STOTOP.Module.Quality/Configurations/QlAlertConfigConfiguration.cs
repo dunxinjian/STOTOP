@@ -18,6 +18,9 @@ public class QlAlertConfigConfiguration : IEntityTypeConfiguration<QlAlertConfig
         builder.Property(e => e.F通知对象).HasColumnName("F通知对象");
         builder.Property(e => e.F状态).HasColumnName("F状态");
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F创建时间).HasColumnName("F创建时间").HasDefaultValueSql("GETDATE()");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_QL预警配置_租户ID");
     }
 }

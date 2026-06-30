@@ -12,6 +12,7 @@ public class PmPointRecordConfiguration : IEntityTypeConfiguration<PmPointRecord
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FUserId).HasColumnName("F用户ID");
         builder.Property(e => e.FSourceId).HasColumnName("F来源ID");
         builder.Property(e => e.FRuleId).HasColumnName("F规则ID");
@@ -36,5 +37,6 @@ public class PmPointRecordConfiguration : IEntityTypeConfiguration<PmPointRecord
             .IsUnique()
             .HasFilter("[F关联事件ID] IS NOT NULL")
             .HasDatabaseName("UQ_PM积分记录_事件幂等");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_PM积分记录_租户ID");
     }
 }

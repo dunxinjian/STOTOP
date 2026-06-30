@@ -12,6 +12,7 @@ public class ConContractReminderConfiguration : IEntityTypeConfiguration<ConCont
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FContractId).HasColumnName("F合同ID");
         builder.Property(e => e.FReminderType).HasColumnName("F提醒类型");
         builder.Property(e => e.FReminderDate).HasColumnName("F提醒日期");
@@ -26,5 +27,6 @@ public class ConContractReminderConfiguration : IEntityTypeConfiguration<ConCont
         builder.HasIndex(e => e.FContractId).HasDatabaseName("IX_CON合同提醒_F合同ID");
         builder.HasIndex(e => e.FRecipientId).HasDatabaseName("IX_CON合同提醒_F接收人ID");
         builder.HasIndex(e => e.FReminderDate).HasDatabaseName("IX_CON合同提醒_F提醒日期");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CON合同提醒_租户ID");
     }
 }

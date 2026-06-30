@@ -5,7 +5,7 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// <summary>
 /// CF 批次错误记录（迁移自 DcImportError）
 /// </summary>
-public class CfBatchError : BaseEntity, IOrgScoped
+public class CfBatchError : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>关联批次ID（CfBatch.FID）</summary>
     public long FBatchId { get; set; }
@@ -60,4 +60,5 @@ public class CfBatchError : BaseEntity, IOrgScoped
     public string? FRetryMessage { get; set; }
 
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
 }

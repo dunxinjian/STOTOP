@@ -13,6 +13,7 @@ public class CrmCustomerProfitConfiguration : IEntityTypeConfiguration<CrmCustom
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FCustomerId).HasColumnName("F客户ID").HasMaxLength(50);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FPeriod).HasColumnName("F期间").HasMaxLength(10).IsRequired();
         builder.Property(e => e.FRevenue).HasColumnName("F收入").HasColumnType("decimal(14,2)").HasDefaultValue(0m);
         builder.Property(e => e.FCost).HasColumnName("F成本").HasColumnType("decimal(14,2)").HasDefaultValue(0m);
@@ -27,5 +28,6 @@ public class CrmCustomerProfitConfiguration : IEntityTypeConfiguration<CrmCustom
         builder.HasIndex(e => e.FCustomerId).HasDatabaseName("IX_CRM客户毛利_F客户ID");
         builder.HasIndex(e => e.FOrgId).HasDatabaseName("IX_CRM客户毛利_F组织ID");
         builder.HasIndex(e => new { e.FCustomerId, e.FPeriod }).IsUnique().HasDatabaseName("UX_CRM客户毛利_客户期间");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM客户毛利_租户ID");
     }
 }

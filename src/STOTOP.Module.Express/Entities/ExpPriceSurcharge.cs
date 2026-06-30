@@ -5,10 +5,11 @@ namespace STOTOP.Module.Express.Entities;
 /// <summary>
 /// 附加费
 /// </summary>
-public class ExpPriceSurcharge : BaseEntity, IOrgScoped
+public class ExpPriceSurcharge : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>组织ID</summary>
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>品牌ID</summary>
     public string FBrandCode { get; set; } = string.Empty;
     /// <summary>源系统FID（数据溯源）</summary>

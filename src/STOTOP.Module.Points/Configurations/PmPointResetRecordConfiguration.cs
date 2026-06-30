@@ -16,6 +16,7 @@ public class PmPointResetRecordConfiguration : IEntityTypeConfiguration<PmPointR
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F员工ID).HasColumnName("F员工ID");
         builder.Property(e => e.F账户类型).HasColumnName("F账户类型").HasDefaultValue(2);
         builder.Property(e => e.F清算期间).HasColumnName("F清算期间").HasMaxLength(16).IsRequired();
@@ -36,5 +37,7 @@ public class PmPointResetRecordConfiguration : IEntityTypeConfiguration<PmPointR
 
         builder.HasIndex(e => new { e.FOrgId, e.F清算期间, e.F清算类型 })
             .HasDatabaseName("IX_PM积分清算记录_组织_期间_类型");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_PM积分清算记录_租户ID");
     }
 }

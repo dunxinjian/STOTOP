@@ -12,6 +12,7 @@ public class DorRepairOrderConfiguration : IEntityTypeConfiguration<DorRepairOrd
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FRoomId).HasColumnName("F房间ID").IsRequired();
         builder.Property(e => e.FReporterId).HasColumnName("F报修人ID").IsRequired();
         builder.Property(e => e.FDescription).HasColumnName("F描述").HasMaxLength(1000).IsRequired();
@@ -26,6 +27,7 @@ public class DorRepairOrderConfiguration : IEntityTypeConfiguration<DorRepairOrd
         builder.HasIndex(e => e.FRoomId).HasDatabaseName("IX_DOR报修工单_房间ID");
         builder.HasIndex(e => e.FReporterId).HasDatabaseName("IX_DOR报修工单_报修人ID");
         builder.HasIndex(e => e.FStatus).HasDatabaseName("IX_DOR报修工单_状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_DOR报修工单_租户ID");
 
         builder.HasOne(e => e.Room)
             .WithMany()

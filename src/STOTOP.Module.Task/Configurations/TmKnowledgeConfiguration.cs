@@ -16,6 +16,8 @@ public class TmKnowledgeConfiguration : IEntityTypeConfiguration<TmKnowledge>
         builder.Property(e => e.FContent).HasColumnName("F内容");
         builder.Property(e => e.FCategory).HasColumnName("F分类");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM知识库_租户ID");
         builder.Property(e => e.FAuthorId).HasColumnName("F作者ID");
         builder.Property(e => e.FSourceReviewId).HasColumnName("F来源复盘ID");
         builder.Property(e => e.FSourceTaskId).HasColumnName("F来源任务ID");

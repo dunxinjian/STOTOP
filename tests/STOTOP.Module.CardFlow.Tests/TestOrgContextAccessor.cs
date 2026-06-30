@@ -7,4 +7,6 @@ public sealed class TestOrgContextAccessor : IOrgContextAccessor
 {
     public TestOrgContextAccessor(long? currentOrgId = null) => CurrentOrgId = currentOrgId;
     public long? CurrentOrgId { get; set; }
+    public long? CurrentTenantId { get; set; } = 1;
+    public bool IsPlatformScope { get; set; }
 }

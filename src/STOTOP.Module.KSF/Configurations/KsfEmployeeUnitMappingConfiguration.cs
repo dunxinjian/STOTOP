@@ -12,6 +12,7 @@ public class KsfEmployeeUnitMappingConfiguration : IEntityTypeConfiguration<KsfE
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F员工ID).HasColumnName("F员工ID");
         builder.Property(e => e.F经营单元ID).HasColumnName("F经营单元ID");
         builder.Property(e => e.F分摊比例).HasColumnName("F分摊比例").HasColumnType("decimal(18,4)").HasDefaultValue(1.0m);
@@ -22,5 +23,7 @@ public class KsfEmployeeUnitMappingConfiguration : IEntityTypeConfiguration<KsfE
         builder.HasIndex(e => new { e.FOrgId, e.F员工ID, e.F经营单元ID, e.F生效起期 })
             .IsUnique()
             .HasDatabaseName("UQ_KSF员工经营单元_员工_单元_生效期");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_KSF员工经营单元映射_租户ID");
     }
 }

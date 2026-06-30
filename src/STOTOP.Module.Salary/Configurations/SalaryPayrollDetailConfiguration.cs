@@ -12,6 +12,7 @@ public class SalaryPayrollDetailConfiguration : IEntityTypeConfiguration<SalaryP
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F工资单ID).HasColumnName("F工资单ID");
         builder.Property(e => e.F项目类型).HasColumnName("F项目类型");
         builder.Property(e => e.F项目名称).HasColumnName("F项目名称").HasMaxLength(64).IsRequired();
@@ -21,5 +22,6 @@ public class SalaryPayrollDetailConfiguration : IEntityTypeConfiguration<SalaryP
         builder.Property(e => e.F备注).HasColumnName("F备注").HasMaxLength(256);
 
         builder.HasIndex(e => e.F工资单ID).HasDatabaseName("IX_SAL工资明细_工资单ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_SAL工资明细_租户ID");
     }
 }

@@ -13,6 +13,7 @@ public class VehRentalStandardConfiguration : IEntityTypeConfiguration<VehRental
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(50);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FName).HasColumnName("F名称").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FAmount).HasColumnName("F金额").HasPrecision(18, 2).IsRequired();
         builder.Property(e => e.FChargeCycle).HasColumnName("F收费周期").HasDefaultValue(1);
@@ -25,5 +26,6 @@ public class VehRentalStandardConfiguration : IEntityTypeConfiguration<VehRental
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
 
         builder.HasIndex(e => e.FName).HasDatabaseName("IX_VEH租赁费用标准_名称");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_VEH租赁费用标准_租户ID");
     }
 }

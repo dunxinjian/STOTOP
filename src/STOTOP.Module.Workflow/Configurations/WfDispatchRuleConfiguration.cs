@@ -13,6 +13,7 @@ public class WfDispatchRuleConfiguration : IEntityTypeConfiguration<WfDispatchRu
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(32).IsRequired();
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FName).HasColumnName("F名称").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FDescription).HasColumnName("F描述").HasMaxLength(2000);
         builder.Property(e => e.FModule).HasColumnName("F模块").HasMaxLength(50);
@@ -30,5 +31,6 @@ public class WfDispatchRuleConfiguration : IEntityTypeConfiguration<WfDispatchRu
         builder.HasIndex(e => e.FUID).IsUnique();
         builder.HasIndex(e => new { e.FModule, e.FBizType }).HasDatabaseName("IX_WF派发规则_模块业务类型");
         builder.HasIndex(e => e.FIsEnabled).HasDatabaseName("IX_WF派发规则_启用状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_WF派发规则_租户ID");
     }
 }

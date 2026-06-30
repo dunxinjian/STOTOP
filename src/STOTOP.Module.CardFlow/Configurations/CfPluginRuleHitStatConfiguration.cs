@@ -12,6 +12,7 @@ public class CfPluginRuleHitStatConfiguration : IEntityTypeConfiguration<CfPlugi
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FRuleId).HasColumnName("F规则ID");
         builder.Property(e => e.FRuleGroupIndex).HasColumnName("F规则组序号");
         builder.Property(e => e.FEntryLineNo).HasColumnName("F分录行号");
@@ -27,5 +28,7 @@ public class CfPluginRuleHitStatConfiguration : IEntityTypeConfiguration<CfPlugi
 
         builder.HasIndex(e => new { e.FRuleId, e.FInvalidated, e.FStatTime })
             .HasDatabaseName("IX_CF自动插件_规则命中统计_查询");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF自动插件_规则命中统计_租户ID");
     }
 }

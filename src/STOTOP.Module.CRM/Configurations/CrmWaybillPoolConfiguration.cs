@@ -23,6 +23,7 @@ public class CrmWaybillPoolConfiguration : IEntityTypeConfiguration<CrmWaybillPo
         builder.Property(e => e.FVersion).HasColumnName("F版本号").HasDefaultValue(0).IsConcurrencyToken();
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasDefaultValue(0);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FCreatorName).HasColumnName("F创建人").HasMaxLength(50);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdaterName).HasColumnName("F更新人").HasMaxLength(50);
@@ -30,5 +31,6 @@ public class CrmWaybillPoolConfiguration : IEntityTypeConfiguration<CrmWaybillPo
 
         builder.HasIndex(e => e.FBrandCode).HasDatabaseName("IX_CRM号段池_F品牌编码");
         builder.HasIndex(e => e.FStatus).HasDatabaseName("IX_CRM号段池_F状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM号段池_租户ID");
     }
 }

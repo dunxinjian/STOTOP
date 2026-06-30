@@ -2,10 +2,11 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Insurance.Entities;
 
-public class InsApprovalConfig : BaseEntity, IOrgScoped
+public class InsApprovalConfig : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FUID { get; set; } = Guid.NewGuid().ToString("N");
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public int FStepOrder { get; set; }                            // 环节序号
     public string FStepName { get; set; } = string.Empty;          // 环节名称
     public string FStepCode { get; set; } = string.Empty;          // 环节编码 review/approve/pay

@@ -5,7 +5,7 @@ namespace STOTOP.Module.Express.Entities;
 /// <summary>
 /// 成本方案（按品牌管理）
 /// </summary>
-public class ExpCostPlan : BaseEntity, IOrgScoped
+public class ExpCostPlan : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>品牌编码</summary>
     public string FBrandCode { get; set; } = string.Empty;
@@ -15,6 +15,7 @@ public class ExpCostPlan : BaseEntity, IOrgScoped
     public int FStatus { get; set; } = 0;
     /// <summary>组织ID</summary>
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>创建时间</summary>
     public DateTime FCreatedTime { get; set; } = DateTime.Now;
     /// <summary>更新时间</summary>

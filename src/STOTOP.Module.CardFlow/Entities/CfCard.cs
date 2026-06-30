@@ -2,7 +2,7 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.CardFlow.Entities;
 
-public class CfCard : BaseEntity, IOrgScoped
+public class CfCard : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FFlowDefinitionId { get; set; }
     public long FFlowVersionId { get; set; }
@@ -18,6 +18,7 @@ public class CfCard : BaseEntity, IOrgScoped
     public string? FDataJson { get; set; }
     public int FCurrentRound { get; set; }
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public DateTime? FUpdatedTime { get; set; }
     /// <summary>批量触发时关联的批次ID（人工发起时为 null）</summary>
     public long? FBatchId { get; set; }

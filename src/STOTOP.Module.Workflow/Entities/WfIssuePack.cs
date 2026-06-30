@@ -3,10 +3,11 @@ using STOTOP.Core.Models;
 namespace STOTOP.Module.Workflow.Entities;
 
 /// <summary>WF问题包 - 按批次+类型聚合的问题集合</summary>
-public class WfIssuePack : BaseEntity, IOrgScoped
+public class WfIssuePack : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FUID { get; set; } = Guid.NewGuid().ToString("N");
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string? FChainId { get; set; }
     public long? FWorkItemId { get; set; }
     public string FIssueType { get; set; } = string.Empty;

@@ -13,6 +13,7 @@ public class VehAssignmentConfiguration : IEntityTypeConfiguration<VehAssignment
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(50);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FVehicleId).HasColumnName("F车辆ID").IsRequired();
         builder.Property(e => e.FEmployeeId).HasColumnName("F员工ID").IsRequired();
         builder.Property(e => e.FEmployeeName).HasColumnName("F员工姓名").HasMaxLength(100);
@@ -27,6 +28,7 @@ public class VehAssignmentConfiguration : IEntityTypeConfiguration<VehAssignment
 
         builder.HasIndex(e => e.FVehicleId).HasDatabaseName("IX_VEH车辆分配_车辆ID");
         builder.HasIndex(e => e.FEmployeeId).HasDatabaseName("IX_VEH车辆分配_员工ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_VEH车辆分配_租户ID");
 
         builder.HasMany(e => e.RentalCharges)
             .WithOne(e => e.Assignment)

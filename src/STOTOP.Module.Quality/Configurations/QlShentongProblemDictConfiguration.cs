@@ -12,6 +12,7 @@ public class QlShentongProblemDictConfiguration : IEntityTypeConfiguration<QlShe
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F承运商).HasColumnName("F承运商").HasMaxLength(50).IsRequired();
         builder.Property(e => e.F质量域).HasColumnName("F质量域").HasMaxLength(50).IsRequired();
         builder.Property(e => e.F来源问题类型原文).HasColumnName("F来源问题类型原文").HasMaxLength(200).IsRequired();
@@ -29,5 +30,7 @@ public class QlShentongProblemDictConfiguration : IEntityTypeConfiguration<QlShe
         builder.HasIndex(e => new { e.FOrgId, e.F承运商, e.F质量域, e.F来源问题类型原文 })
             .IsUnique()
             .HasDatabaseName("UX_QL申通_质量问题字典_来源原文");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_QL申通_质量问题字典_租户ID");
     }
 }

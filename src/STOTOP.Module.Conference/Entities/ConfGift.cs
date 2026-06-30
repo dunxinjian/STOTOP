@@ -3,9 +3,10 @@ using STOTOP.Core.Models;
 namespace STOTOP.Module.Conference.Entities;
 
 /// <summary>礼金登记</summary>
-public class ConfGift : BaseEntity, IOrgScoped
+public class ConfGift : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FEventId { get; set; }
     public long? FAttendeeId { get; set; }  // 关联主宾客（可空，手动输入时为null）
     public string? FGuestName { get; set; }  // 宾客姓名（手动输入时使用）

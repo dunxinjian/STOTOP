@@ -13,6 +13,7 @@ public class CfBatchConfiguration : IEntityTypeConfiguration<CfBatch>
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FFlowDefinitionId).HasColumnName("F流程定义ID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FTriggeredById).HasColumnName("F触发人ID");
         builder.Property(e => e.FTriggeredTime).HasColumnName("F触发时间");
         builder.Property(e => e.FTriggerType).HasColumnName("F触发类型").HasMaxLength(30);
@@ -56,5 +57,6 @@ public class CfBatchConfiguration : IEntityTypeConfiguration<CfBatch>
             .HasFilter("[F批次号] IS NOT NULL")
             .HasDatabaseName("IX_CF批次_批次号");
         builder.HasIndex(e => e.FChangeVersion).HasDatabaseName("IX_CF批次_变更版本");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF批次_租户ID");
     }
 }

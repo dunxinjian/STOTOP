@@ -12,6 +12,8 @@ public class TmDingTalkTodoConfiguration : IEntityTypeConfiguration<TmDingTalkTo
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM钉钉待办_租户ID");
         builder.Property(e => e.FTaskId).HasColumnName("F任务ID");
         builder.Property(e => e.FUserId).HasColumnName("F用户ID");
         builder.Property(e => e.FDingTalkTodoId).HasColumnName("F钉钉待办ID").HasMaxLength(100);

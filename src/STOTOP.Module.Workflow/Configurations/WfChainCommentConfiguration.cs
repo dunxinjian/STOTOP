@@ -12,6 +12,7 @@ public class WfChainCommentConfiguration : IEntityTypeConfiguration<WfChainComme
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FChainId).HasColumnName("F链路ID").HasMaxLength(64).IsRequired();
         builder.Property(e => e.FWorkItemId).HasColumnName("F工作项ID");
         builder.Property(e => e.FAuthorId).HasColumnName("F作者ID");
@@ -25,6 +26,7 @@ public class WfChainCommentConfiguration : IEntityTypeConfiguration<WfChainComme
         // 索引
         builder.HasIndex(e => e.FChainId).HasDatabaseName("IX_WF链路评论_链路ID");
         builder.HasIndex(e => e.FWorkItemId).HasDatabaseName("IX_WF链路评论_工作项ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_WF链路评论_租户ID");
 
         // 关系
         builder.HasOne(e => e.ReplyTo)

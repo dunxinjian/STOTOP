@@ -12,6 +12,7 @@ public class ConfAttendeeConfiguration : IEntityTypeConfiguration<ConfAttendee>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FEventId).HasColumnName("F活动ID");
         builder.Property(e => e.FName).HasColumnName("F姓名").HasMaxLength(50).IsRequired();
         builder.Property(e => e.FGender).HasColumnName("F性别").HasMaxLength(4);
@@ -55,5 +56,7 @@ public class ConfAttendeeConfiguration : IEntityTypeConfiguration<ConfAttendee>
 
         builder.HasIndex(e => e.FEventId).HasDatabaseName("IX_CONF参会人员_活动ID");
         builder.HasIndex(e => e.FName).HasDatabaseName("IX_CONF参会人员_姓名");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF参会人员_租户ID");
+
     }
 }

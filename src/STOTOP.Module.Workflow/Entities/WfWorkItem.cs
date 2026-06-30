@@ -4,10 +4,11 @@ using STOTOP.Module.Workflow.Enums;
 namespace STOTOP.Module.Workflow.Entities;
 
 /// <summary>WF工作项 - 事件/任务协调框架核心实体</summary>
-public class WfWorkItem : BaseEntity, IOrgScoped
+public class WfWorkItem : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FUID { get; set; } = Guid.NewGuid().ToString("N");
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
 
     // 基础信息
     public string FTitle { get; set; } = string.Empty;

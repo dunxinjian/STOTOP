@@ -24,7 +24,7 @@ public class SqlServerSchemaSmokeTests
         var options = new DbContextOptionsBuilder<STOTOPDbContext>()
             .UseSqlServer(Conn)
             .Options;
-        await using var db = new STOTOPDbContext(options);
+        await using var db = new STOTOPDbContext(options, new TestOrgContextAccessor());
 
         await db.Database.EnsureCreatedAsync();
 

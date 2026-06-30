@@ -3,10 +3,11 @@ using STOTOP.Core.Models;
 namespace STOTOP.Module.CardFlow.Entities;
 
 /// <summary>插件定义（从 CfAgentDefinition 迁移而来）</summary>
-public class CfPluginDef : BaseEntity, IOrgScoped
+public class CfPluginDef : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>组织ID</summary>
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>插件显示名称</summary>
     public string F插件名称 { get; set; } = string.Empty;
     /// <summary>插件类型（Input/Processing）</summary>

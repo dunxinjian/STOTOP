@@ -2,9 +2,10 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Supplier.Entities;
 
-public class SupSupplier : BaseEntity, IOrgScoped
+public class SupSupplier : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string FUID { get; set; } = Guid.NewGuid().ToString("N");
     public string FCode { get; set; } = string.Empty;
     /// <summary>全称</summary>

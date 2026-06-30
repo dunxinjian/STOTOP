@@ -12,6 +12,8 @@ public class TmPerformanceDimensionConfiguration : IEntityTypeConfiguration<TmPe
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM评价维度配置_租户ID");
         builder.Property(e => e.FDimensionName).HasColumnName("F维度名称").HasMaxLength(50).IsRequired();
         builder.Property(e => e.FDimensionCode).HasColumnName("F维度编码").HasMaxLength(50).IsRequired();
         builder.Property(e => e.FDataSource).HasColumnName("F数据来源");

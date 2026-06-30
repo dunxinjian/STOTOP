@@ -13,6 +13,7 @@ public class InsClaimConfiguration : IEntityTypeConfiguration<InsClaim>
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(50);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FPolicyId).HasColumnName("F保单ID");
         builder.Property(e => e.FBusinessType).HasColumnName("F业务类型").IsRequired();
         builder.Property(e => e.FRelatedObjectId).HasColumnName("F关联对象ID").IsRequired();
@@ -45,6 +46,7 @@ public class InsClaimConfiguration : IEntityTypeConfiguration<InsClaim>
             .HasDatabaseName("IX_INS出险记录_业务关联");
         builder.HasIndex(e => e.FClaimStatus)
             .HasDatabaseName("IX_INS出险记录_状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_INS出险记录_租户ID");
 
         builder.HasMany(e => e.Settlements)
             .WithOne(e => e.Claim)

@@ -5,7 +5,7 @@ namespace STOTOP.Module.Express.Entities;
 /// <summary>
 /// 客户运单号余额
 /// </summary>
-public class ExpClientWaybillBalance : BaseEntity, IOrgScoped
+public class ExpClientWaybillBalance : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>业务对象ID（F编号）</summary>
     public string FBusinessObjectId { get; set; } = string.Empty;
@@ -21,6 +21,7 @@ public class ExpClientWaybillBalance : BaseEntity, IOrgScoped
     public int FTotalReturned { get; set; }
     /// <summary>组织ID</summary>
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>更新时间</summary>
     public DateTime FUpdatedTime { get; set; } = DateTime.Now;
 }

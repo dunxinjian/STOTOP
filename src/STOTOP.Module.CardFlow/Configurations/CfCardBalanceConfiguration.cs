@@ -17,9 +17,11 @@ public class CfCardBalanceConfiguration : IEntityTypeConfiguration<CfCardBalance
         builder.Property(e => e.FRemainingAmount).HasColumnName("F剩余金额").HasColumnType("decimal(18,2)");
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasMaxLength(30);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
         builder.Property(e => e.FRowVersion).HasColumnName("F乐观锁").IsRowVersion();
 
         builder.HasIndex(e => e.FCardId).HasDatabaseName("IX_CF卡片余额_卡片");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF卡片余额_租户ID");
     }
 }

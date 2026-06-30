@@ -15,6 +15,8 @@ public class TmGoalConfiguration : IEntityTypeConfiguration<TmGoal>
         builder.Property(e => e.FTitle).HasColumnName("F标题").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FDescription).HasColumnName("F描述");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM目标_租户ID");
         builder.Property(e => e.FGoalOrgId).HasColumnName("F目标组织ID");
         builder.Property(e => e.FResponsibleId).HasColumnName("F责任人ID");
         builder.Property(e => e.FParentId).HasColumnName("F父ID").HasDefaultValue(0L);

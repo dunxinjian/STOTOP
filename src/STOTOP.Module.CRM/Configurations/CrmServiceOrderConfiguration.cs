@@ -21,6 +21,7 @@ public class CrmServiceOrderConfiguration : IEntityTypeConfiguration<CrmServiceO
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasDefaultValue(0);
         builder.Property(e => e.FResolvedTime).HasColumnName("F解决时间");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FCreatorName).HasColumnName("F创建人").HasMaxLength(50);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdaterName).HasColumnName("F更新人").HasMaxLength(50);
@@ -30,6 +31,7 @@ public class CrmServiceOrderConfiguration : IEntityTypeConfiguration<CrmServiceO
         builder.HasIndex(e => e.FCustomerId).HasDatabaseName("IX_CRM服务工单_F客户ID");
         builder.HasIndex(e => e.FAssigneeId).HasDatabaseName("IX_CRM服务工单_F受理人ID");
         builder.HasIndex(e => e.FStatus).HasDatabaseName("IX_CRM服务工单_F状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM服务工单_租户ID");
 
         builder.HasMany(e => e.Logs)
             .WithOne(e => e.Order)

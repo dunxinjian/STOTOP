@@ -5,7 +5,7 @@ namespace STOTOP.Module.Express.Entities;
 /// <summary>
 /// 客户返利阶梯
 /// </summary>
-public class ExpClientRebateTier : BaseEntity, IOrgScoped
+public class ExpClientRebateTier : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>返利ID</summary>
     public long FRebateId { get; set; }
@@ -17,4 +17,5 @@ public class ExpClientRebateTier : BaseEntity, IOrgScoped
     public decimal? FRebatePerTicket { get; set; }
     /// <summary>组织ID</summary>
     public long FOrgId { get; set; }
-}
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
+    }

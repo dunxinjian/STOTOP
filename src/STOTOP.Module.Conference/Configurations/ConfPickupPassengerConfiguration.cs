@@ -12,6 +12,7 @@ public class ConfPickupPassengerConfiguration : IEntityTypeConfiguration<ConfPic
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FPickupTaskId).HasColumnName("F接送任务ID");
         builder.Property(e => e.FAttendeeId).HasColumnName("F参会人ID");
 
@@ -26,5 +27,7 @@ public class ConfPickupPassengerConfiguration : IEntityTypeConfiguration<ConfPic
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(e => new { e.FPickupTaskId, e.FAttendeeId }).IsUnique().HasDatabaseName("IX_CONF接送乘客_唯一");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF接送乘客_租户ID");
+
     }
 }

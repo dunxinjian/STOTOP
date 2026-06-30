@@ -4,10 +4,11 @@ using STOTOP.Module.Workflow.Enums;
 namespace STOTOP.Module.Workflow.Entities;
 
 /// <summary>WF派发规则 - 配置事件如何路由到处理人</summary>
-public class WfDispatchRule : BaseEntity, IOrgScoped
+public class WfDispatchRule : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FUID { get; set; } = Guid.NewGuid().ToString("N");
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string FName { get; set; } = string.Empty;
     public string? FDescription { get; set; }
     public string? FModule { get; set; }

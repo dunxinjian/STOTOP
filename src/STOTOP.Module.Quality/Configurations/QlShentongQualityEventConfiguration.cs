@@ -12,6 +12,7 @@ public class QlShentongQualityEventConfiguration : IEntityTypeConfiguration<QlSh
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F承运商).HasColumnName("F承运商").HasMaxLength(50).IsRequired();
         builder.Property(e => e.F业务日期).HasColumnName("F业务日期");
         builder.Property(e => e.F统计年月).HasColumnName("F统计年月").HasMaxLength(20);
@@ -57,5 +58,6 @@ public class QlShentongQualityEventConfiguration : IEntityTypeConfiguration<QlSh
             .HasDatabaseName("IX_QL申通_质量事件_网点匹配状态");
         builder.HasIndex(e => e.F员工匹配状态)
             .HasDatabaseName("IX_QL申通_质量事件_员工匹配状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_QL申通_承运商质量事件_租户ID");
     }
 }

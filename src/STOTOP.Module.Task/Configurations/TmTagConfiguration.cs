@@ -14,6 +14,8 @@ public class TmTagConfiguration : IEntityTypeConfiguration<TmTag>
         builder.Property(e => e.FName).HasColumnName("F名称").HasMaxLength(50).IsRequired();
         builder.Property(e => e.FColor).HasColumnName("F颜色").HasMaxLength(20).IsRequired();
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM标签_租户ID");
         builder.Property(e => e.FSort).HasColumnName("F排序").HasDefaultValue(0);
 
         builder.HasIndex(e => new { e.FOrgId, e.FName })

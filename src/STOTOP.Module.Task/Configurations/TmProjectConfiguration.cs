@@ -15,6 +15,8 @@ public class TmProjectConfiguration : IEntityTypeConfiguration<TmProject>
         builder.Property(e => e.FName).HasColumnName("F名称").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FDescription).HasColumnName("F描述");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM项目_租户ID");
         builder.Property(e => e.FGoalId).HasColumnName("F目标ID");
         builder.Property(e => e.FManagerId).HasColumnName("F负责人ID");
         builder.Property(e => e.FStartDate).HasColumnName("F开始日期");

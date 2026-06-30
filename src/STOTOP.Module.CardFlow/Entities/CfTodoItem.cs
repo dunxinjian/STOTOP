@@ -2,7 +2,7 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.CardFlow.Entities;
 
-public class CfTodoItem : BaseEntity, IOrgScoped
+public class CfTodoItem : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FCardId { get; set; }
     public long FStageInstanceId { get; set; }
@@ -20,4 +20,5 @@ public class CfTodoItem : BaseEntity, IOrgScoped
     public DateTime FCreatedTime { get; set; }
     public DateTime? FCompletedTime { get; set; }
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
 }

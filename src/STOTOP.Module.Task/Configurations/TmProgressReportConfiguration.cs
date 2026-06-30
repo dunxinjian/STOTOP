@@ -12,6 +12,8 @@ public class TmProgressReportConfiguration : IEntityTypeConfiguration<TmProgress
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM进度上报_租户ID");
         builder.Property(e => e.FTaskId).HasColumnName("F任务ID");
         builder.Property(e => e.FReporterId).HasColumnName("F上报人ID");
         builder.Property(e => e.FProgress).HasColumnName("F进度");

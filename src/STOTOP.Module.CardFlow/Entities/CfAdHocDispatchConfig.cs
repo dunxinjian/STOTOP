@@ -6,7 +6,7 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// CF 自由派发配置：定义"某个流程完成后可以手动触发哪些流程"的关联关系。
 /// 复合唯一约束：(F源流程编码, F目标流程编码, F组织ID)
 /// </summary>
-public class CfAdHocDispatchConfig : BaseEntity, IOrgScoped
+public class CfAdHocDispatchConfig : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FSourceFlowCode { get; set; } = string.Empty;
     public string FTargetFlowCode { get; set; } = string.Empty;
@@ -15,6 +15,7 @@ public class CfAdHocDispatchConfig : BaseEntity, IOrgScoped
     /// <summary>默认数据传递配置（三级协议）</summary>
     public string? FDataProtocolJson { get; set; }
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public bool FIsEnabled { get; set; } = true;
     public byte[] FRowVersion { get; set; } = Array.Empty<byte>();
 }

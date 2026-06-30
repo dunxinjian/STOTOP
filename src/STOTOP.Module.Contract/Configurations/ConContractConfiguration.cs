@@ -12,6 +12,7 @@ public class ConContractConfiguration : IEntityTypeConfiguration<ConContract>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FContractNo).HasColumnName("F合同号").HasMaxLength(100).IsRequired();
         builder.Property(e => e.FTitle).HasColumnName("F标题").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FTypeId).HasColumnName("F类型ID");
@@ -34,6 +35,7 @@ public class ConContractConfiguration : IEntityTypeConfiguration<ConContract>
         builder.HasIndex(e => e.FRelatedContractId).HasDatabaseName("IX_CON合同_F关联合同ID");
         builder.HasIndex(e => e.FStatus).HasDatabaseName("IX_CON合同_F状态");
         builder.HasIndex(e => e.FEndDate).HasDatabaseName("IX_CON合同_F结束日期");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CON合同_租户ID");
 
         builder.HasOne(e => e.Type)
             .WithMany()

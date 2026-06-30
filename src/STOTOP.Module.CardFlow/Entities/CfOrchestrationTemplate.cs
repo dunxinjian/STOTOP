@@ -6,12 +6,13 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// CF 编排模板：定义跨流程编排的 DAG 模板（节点/边/数据协议）。
 /// 状态机：draft / published / disabled
 /// </summary>
-public class CfOrchestrationTemplate : BaseEntity, IOrgScoped
+public class CfOrchestrationTemplate : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FCode { get; set; } = string.Empty;
     public string FName { get; set; } = string.Empty;
     public string? FDescription { get; set; }
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>DAG 节点定义 JSON</summary>
     public string? FNodesJson { get; set; }
     /// <summary>DAG 边定义 JSON（含条件与数据协议）</summary>

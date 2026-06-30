@@ -18,6 +18,8 @@ public class ExpInvoiceReviewLogConfiguration : IEntityTypeConfiguration<ExpInvo
         builder.Property(e => e.FOperatorId).HasColumnName("F操作人ID");
         builder.Property(e => e.FRemark).HasColumnName("F备注").HasMaxLength(500);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP出港账单审核日志_租户ID");
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
 
         builder.HasIndex(e => e.FInvoiceId)

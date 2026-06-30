@@ -5,7 +5,7 @@ namespace STOTOP.Module.Express.Entities;
 /// <summary>
 /// 费用减免
 /// </summary>
-public class ExpClientFeeWaiver : BaseEntity, IOrgScoped
+public class ExpClientFeeWaiver : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>业务对象ID（F编号）</summary>
     public string FBusinessObjectId { get; set; } = string.Empty;
@@ -21,6 +21,7 @@ public class ExpClientFeeWaiver : BaseEntity, IOrgScoped
     public DateTime? FExpiryDate { get; set; }
     /// <summary>组织ID</summary>
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>创建时间</summary>
     public DateTime FCreatedTime { get; set; } = DateTime.Now;
 }

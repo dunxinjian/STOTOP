@@ -20,8 +20,10 @@ public class CfDelegationConfiguration : IEntityTypeConfiguration<CfDelegation>
         builder.Property(e => e.FApplicableFlowsJson).HasColumnName("F适用流程");
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasMaxLength(30);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
 
         builder.HasIndex(e => new { e.FDelegatorId, e.FStatus }).HasDatabaseName("IX_CF代审批委托_委托人");
         builder.HasIndex(e => new { e.FTrusteeId, e.FStatus }).HasDatabaseName("IX_CF代审批委托_受托人");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF代审批委托_租户ID");
     }
 }

@@ -5,9 +5,10 @@ namespace STOTOP.Module.KSF.Entities;
 /// <summary>
 /// KSF 员工经营单元映射
 /// </summary>
-public class KsfEmployeeUnitMapping : BaseEntity, IOrgScoped
+public class KsfEmployeeUnitMapping : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long F员工ID { get; set; }
     public long F经营单元ID { get; set; }
     /// <summary>分摊比例（默认 100%）</summary>

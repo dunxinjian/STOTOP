@@ -5,7 +5,7 @@ namespace STOTOP.Module.CRM.Entities;
 /// <summary>
 /// CRM客户（主键为 F编号，不继承 BaseEntity）
 /// </summary>
-public class CrmCustomer : IOrgScoped
+public class CrmCustomer : IOrgScoped, ITenantScoped
 {
     /// <summary>编号（主键）</summary>
     public string FCode { get; set; } = string.Empty;
@@ -20,6 +20,7 @@ public class CrmCustomer : IOrgScoped
     public string? FScale { get; set; }
     public int FStatus { get; set; } = 1;
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long? FBdEmployeeId { get; set; }
     public long? FMaintenanceEmployeeId { get; set; }
     public string? FCreatorName { get; set; }

@@ -39,6 +39,8 @@ public class ExpInvoiceConfiguration : IEntityTypeConfiguration<ExpInvoice>
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasDefaultValue(0);
         builder.Property(e => e.FArchived).HasColumnName("F已归档").HasDefaultValue(false);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP出港账单_租户ID");
         builder.Property(e => e.FArchivedTime).HasColumnName("F归档时间");
         builder.Property(e => e.FArchivedBy).HasColumnName("F归档人").HasMaxLength(50);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");

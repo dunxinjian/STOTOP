@@ -12,6 +12,8 @@ public class TmDingTalkMessageConfiguration : IEntityTypeConfiguration<TmDingTal
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM钉钉消息推送_租户ID");
         builder.Property(e => e.FSourceType).HasColumnName("F来源类型");
         builder.Property(e => e.FSourceId).HasColumnName("F来源ID");
         builder.Property(e => e.FTaskId).HasColumnName("F任务ID");

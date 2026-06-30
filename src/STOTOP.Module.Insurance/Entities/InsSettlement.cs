@@ -2,10 +2,11 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Insurance.Entities;
 
-public class InsSettlement : BaseEntity, IOrgScoped
+public class InsSettlement : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FUID { get; set; } = Guid.NewGuid().ToString("N");
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FClaimId { get; set; }                             // FK → INS出险记录
     public long FPolicyId { get; set; }                            // FK → INS保单
     public string FSettlementNumber { get; set; } = string.Empty;  // 理赔编号

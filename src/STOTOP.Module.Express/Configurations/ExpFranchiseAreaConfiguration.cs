@@ -13,6 +13,8 @@ public class ExpFranchiseAreaConfiguration : IEntityTypeConfiguration<ExpFranchi
         builder.HasKey(e => e.FCode);
         builder.Property(e => e.FCode).HasColumnName("F编号").HasMaxLength(50);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP承包区_租户ID");
         builder.Property(e => e.FOwnerOrgId).HasColumnName("F所属组织ID");
         builder.Property(e => e.FContractor).HasColumnName("F承包人").HasMaxLength(50);
         builder.Property(e => e.FContractStartDate).HasColumnName("F承包开始日期");

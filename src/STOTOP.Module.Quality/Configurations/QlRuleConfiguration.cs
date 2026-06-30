@@ -12,6 +12,7 @@ public class QlRuleConfiguration : IEntityTypeConfiguration<QlRule>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FRuleName).HasColumnName("F规则名称").HasMaxLength(100).IsRequired();
         builder.Property(e => e.FBusinessLine).HasColumnName("F业务线").HasMaxLength(50).IsRequired();
         builder.Property(e => e.FConditionExpression).HasColumnName("F条件表达式").HasMaxLength(500);
@@ -26,5 +27,6 @@ public class QlRuleConfiguration : IEntityTypeConfiguration<QlRule>
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
 
         builder.HasIndex(e => new { e.FOrgId, e.FBusinessLine }).HasDatabaseName("IX_QL检测规则_组织_业务线");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_QL检测规则_租户ID");
     }
 }

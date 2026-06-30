@@ -12,6 +12,7 @@ public class CfPluginRuleConfiguration : IEntityTypeConfiguration<CfPluginRule>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F类型编码).HasColumnName("F类型编码").HasMaxLength(50);
         builder.Property(e => e.F规则名称).HasColumnName("F规则名称").HasMaxLength(100);
         builder.Property(e => e.F规则配置JSON).HasColumnName("F规则配置JSON");
@@ -24,5 +25,6 @@ public class CfPluginRuleConfiguration : IEntityTypeConfiguration<CfPluginRule>
 
         builder.HasIndex(e => e.FOrgId).HasDatabaseName("IX_CF自动插件_规则_组织ID");
         builder.HasIndex(e => e.F类型编码).HasDatabaseName("IX_CF自动插件_规则_类型编码");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF自动插件_规则_租户ID");
     }
 }

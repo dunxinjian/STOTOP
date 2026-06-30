@@ -13,6 +13,7 @@ public class InsCompanyConfiguration : IEntityTypeConfiguration<InsCompany>
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(50);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FCompanyName).HasColumnName("F公司名称").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FCompanyCode).HasColumnName("F公司编码").HasMaxLength(50).IsRequired();
         builder.Property(e => e.FCompanyType).HasColumnName("F公司类型").HasDefaultValue(1);
@@ -28,6 +29,8 @@ public class InsCompanyConfiguration : IEntityTypeConfiguration<InsCompany>
         builder.HasIndex(e => new { e.FOrgId, e.FCompanyCode })
             .IsUnique()
             .HasDatabaseName("IX_INS保险公司_编码");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_INS保险公司_租户ID");
 
         builder.HasMany(e => e.Policies)
             .WithOne(e => e.InsuranceCompany)

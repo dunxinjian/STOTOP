@@ -12,6 +12,8 @@ public class ExpQuotationConfiguration : IEntityTypeConfiguration<ExpQuotation>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP快递报价_租户ID");
         builder.Property(e => e.FBrandCode).HasColumnName("F品牌编码").HasColumnType("NCHAR(2)");
         builder.Property(e => e.FPlanCode).HasColumnName("F方案编号").HasMaxLength(50);
         builder.Property(e => e.FPlanName).HasColumnName("F方案名称").HasMaxLength(200).IsRequired();

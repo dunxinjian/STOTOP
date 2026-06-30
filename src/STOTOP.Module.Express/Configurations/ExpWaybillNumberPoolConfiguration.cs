@@ -12,6 +12,8 @@ public class ExpWaybillNumberPoolConfiguration : IEntityTypeConfiguration<ExpWay
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP运单号段_租户ID");
         builder.Property(e => e.FBrandCode).HasColumnName("F品牌编码").HasColumnType("NCHAR(2)");
         builder.Property(e => e.FPrefix).HasColumnName("F前缀").HasMaxLength(10);
         builder.Property(e => e.FStartNo).HasColumnName("F起始号").HasMaxLength(30);

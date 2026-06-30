@@ -2,10 +2,11 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Insurance.Entities;
 
-public class InsCoInsuranceFund : BaseEntity, IOrgScoped
+public class InsCoInsuranceFund : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FUID { get; set; } = Guid.NewGuid().ToString("N");
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string FFundName { get; set; } = string.Empty;          // 基金名称
     public string FFundCode { get; set; } = string.Empty;          // 基金编码
     public int FBusinessType { get; set; } = 1;                    // 当前仅1=三轮车，预留扩展

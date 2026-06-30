@@ -5,9 +5,10 @@ namespace STOTOP.Module.PPV.Entities;
 /// <summary>
 /// PPV 月度汇总（员工 + 期间 唯一）
 /// </summary>
-public class PpvMonthlyResult : BaseEntity, IOrgScoped
+public class PpvMonthlyResult : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long F员工ID { get; set; }
     /// <summary>期间，格式 yyyyMM</summary>
     public string F期间 { get; set; } = string.Empty;

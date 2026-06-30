@@ -6,7 +6,7 @@ namespace STOTOP.Module.Express.Entities;
 /// 快递业务员名称映射（源脏名 → 员工工号）。
 /// 用于把 STG/质量事件中的员工姓名原文等脏名归一到 EXP快递业务员.F员工编号。
 /// </summary>
-public class ExpSalesmanAlias : BaseEntity, IOrgScoped
+public class ExpSalesmanAlias : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>名称（源脏名：姓名/别名/混合文本）</summary>
     public string FName { get; set; } = string.Empty;
@@ -14,4 +14,5 @@ public class ExpSalesmanAlias : BaseEntity, IOrgScoped
     public string FEmployeeNo { get; set; } = string.Empty;
     /// <summary>组织ID</summary>
     public long FOrgId { get; set; }
-}
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
+    }

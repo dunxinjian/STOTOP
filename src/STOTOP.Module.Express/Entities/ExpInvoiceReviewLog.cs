@@ -5,7 +5,7 @@ namespace STOTOP.Module.Express.Entities;
 /// <summary>
 /// 账单审核日志
 /// </summary>
-public class ExpInvoiceReviewLog : BaseEntity, IOrgScoped
+public class ExpInvoiceReviewLog : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>账单ID</summary>
     public long FInvoiceId { get; set; }
@@ -21,6 +21,7 @@ public class ExpInvoiceReviewLog : BaseEntity, IOrgScoped
     public string? FRemark { get; set; }
     /// <summary>组织ID</summary>
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>创建时间</summary>
     public DateTime FCreatedTime { get; set; } = DateTime.Now;
 }

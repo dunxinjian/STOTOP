@@ -25,9 +25,11 @@ public class VehInsuranceConfiguration : IEntityTypeConfiguration<VehInsurance>
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID").HasDefaultValue(0);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
 
         builder.HasIndex(e => e.FPolicyNo).HasDatabaseName("IX_VEH保险记录_保单号");
         builder.HasIndex(e => e.FVehicleId).HasDatabaseName("IX_VEH保险记录_车辆ID");
         builder.HasIndex(e => e.FExpiryDate).HasDatabaseName("IX_VEH保险记录_到期日期");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_VEH保险记录_租户ID");
     }
 }

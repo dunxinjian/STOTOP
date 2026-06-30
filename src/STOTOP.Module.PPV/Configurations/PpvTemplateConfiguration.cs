@@ -12,6 +12,7 @@ public class PpvTemplateConfiguration : IEntityTypeConfiguration<PpvTemplate>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F名称).HasColumnName("F名称").HasMaxLength(128).IsRequired();
         builder.Property(e => e.F岗位ID).HasColumnName("F岗位ID");
         builder.Property(e => e.F产值项编码).HasColumnName("F产值项编码").HasMaxLength(64).IsRequired();
@@ -27,5 +28,7 @@ public class PpvTemplateConfiguration : IEntityTypeConfiguration<PpvTemplate>
         builder.HasIndex(e => new { e.FOrgId, e.F岗位ID, e.F产值项编码 })
             .IsUnique()
             .HasDatabaseName("UQ_PPV产值模板_组织_岗位_编码");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_PPV产值模板_租户ID");
     }
 }

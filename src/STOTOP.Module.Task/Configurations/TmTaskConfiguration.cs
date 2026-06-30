@@ -15,6 +15,8 @@ public class TmTaskConfiguration : IEntityTypeConfiguration<TmTask>
         builder.Property(e => e.FTitle).HasColumnName("F标题").HasMaxLength(500).IsRequired();
         builder.Property(e => e.FDescription).HasColumnName("F描述");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM任务_租户ID");
         builder.Property(e => e.FProjectId).HasColumnName("F项目ID");
         builder.Property(e => e.FGoalId).HasColumnName("F目标ID");
         builder.Property(e => e.FKRId).HasColumnName("FKRID");

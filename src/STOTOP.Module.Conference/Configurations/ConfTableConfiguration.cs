@@ -12,6 +12,7 @@ public class ConfTableConfiguration : IEntityTypeConfiguration<ConfTable>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FMealPlanId).HasColumnName("F餐食计划ID");
         builder.Property(e => e.FTableNumber).HasColumnName("F桌号");
         builder.Property(e => e.FTableName).HasColumnName("F桌名").HasMaxLength(50);
@@ -25,5 +26,7 @@ public class ConfTableConfiguration : IEntityTypeConfiguration<ConfTable>
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(e => e.FMealPlanId).HasDatabaseName("IX_CONF桌次_餐食计划ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF桌次_租户ID");
+
     }
 }

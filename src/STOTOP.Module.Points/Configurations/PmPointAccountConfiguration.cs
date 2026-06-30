@@ -12,6 +12,7 @@ public class PmPointAccountConfiguration : IEntityTypeConfiguration<PmPointAccou
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FUserId).HasColumnName("F用户ID");
         builder.Property(e => e.FTotalPoints).HasColumnName("F总积分").HasDefaultValue(0);
         builder.Property(e => e.FUsedPoints).HasColumnName("F已用积分").HasDefaultValue(0);
@@ -25,5 +26,6 @@ public class PmPointAccountConfiguration : IEntityTypeConfiguration<PmPointAccou
         builder.Property(e => e.FUpdateTime).HasColumnName("F更新时间").HasDefaultValueSql("GETDATE()");
 
         builder.HasIndex(e => new { e.FOrgId, e.FUserId, e.F账户类型 }).IsUnique().HasDatabaseName("UQ_PM积分账户_组织_用户_账户类型");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_PM积分账户_租户ID");
     }
 }

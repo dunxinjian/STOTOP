@@ -6,7 +6,7 @@ namespace STOTOP.Module.Express.Entities;
 /// <summary>
 /// 承包区（主键为 F编号，不继承 BaseEntity）
 /// </summary>
-public class ExpFranchiseArea : IOrgOwned
+public class ExpFranchiseArea : IOrgOwned, ITenantScoped
 {
     /// <summary>编号（主键）</summary>
     public string FCode { get; set; } = string.Empty;
@@ -14,6 +14,7 @@ public class ExpFranchiseArea : IOrgOwned
     public long FOrgId { get; set; }
     /// <summary>所属组织ID（数据隔离用）</summary>
     public long FOwnerOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>承包人</summary>
     public string? FContractor { get; set; }
     /// <summary>承包开始日期</summary>

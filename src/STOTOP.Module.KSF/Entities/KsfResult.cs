@@ -5,9 +5,10 @@ namespace STOTOP.Module.KSF.Entities;
 /// <summary>
 /// KSF 结果（员工 + 期间 唯一）
 /// </summary>
-public class KsfResult : BaseEntity, IOrgScoped
+public class KsfResult : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long F员工ID { get; set; }
     /// <summary>期间，格式 yyyyMM</summary>
     public string F期间 { get; set; } = string.Empty;

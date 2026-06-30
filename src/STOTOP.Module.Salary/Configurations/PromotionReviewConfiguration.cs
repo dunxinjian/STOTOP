@@ -12,6 +12,7 @@ public class PromotionReviewConfiguration : IEntityTypeConfiguration<PromotionRe
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F员工ID).HasColumnName("F员工ID");
         builder.Property(e => e.F规则ID).HasColumnName("F规则ID");
         builder.Property(e => e.F当前档位ID).HasColumnName("F当前档位ID");
@@ -26,5 +27,6 @@ public class PromotionReviewConfiguration : IEntityTypeConfiguration<PromotionRe
         builder.Property(e => e.F创建时间).HasColumnName("F创建时间").HasDefaultValueSql("GETDATE()");
 
         builder.HasIndex(e => new { e.FOrgId, e.F员工ID, e.F状态 }).HasDatabaseName("IX_SAL晋升评审_组织_员工_状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_SAL晋升评审_租户ID");
     }
 }

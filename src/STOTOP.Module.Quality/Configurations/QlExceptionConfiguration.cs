@@ -12,6 +12,7 @@ public class QlExceptionConfiguration : IEntityTypeConfiguration<QlException>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FExceptionNo).HasColumnName("F异常编号").HasMaxLength(20).IsRequired();
         builder.Property(e => e.FTitle).HasColumnName("F标题").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FDescription).HasColumnName("F描述").HasMaxLength(2000).IsRequired();
@@ -34,5 +35,6 @@ public class QlExceptionConfiguration : IEntityTypeConfiguration<QlException>
         builder.HasIndex(e => new { e.FOrgId, e.FStatus }).HasDatabaseName("IX_QL异常单_组织_状态");
         builder.HasIndex(e => e.FAssigneeId).HasDatabaseName("IX_QL异常单_负责人");
         builder.HasIndex(e => e.FCreateTime).HasDatabaseName("IX_QL异常单_创建时间");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_QL异常单_租户ID");
     }
 }

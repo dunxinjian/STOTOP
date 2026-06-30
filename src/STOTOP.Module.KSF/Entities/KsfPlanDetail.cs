@@ -5,9 +5,10 @@ namespace STOTOP.Module.KSF.Entities;
 /// <summary>
 /// KSF 岗位方案明细
 /// </summary>
-public class KsfPlanDetail : BaseEntity, IOrgScoped
+public class KsfPlanDetail : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>FK → KsfPlan.FID</summary>
     public long F方案ID { get; set; }
     /// <summary>FK → KsfIndicator.FID</summary>

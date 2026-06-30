@@ -14,6 +14,7 @@ public class CrmPrepaymentConfiguration : IEntityTypeConfiguration<CrmPrepayment
         builder.Property(e => e.FCustomerId).HasColumnName("F客户ID").HasMaxLength(50);
         builder.Property(e => e.FCustomerAccountId).HasColumnName("F客户账户ID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FBrandCode).HasColumnName("F品牌编码").HasColumnType("NCHAR(2)");
         builder.Property(e => e.FPrepayAmount).HasColumnName("F预付金额").HasColumnType("decimal(14,2)").HasDefaultValue(0m);
         builder.Property(e => e.FReceivedAmount).HasColumnName("F到账金额").HasColumnType("decimal(14,2)").HasDefaultValue(0m);
@@ -33,6 +34,7 @@ public class CrmPrepaymentConfiguration : IEntityTypeConfiguration<CrmPrepayment
         builder.HasIndex(e => e.FBrandCode).HasDatabaseName("IX_CRM预付款记录_F品牌编码");
         builder.HasIndex(e => e.FBankTransactionId).HasDatabaseName("IX_CRM预付款记录_F银行流水ID");
         builder.HasIndex(e => e.FStatus).HasDatabaseName("IX_CRM预付款记录_F状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CRM预付款记录_租户ID");
 
         builder.HasMany(e => e.Allocations)
             .WithOne(e => e.Prepayment)

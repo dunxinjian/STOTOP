@@ -12,6 +12,7 @@ public class PpvMonthlyResultConfiguration : IEntityTypeConfiguration<PpvMonthly
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F员工ID).HasColumnName("F员工ID");
         builder.Property(e => e.F期间).HasColumnName("F期间").HasMaxLength(6).IsRequired();
         builder.Property(e => e.F总产值).HasColumnName("F总产值").HasColumnType("decimal(18,2)").HasDefaultValue(0m);
@@ -30,5 +31,7 @@ public class PpvMonthlyResultConfiguration : IEntityTypeConfiguration<PpvMonthly
         builder.HasIndex(e => new { e.FOrgId, e.F员工ID, e.F期间 })
             .IsUnique()
             .HasDatabaseName("UQ_PPV月度汇总_员工_期间");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_PPV月度汇总_租户ID");
     }
 }

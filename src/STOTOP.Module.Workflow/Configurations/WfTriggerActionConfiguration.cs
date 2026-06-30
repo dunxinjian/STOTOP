@@ -12,6 +12,7 @@ public class WfTriggerActionConfiguration : IEntityTypeConfiguration<WfTriggerAc
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FKey).HasColumnName("F标识").HasMaxLength(100).IsRequired();
         builder.Property(e => e.FLabel).HasColumnName("F名称").HasMaxLength(100).IsRequired();
         builder.Property(e => e.FIcon).HasColumnName("F图标").HasMaxLength(50);
@@ -26,5 +27,6 @@ public class WfTriggerActionConfiguration : IEntityTypeConfiguration<WfTriggerAc
 
         builder.HasIndex(e => e.FKey).IsUnique().HasDatabaseName("IX_WF触发动作_标识");
         builder.HasIndex(e => e.FModule).HasDatabaseName("IX_WF触发动作_模块");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_WF触发动作_租户ID");
     }
 }

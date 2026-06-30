@@ -13,6 +13,7 @@ public class VehMaintenanceConfiguration : IEntityTypeConfiguration<VehMaintenan
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(50);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FVehicleId).HasColumnName("F车辆ID").IsRequired();
         builder.Property(e => e.FMaintenanceDate).HasColumnName("F维修日期").IsRequired();
         builder.Property(e => e.FMaintenanceType).HasColumnName("F维修类型").HasMaxLength(50);
@@ -29,5 +30,6 @@ public class VehMaintenanceConfiguration : IEntityTypeConfiguration<VehMaintenan
 
         builder.HasIndex(e => e.FVehicleId).HasDatabaseName("IX_VEH维修记录_车辆ID");
         builder.HasIndex(e => e.FMaintenanceDate).HasDatabaseName("IX_VEH维修记录_维修日期");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_VEH维修记录_租户ID");
     }
 }

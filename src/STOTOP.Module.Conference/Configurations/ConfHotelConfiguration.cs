@@ -12,6 +12,7 @@ public class ConfHotelConfiguration : IEntityTypeConfiguration<ConfHotel>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FEventId).HasColumnName("F活动ID");
         builder.Property(e => e.FHotelName).HasColumnName("F酒店名称").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FAddress).HasColumnName("F地址").HasMaxLength(300);
@@ -23,5 +24,7 @@ public class ConfHotelConfiguration : IEntityTypeConfiguration<ConfHotel>
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
 
         builder.HasIndex(e => e.FEventId).HasDatabaseName("IX_CONF住宿酒店_活动ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CONF住宿酒店_租户ID");
+
     }
 }

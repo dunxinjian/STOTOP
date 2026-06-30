@@ -5,9 +5,10 @@ namespace STOTOP.Module.Salary.Entities;
 /// <summary>
 /// 薪酬档位
 /// </summary>
-public class SalaryGrade : BaseEntity, IOrgScoped
+public class SalaryGrade : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string F档位编码 { get; set; } = string.Empty;
     public string F档位名称 { get; set; } = string.Empty;
     /// <summary>级别（数字越大级别越高）</summary>

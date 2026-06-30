@@ -15,6 +15,8 @@ public class TmReviewRecordConfiguration : IEntityTypeConfiguration<TmReviewReco
         builder.Property(e => e.FRelationType).HasColumnName("F关联类型");
         builder.Property(e => e.FRelationId).HasColumnName("F关联ID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM复盘记录_租户ID");
         builder.Property(e => e.FTitle).HasColumnName("F标题").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FWentWell).HasColumnName("F做得好的");
         builder.Property(e => e.FToImprove).HasColumnName("F待改进的");

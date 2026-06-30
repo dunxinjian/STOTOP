@@ -16,6 +16,8 @@ public class ExpClientRebateTierConfiguration : IEntityTypeConfiguration<ExpClie
         builder.Property(e => e.FMaxTickets).HasColumnName("F最高票数");
         builder.Property(e => e.FRebatePerTicket).HasColumnName("F每票返利").HasColumnType("decimal(10,4)");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP客户返利阶梯_租户ID");
 
         builder.HasIndex(e => new { e.FRebateId, e.FMinTickets })
             .HasDatabaseName("IX_EXP客户返利阶梯_返利最低票数");

@@ -5,7 +5,7 @@ namespace STOTOP.Module.Express.Entities;
 /// <summary>
 /// 计费结果
 /// </summary>
-public class ExpBillingResult : BaseEntity, IOrgScoped
+public class ExpBillingResult : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>批次ID</summary>
     public long FBatchId { get; set; }
@@ -63,6 +63,7 @@ public class ExpBillingResult : BaseEntity, IOrgScoped
     public decimal FTotalCost { get; set; }
     /// <summary>组织ID</summary>
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>成本计算模式 1=标准 2=一口价</summary>
     public int FCostMode { get; set; } = 1;
 }

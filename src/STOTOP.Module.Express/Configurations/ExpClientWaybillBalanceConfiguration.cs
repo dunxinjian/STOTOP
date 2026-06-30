@@ -18,6 +18,8 @@ public class ExpClientWaybillBalanceConfiguration : IEntityTypeConfiguration<Exp
         builder.Property(e => e.FTotalAllocated).HasColumnName("F累计分配").HasDefaultValue(0);
         builder.Property(e => e.FTotalReturned).HasColumnName("F累计回收").HasDefaultValue(0);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP客户运单号余额_租户ID");
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
 
         builder.HasIndex(e => new { e.FBusinessObjectId, e.FBrandCode }).IsUnique()

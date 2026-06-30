@@ -15,6 +15,8 @@ public class ExpSalesmanAliasConfiguration : IEntityTypeConfiguration<ExpSalesma
         builder.Property(e => e.FName).HasColumnName("F名称").HasMaxLength(100).IsRequired();
         builder.Property(e => e.FEmployeeNo).HasColumnName("F员工编号").HasMaxLength(50).IsRequired();
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP快递业务员名称映射_租户ID");
 
         builder.HasIndex(e => e.FEmployeeNo).HasDatabaseName("IX_快递业务员名称映射_员工编号");
         builder.HasIndex(e => new { e.FName, e.FOrgId }).IsUnique().HasDatabaseName("UQ_快递业务员名称映射_名称组织");

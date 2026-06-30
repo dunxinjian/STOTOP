@@ -5,10 +5,11 @@ namespace STOTOP.Module.Express.Entities;
 /// <summary>
 /// 运单号交易
 /// </summary>
-public class ExpWaybillNumberTransaction : BaseEntity, IOrgScoped
+public class ExpWaybillNumberTransaction : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>组织ID</summary>
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     /// <summary>业务对象ID（F编号）</summary>
     public string FBusinessObjectId { get; set; } = string.Empty;
     /// <summary>品牌ID</summary>

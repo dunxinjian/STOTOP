@@ -21,6 +21,8 @@ public class ExpInvoiceReviewRuleConfiguration : IEntityTypeConfiguration<ExpInv
         builder.Property(e => e.FPriority).HasColumnName("F优先级").HasDefaultValue(0);
         builder.Property(e => e.FEnabled).HasColumnName("F启用").HasDefaultValue(true);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP出港账单审核规则_租户ID");
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
     }
 }

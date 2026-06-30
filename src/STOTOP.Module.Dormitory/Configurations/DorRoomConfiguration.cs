@@ -12,6 +12,7 @@ public class DorRoomConfiguration : IEntityTypeConfiguration<DorRoom>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FBuildingId).HasColumnName("F楼栋ID");
         builder.Property(e => e.FFloor).HasColumnName("F楼层");
         builder.Property(e => e.FRoomNumber).HasColumnName("F房号").HasMaxLength(50).IsRequired();
@@ -24,6 +25,7 @@ public class DorRoomConfiguration : IEntityTypeConfiguration<DorRoom>
 
         builder.HasIndex(e => new { e.FBuildingId, e.FRoomNumber }).IsUnique().HasDatabaseName("IX_DOR房间_楼栋房号");
         builder.HasIndex(e => e.FBuildingId).HasDatabaseName("IX_DOR房间_楼栋ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_DOR房间_租户ID");
 
         builder.HasMany(e => e.Beds)
             .WithOne(e => e.Room)

@@ -2,10 +2,11 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.System.Entities;
 
-public class SysFeedbackCard : BaseEntity, IOrgScoped
+public class SysFeedbackCard : BaseEntity, IOrgScoped, ITenantScoped
 {
     public string FUID { get; set; } = Guid.NewGuid().ToString("N");
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string FTitle { get; set; } = string.Empty;
     public int FType { get; set; }
     public string FModule { get; set; } = string.Empty;

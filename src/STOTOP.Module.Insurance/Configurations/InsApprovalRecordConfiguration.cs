@@ -13,6 +13,7 @@ public class InsApprovalRecordConfiguration : IEntityTypeConfiguration<InsApprov
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(50);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FSettlementId).HasColumnName("F理赔ID").IsRequired();
         builder.Property(e => e.FStepConfigId).HasColumnName("F环节配置ID").IsRequired();
         builder.Property(e => e.FStepOrder).HasColumnName("F环节序号").IsRequired();
@@ -28,6 +29,7 @@ public class InsApprovalRecordConfiguration : IEntityTypeConfiguration<InsApprov
 
         builder.HasIndex(e => e.FSettlementId)
             .HasDatabaseName("IX_INS理赔审批记录_理赔ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_INS理赔审批记录_租户ID");
 
         builder.HasOne(e => e.StepConfig)
             .WithMany()

@@ -2,9 +2,10 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Contract.Entities;
 
-public class ConESignRecord : BaseEntity, IOrgScoped
+public class ConESignRecord : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FContractId { get; set; }
     public string FSigner { get; set; } = string.Empty;
     public string? FSignerRole { get; set; }

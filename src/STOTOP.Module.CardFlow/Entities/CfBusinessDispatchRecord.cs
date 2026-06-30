@@ -6,7 +6,7 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// CF 业务派发记录：业务异常派发（OA / 工作任务 / 消息）记录（迁移自 CfBusinessDispatchRecord）
 /// 注意：与 CfDispatchRecord（编排自动派发）语义不同，故独立命名。
 /// </summary>
-public class CfBusinessDispatchRecord : BaseEntity, IOrgScoped
+public class CfBusinessDispatchRecord : BaseEntity, IOrgScoped, ITenantScoped
 {
     /// <summary>来源批次ID（CfBatch.FID）</summary>
     public long FBatchId { get; set; }
@@ -45,4 +45,5 @@ public class CfBusinessDispatchRecord : BaseEntity, IOrgScoped
     public DateTime FCreatedTime { get; set; } = DateTime.Now;
     public DateTime? FUpdatedTime { get; set; }
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
 }

@@ -13,6 +13,7 @@ public class VehRentalChargeConfiguration : IEntityTypeConfiguration<VehRentalCh
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(50);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FVehicleId).HasColumnName("F车辆ID").IsRequired();
         builder.Property(e => e.FAssignmentId).HasColumnName("F分配ID").IsRequired();
         builder.Property(e => e.FEmployeeId).HasColumnName("F员工ID").IsRequired();
@@ -34,5 +35,6 @@ public class VehRentalChargeConfiguration : IEntityTypeConfiguration<VehRentalCh
         builder.HasIndex(e => e.FAssignmentId).HasDatabaseName("IX_VEH租赁收费记录_分配ID");
         builder.HasIndex(e => e.FEmployeeId).HasDatabaseName("IX_VEH租赁收费记录_员工ID");
         builder.HasIndex(e => e.FChargeStatus).HasDatabaseName("IX_VEH租赁收费记录_收费状态");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_VEH租赁收费记录_租户ID");
     }
 }

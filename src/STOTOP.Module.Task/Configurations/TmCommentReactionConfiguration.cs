@@ -12,6 +12,8 @@ public class TmCommentReactionConfiguration : IEntityTypeConfiguration<TmComment
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_TM评论表情_租户ID");
         builder.Property(e => e.FCommentId).HasColumnName("F评论ID");
         builder.Property(e => e.FUserId).HasColumnName("F用户ID");
         builder.Property(e => e.FEmojiCode).HasColumnName("F表情编码").HasMaxLength(50).IsRequired();

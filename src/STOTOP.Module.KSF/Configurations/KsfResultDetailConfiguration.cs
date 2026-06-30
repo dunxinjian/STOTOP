@@ -12,6 +12,7 @@ public class KsfResultDetailConfiguration : IEntityTypeConfiguration<KsfResultDe
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.F结果ID).HasColumnName("F结果ID");
         builder.Property(e => e.F指标ID).HasColumnName("F指标ID");
         builder.Property(e => e.F实际值).HasColumnName("F实际值").HasColumnType("decimal(18,2)").HasDefaultValue(0m);
@@ -20,5 +21,7 @@ public class KsfResultDetailConfiguration : IEntityTypeConfiguration<KsfResultDe
         builder.Property(e => e.F指标快照JSON).HasColumnName("F指标快照JSON");
 
         builder.HasIndex(e => e.F结果ID).HasDatabaseName("IX_KSF结果明细_结果ID");
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_KSF结果明细_租户ID");
     }
 }

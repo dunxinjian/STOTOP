@@ -12,6 +12,7 @@ public class PmPointRankingConfiguration : IEntityTypeConfiguration<PmPointRanki
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FUserId).HasColumnName("F用户ID");
         builder.Property(e => e.FDepartmentId).HasColumnName("F部门ID");
         builder.Property(e => e.FDimension).HasColumnName("F维度");
@@ -26,5 +27,6 @@ public class PmPointRankingConfiguration : IEntityTypeConfiguration<PmPointRanki
 
         builder.HasIndex(e => new { e.FOrgId, e.FDimension, e.FPeriod }).HasDatabaseName("IX_PM积分排名_组织_维度_周期");
         builder.HasIndex(e => e.FDepartmentId).HasDatabaseName("IX_PM积分排名_部门");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_PM积分排名快照_租户ID");
     }
 }

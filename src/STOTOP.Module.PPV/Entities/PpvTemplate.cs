@@ -5,9 +5,10 @@ namespace STOTOP.Module.PPV.Entities;
 /// <summary>
 /// PPV 产值模板（按组织 + 岗位 + 产值项编码 唯一）
 /// </summary>
-public class PpvTemplate : BaseEntity, IOrgScoped
+public class PpvTemplate : BaseEntity, IOrgScoped, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string F名称 { get; set; } = string.Empty;
     public long F岗位ID { get; set; }
     public string F产值项编码 { get; set; } = string.Empty;
