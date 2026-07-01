@@ -5,9 +5,10 @@ namespace STOTOP.Module.Quality.Entities;
 /// <summary>
 /// 知识库文章
 /// </summary>
-public class QlKnowledge : BaseEntity
+public class QlKnowledge : BaseEntity, ITenantScoped
 {
     public long FOrgId { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string FTitle { get; set; } = string.Empty;
     public string FContent { get; set; } = string.Empty;
     public string? FCategory { get; set; }

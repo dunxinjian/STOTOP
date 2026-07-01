@@ -13,6 +13,7 @@ public class CfPluginExecutionConfiguration : IEntityTypeConfiguration<CfPluginE
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FBatchId).HasColumnName("F批次ID");
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FAutoPluginName).HasColumnName("FAutoPlugin名称").HasMaxLength(100);
         builder.Property(e => e.FAutoPluginIndex).HasColumnName("FAutoPlugin索引");
         builder.Property(e => e.FStatus).HasColumnName("F状态");
@@ -23,5 +24,6 @@ public class CfPluginExecutionConfiguration : IEntityTypeConfiguration<CfPluginE
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
 
         builder.HasIndex(e => e.FBatchId).HasDatabaseName("IX_CF自动插件_执行记录_批次ID");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF自动插件_执行记录_租户ID");
     }
 }

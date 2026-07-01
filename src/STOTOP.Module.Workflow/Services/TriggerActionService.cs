@@ -4,16 +4,19 @@ using STOTOP.Module.System.Entities;
 using STOTOP.Module.Workflow.DTOs;
 using STOTOP.Module.Workflow.Entities;
 using STOTOP.Module.Workflow.Services.Interfaces;
+using STOTOP.Module.System.Services;
 
 namespace STOTOP.Module.Workflow.Services;
 
 public class TriggerActionService : ITriggerActionService
 {
     private readonly STOTOPDbContext _db;
+    private readonly IAdminAuthorizationService _adminAuth;
 
-    public TriggerActionService(STOTOPDbContext db)
+    public TriggerActionService(STOTOPDbContext db, IAdminAuthorizationService adminAuth)
     {
         _db = db;
+        _adminAuth = adminAuth;
     }
 
     /// <summary>获取当前用户可用的触发动作列表（带权限过滤）</summary>
@@ -25,13 +28,9 @@ public class TriggerActionService : ITriggerActionService
             .OrderBy(a => a.FOrder)
             .ToListAsync();
 
-        // 2. 检查是否是 admin 用户
-        var account = await _db.Set<SysUser>()
-            .Where(u => u.FID == userId)
-            .Select(u => u.FAccount)
-            .FirstOrDefaultAsync();
-
-        var isAdmin = string.Equals(account, "admin", StringComparison.OrdinalIgnoreCase);
+        // 2. 检查是否是 admin 用户——口径统一：走中心 IAdminAuthorizationService（认 DB F角色ID=1），
+        //    不再按 SYS用户.F账号 字面量 "admin" 判定。
+        var isAdmin = await _adminAuth.IsAdminByUserIdAsync(_db, userId);
 
         // admin 直接返回所有
         if (isAdmin)

@@ -12,6 +12,7 @@ public class QlKnowledgeConfiguration : IEntityTypeConfiguration<QlKnowledge>
 
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FTitle).HasColumnName("F标题").HasMaxLength(200).IsRequired();
         builder.Property(e => e.FContent).HasColumnName("F内容").IsRequired();
         builder.Property(e => e.FCategory).HasColumnName("F分类").HasMaxLength(50);
@@ -24,5 +25,6 @@ public class QlKnowledgeConfiguration : IEntityTypeConfiguration<QlKnowledge>
         builder.Property(e => e.FUpdateTime).HasColumnName("F更新时间").HasDefaultValueSql("GETDATE()");
 
         builder.HasIndex(e => new { e.FOrgId, e.FCategory }).HasDatabaseName("IX_QL知识库_组织_分类");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_QL知识库_租户ID");
     }
 }

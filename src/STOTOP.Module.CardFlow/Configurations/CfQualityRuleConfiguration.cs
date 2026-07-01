@@ -25,6 +25,7 @@ public class CfQualityRuleConfiguration : IEntityTypeConfiguration<CfQualityRule
         builder.Property(e => e.FSuggestedFix).HasColumnName("F建议修复方案").HasMaxLength(500);
         builder.Property(e => e.FIsBlocking).HasColumnName("F是否阻断").HasDefaultValue(false);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID").HasDefaultValue(0L);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FSortOrder).HasColumnName("F排序").HasDefaultValue(0);
         builder.Property(e => e.FEnabled).HasColumnName("F是否启用").HasDefaultValue(true);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间").HasDefaultValueSql("GETDATE()");
@@ -35,5 +36,6 @@ public class CfQualityRuleConfiguration : IEntityTypeConfiguration<CfQualityRule
         builder.HasIndex(e => e.FRuleCode)
             .IsUnique()
             .HasDatabaseName("IX_CF质量规则_编码唯一");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF质量规则_租户ID");
     }
 }

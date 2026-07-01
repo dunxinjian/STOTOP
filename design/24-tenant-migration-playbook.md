@@ -298,6 +298,21 @@ private void FillTenantIdForNewEntities() {
 
 **风险**：漏第三轮循环（裸读全租户）；闭包捕获快照；**别顺手删 `IOrgScoped` 过滤器**（切换期两层并存）；seeder/非HTTP 入口不豁免则启动/后台任务炸。
 
+#### 阶段1 as-built（2026-07-01 已实施 · 分支 `feat/tenant-isolation-stage0`）
+
+过滤器/写硬墙在 1a/1b + fan-out 时已启用；本轮补齐硬化 + 自检门禁：
+- **受控平台作用域**：新建 `IPlatformScopeFactory`(Core) + `PlatformScopeFactory`(System，Scoped，与 `IOrgContextAccessor` 共享实例、Enter 置位/Dispose 复位为进入前值 + 审计日志)。`Program.cs` 三处启动块包 `Enter(...)`：`startup-migration`(MigrateAll)、`voucher-accountset-backfill`(凭证账套回填——原在无上下文下被 fail-closed 读空、静默失效)、`cli-init-database`/`cli-validate-database`(`--init-database` baseline)。**唯一** `IsPlatformScope=true` 产生途径。
+- **IDOR**：`Repository.GetByIdAsync` 裸 `_dbSet.FindAsync(id)` → `AsTracking().FirstOrDefault(EF.Property<long>(e, 主键名) == id)`；主键名从模型元数据解析(**不硬编码 "FID"**——有实体主键名为 `Id` 如 `ExpPriceSurchargeScope`)。
+- **补标 4 漏标**（有 FOrgId 却漏 ITenantScoped）：`FinAmoebaManualData`/`CfQualityRule`/`CfPluginExecution`/`QlKnowledge` + Configuration + `FinanceSeeder V14`/`CardFlowSeeder V61`/`QualitySeeder V3`(NOT NULL DEFAULT 0 + IX + 回填根租户，dev 库实跑)。
+- **admin 口径统一（仅 consumer 侧）**：6 处散落判定(`ClaimTypes.Name=="admin"` / `F账号=="admin"` / `IsInRole("admin")`)收敛到中心 `IAdminAuthorizationService`。
+- **隔离自检门禁**：`tests/STOTOP.Module.System.Tests`——写硬墙(无上下文/跨租户 throw、平台放行)、`GetByIdAsync` 主键解析+IDOR、**漏标扫描**(有 FOrgId/FOwnerOrgId 或 IOrgScoped/IOrgOwned 却缺 ITenantScoped → 红；排除 IStagingRecord/FAccountSetId 传递/白名单；含"每模块代表实体在册"防假阴性护栏)。全模块自动发现。
+
+**阶段1 遗留收紧清单（FIsPlatformAdmin 完整 M7 · 下一 pass）**：
+1. **admin producer 侧 + FIsPlatformAdmin**：admin 判定仍是三来源(OA_ADMIN Claim / F角色ID=1 / 残留 `Program.cs` 默认口令自检、`OrganizationService.EnsureAdminOrgAssociation` 的 `F账号=="admin"` 身份查找)。落 `FIsPlatformAdmin` + `FScope=platform` + 平台作用域接管 + 审计。**钉钉移动端 `DingTalkAuthController.GenerateJwtToken` 不签发 OA_ADMIN**——与 PC token 口径分裂(Task 控制器改认 OA_ADMIN 后，钉钉 token 走那些端点会丢 admin 待遇；当前移动端未调用故无活跃回归)，统一时一并补。
+2. **STG 37 张暂存表 + Finance 账套传递族(科目家族/会计期间/账套模板/资产/汇率)**：仍未挂 ITenantScoped(门禁经 IStagingRecord/FAccountSetId 豁免记录)，全覆盖收尾时补 F租户ID(经 FAccountSetId→账套租户传递)。
+3. **ambiguous 待裁决**：`CfNumberSequence`/`SysCodeSequence`(序列是否按租户重置)、`ExpLastMileStation`(合作驿站无组织→租户映射)、`FinAccountTemplate`(预置+自建混合，推迟阶段4)——在门禁白名单挂起。
+4. **只读后台 Job 无上下文读空**：`WorkItemTimeoutJob`/`PushRetryJob` 等未走 9ca8184 设租户，fail-closed 下读空集(单客户期功能退化非安全洞)；随多客户上线用 `IPlatformScopeFactory` 或按 Job 目标租户设上下文。
+
 ### 阶段2（组织模型重建）— M3+M4+M5
 
 | M | 现状锚点 | 动作 |

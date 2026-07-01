@@ -5,8 +5,10 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// <summary>
 /// CF 质量规则（迁移自 CfQualityRule）
 /// </summary>
-public class CfQualityRule : BaseEntity
+public class CfQualityRule : BaseEntity, ITenantScoped
 {
+    /// <summary>租户ID（区域公司，多租户隔离键）</summary>
+    public long FTenantId { get; set; }
     /// <summary>规则名称</summary>
     public string FRuleName { get; set; } = string.Empty;
     /// <summary>规则编码</summary>

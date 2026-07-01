@@ -15,13 +15,15 @@ public class OrgContextService : IOrgContextService
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IChangeLogService _changeLogService;
     private readonly ILogger<OrgContextService> _logger;
+    private readonly IAdminAuthorizationService _adminAuth;
 
-    public OrgContextService(STOTOPDbContext context, IHttpContextAccessor httpContextAccessor, IChangeLogService changeLogService, ILogger<OrgContextService> logger)
+    public OrgContextService(STOTOPDbContext context, IHttpContextAccessor httpContextAccessor, IChangeLogService changeLogService, ILogger<OrgContextService> logger, IAdminAuthorizationService adminAuth)
     {
         _context = context;
         _httpContextAccessor = httpContextAccessor;
         _changeLogService = changeLogService;
         _logger = logger;
+        _adminAuth = adminAuth;
     }
 
     private (long? UserId, string? UserName) GetCurrentUser()
@@ -58,9 +60,9 @@ public class OrgContextService : IOrgContextService
 
     public async Task<List<UserOrganizationDto>> GetUserOrganizationsAsync(long userId)
     {
-        // 0. 判断是否为 admin 用户
-        var currentUser = await _context.Set<SysUser>().FirstOrDefaultAsync(u => u.FID == userId);
-        var isAdmin = currentUser != null && string.Equals(currentUser.FAccount, "admin", StringComparison.OrdinalIgnoreCase);
+        // 0. 判断是否为 admin 用户——口径统一：走中心 IAdminAuthorizationService（认 DB F角色ID=1），
+        //    不再按 SYS用户.F账号 字面量 "admin" 判定。
+        var isAdmin = await _adminAuth.IsAdminByUserIdAsync(_context, userId);
 
         // 1. 一次性加载所有组织节点到内存，用于树遍历
         var allOrgs = await _context.Set<SysOrganization>()

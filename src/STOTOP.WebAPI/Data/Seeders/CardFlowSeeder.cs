@@ -82,6 +82,7 @@ public static class CardFlowSeeder
             new(58, "申通新格式:STG申通总部交易明细 F费用名称 改可空(资金往来调账行无费用名称) (2026-06-22,重建)", MigrateV58),
             new(59, "阶段0多租户: CardFlow 17张租户表加 F租户ID 隔离键列(NOT NULL DEFAULT 0,不启用过滤器)+租户索引 (2026-07-01)", MigrateV59),
             new(60, "阶段0多租户: CardFlow 存量行 F租户ID 回填到根组织单租户(=根组织id) (2026-07-01)", MigrateV60),
+            new(61, "阶段1补漏: CF质量规则/CF自动插件_执行记录(有FOrgId却漏标ITenantScoped) 加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户 (2026-07-01)", MigrateV61),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -298,6 +299,40 @@ public static class CardFlowSeeder
         if (!SeederHelper.IsSqlServer(ctx)) return;
 
         foreach (var t in Phase0TenantTables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+            IF @tenant IS NOT NULL
+                UPDATE [{t}] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
+        }
+    }
+
+    /// <summary>阶段1补漏：CF质量规则/CF自动插件_执行记录 有 F组织ID 却在 fan-out 时漏标 ITenantScoped
+    /// (二者只 : BaseEntity，字面 grep 未匹配、未进 V59 的 17 表清单)。补加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户，
+    /// 与 V59/V60 同款口径。加列/索引/回填分独立 batch 避免延迟名称解析。</summary>
+    private static void MigrateV61(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        string[] tables = { "CF质量规则", "CF自动插件_执行记录" };
+
+        foreach (var t in tables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = N'{t}' AND COLUMN_NAME = N'F租户ID')
+            ALTER TABLE [{t}] ADD [F租户ID] bigint NOT NULL CONSTRAINT [DF_{t}_F租户ID] DEFAULT 0;");
+        }
+
+        foreach (var t in tables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            IF NOT EXISTS (SELECT * FROM sys.indexes
+                WHERE name = N'IX_{t}_租户ID' AND object_id = OBJECT_ID(N'{t}'))
+            CREATE INDEX [IX_{t}_租户ID] ON [{t}] ([F租户ID]);");
+        }
+
+        foreach (var t in tables)
         {
             SeederHelper.ExecuteRawSql(ctx, $@"
             DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);

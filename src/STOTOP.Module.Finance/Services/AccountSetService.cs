@@ -7,6 +7,7 @@ using STOTOP.Infrastructure.Data;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Entities;
 using STOTOP.Module.Finance.Services.Interfaces;
+using STOTOP.Module.System.Services;
 
 namespace STOTOP.Module.Finance.Services;
 
@@ -22,6 +23,7 @@ public class AccountSetService
     private readonly IAccountSetAuthorizationService _accountSetAuthService;
     private readonly STOTOPDbContext _context;
     private readonly ILogger<AccountSetService> _logger;
+    private readonly IAdminAuthorizationService _adminAuth;
 
     public AccountSetService(
         IRepository<FinAccountSet> accountSetRepository,
@@ -33,7 +35,8 @@ public class AccountSetService
         IAccountTemplateService accountTemplateService,
         IAccountSetAuthorizationService accountSetAuthService,
         STOTOPDbContext context,
-        ILogger<AccountSetService> logger)
+        ILogger<AccountSetService> logger,
+        IAdminAuthorizationService adminAuth)
     {
         _accountSetRepository = accountSetRepository;
         _accountRepository = accountRepository;
@@ -45,6 +48,7 @@ public class AccountSetService
         _accountSetAuthService = accountSetAuthService;
         _context = context;
         _logger = logger;
+        _adminAuth = adminAuth;
     }
 
     private long GetCurrentOrgId()
@@ -64,8 +68,9 @@ public class AccountSetService
 
     private bool IsAdmin()
     {
-        var userName = _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.Name)?.Value;
-        return string.Equals(userName, "admin", StringComparison.OrdinalIgnoreCase);
+        // 口径统一：走中心 IAdminAuthorizationService（认 OA_ADMIN 角色 Claim），不再按用户名字面量 "admin" 判定
+        // ——消除与 setup token(Name="admin" 但无 OA_ADMIN 角色) 的口径分裂。
+        return _adminAuth.IsAdmin(_httpContextAccessor.HttpContext?.User);
     }
 
     /// <summary>

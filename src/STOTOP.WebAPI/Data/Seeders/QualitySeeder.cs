@@ -27,6 +27,7 @@ public static class QualitySeeder
         {
             new(1, "阶段0多租户: Quality 9张租户表加 F租户ID 隔离键列(NOT NULL DEFAULT 0,不启用过滤器)+租户索引 (2026-07-01)", MigrateV1),
             new(2, "阶段0多租户: Quality 存量行 F租户ID 回填到根组织单租户(=根组织id) (2026-07-01)", MigrateV2),
+            new(3, "阶段1补漏: QL知识库(有FOrgId却漏标ITenantScoped) 加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户 (2026-07-01)", MigrateV3),
         });
     }
 
@@ -74,5 +75,29 @@ public static class QualitySeeder
             IF @tenant IS NOT NULL
                 UPDATE [{t}] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
         }
+    }
+
+    /// <summary>
+    /// 阶段1补漏：QL知识库 有 F组织ID 却在 fan-out 时漏标 ITenantScoped（只 : BaseEntity，未进 V1 的 9 表清单）。
+    /// 补加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户——与 V1/V2 同款口径。加列/索引/回填分独立 batch 避免延迟名称解析。
+    /// </summary>
+    private static void MigrateV3(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = N'QL知识库' AND COLUMN_NAME = N'F租户ID')
+        ALTER TABLE [QL知识库] ADD [F租户ID] bigint NOT NULL CONSTRAINT [DF_QL知识库_F租户ID] DEFAULT 0;");
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM sys.indexes
+            WHERE name = N'IX_QL知识库_租户ID' AND object_id = OBJECT_ID(N'QL知识库'))
+        CREATE INDEX [IX_QL知识库_租户ID] ON [QL知识库] ([F租户ID]);");
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+        DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+        IF @tenant IS NOT NULL
+            UPDATE [QL知识库] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
     }
 }

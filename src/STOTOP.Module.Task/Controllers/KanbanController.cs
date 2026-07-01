@@ -5,6 +5,7 @@ using STOTOP.Core.Models;
 using STOTOP.Module.Task.Dtos;
 using STOTOP.Module.Task.Services;
 using STOTOP.Module.System.Filters;
+using STOTOP.Module.System.Services;
 
 namespace STOTOP.Module.Task.Controllers;
 
@@ -14,15 +15,18 @@ namespace STOTOP.Module.Task.Controllers;
 public class KanbanController : ControllerBase
 {
     private readonly IKanbanService _kanbanService;
+    private readonly IAdminAuthorizationService _adminAuth;
 
-    public KanbanController(IKanbanService kanbanService)
+    public KanbanController(IKanbanService kanbanService, IAdminAuthorizationService adminAuth)
     {
         _kanbanService = kanbanService;
+        _adminAuth = adminAuth;
     }
 
     private long GetUserId() => long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
     private long GetOrgId() => (long)(HttpContext.Items["CurrentOrgId"] ?? 0L);
-    private bool IsAdmin() => User.IsInRole("admin");
+    // 口径统一：走中心 IAdminAuthorizationService（认 OA_ADMIN 角色 Claim），不再按 IsInRole("admin") 角色名字面量判定。
+    private bool IsAdmin() => _adminAuth.IsAdmin(User);
 
     /// <summary>获取看板数据（按状态分组）</summary>
     [HttpGet]

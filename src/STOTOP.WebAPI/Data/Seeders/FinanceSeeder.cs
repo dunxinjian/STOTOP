@@ -43,6 +43,7 @@ public static class FinanceSeeder
             new(11, "快递行业模板FID3明细=账套2科目快照(排1002/1012子科目)+sourceId口径 (2026-06-19)", MigrateV11),
             new(12, "阶段0多租户(Finance试点): 13张租户表加 F租户ID 隔离键列(NOT NULL DEFAULT 0,不启用过滤器)+租户索引 (2026-06-30)", MigrateV12),
             new(13, "阶段0多租户(Finance试点): 存量行 F租户ID 回填到 MDSTO 单租户(=根组织id) (2026-06-30)", MigrateV13),
+            new(14, "阶段1补漏: FIN阿米巴手工数据(有FOrgId却漏标ITenantScoped) 加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户 (2026-07-01)", MigrateV14),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -2320,5 +2321,30 @@ public static class FinanceSeeder
             IF @tenant IS NOT NULL
                 UPDATE [{t}] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
         }
+    }
+
+    /// <summary>
+    /// 阶段1补漏：FIN阿米巴手工数据 有 F组织ID 却在 fan-out 时漏标 ITenantScoped（未在 V12 的 13 表清单内）。
+    /// 补加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户——与 V12/V13 同款口径。加列/建索引/回填分独立 ExecSql
+    /// (避免同 batch ALTER ADD 后引用新列的延迟名称解析失败)；表量级小，单步内加列+回填与既有 V7(F期间键)同例。
+    /// </summary>
+    private static void MigrateV14(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = N'FIN阿米巴手工数据' AND COLUMN_NAME = N'F租户ID')
+        ALTER TABLE [FIN阿米巴手工数据] ADD [F租户ID] bigint NOT NULL CONSTRAINT [DF_FIN阿米巴手工数据_F租户ID] DEFAULT 0;");
+
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM sys.indexes
+            WHERE name = N'IX_FIN阿米巴手工数据_租户ID' AND object_id = OBJECT_ID(N'FIN阿米巴手工数据'))
+        CREATE INDEX [IX_FIN阿米巴手工数据_租户ID] ON [FIN阿米巴手工数据] ([F租户ID]);");
+
+        ExecSql(ctx, @"
+        DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+        IF @tenant IS NOT NULL
+            UPDATE [FIN阿米巴手工数据] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
     }
 }

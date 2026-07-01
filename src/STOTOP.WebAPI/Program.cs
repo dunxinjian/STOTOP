@@ -309,6 +309,8 @@ builder.Services.AddSingleton<IDynamicDbContextFactory, DynamicDbContextFactory>
 // Org Context
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IOrgContextAccessor, HttpOrgContextAccessor>();
+// 受控平台作用域工厂：与 IOrgContextAccessor 同 Scoped，共享实例——Enter 置位后本作用域 DbContext 立即放行租户硬墙。
+builder.Services.AddScoped<IPlatformScopeFactory, STOTOP.Module.System.Services.PlatformScopeFactory>();
 builder.Services.AddSingleton<STOTOP.Core.Services.ITenantResolver, STOTOP.Module.System.Services.TenantResolver>();
 
 // System Module
@@ -453,31 +455,37 @@ if (runDatabaseInitialization || runDatabaseValidation)
     using var scope = app.Services.CreateScope();
     var dbCtx = scope.ServiceProvider.GetRequiredService<STOTOPDbContext>();
     var seeder = scope.ServiceProvider.GetRequiredService<IDatabaseSeeder>();
+    var platformScope = scope.ServiceProvider.GetRequiredService<IPlatformScopeFactory>();
 
-    var report = runDatabaseInitialization
-        ? seeder.InitializeNewDatabase(dbCtx)
-        : seeder.ValidateDatabase(dbCtx);
-
-    foreach (var step in report.Steps)
+    // CLI baseline 初始化/校验同样无 HTTP/无租户上下文：seeder 经 EF 写 ITenantScoped 实体（如 BasicDataSeeder 播 FinAuxiliaryItem）
+    // 会撞 fail-closed 写硬墙——与启动迁移块同法包受控平台作用域放行。
+    using (platformScope.Enter(runDatabaseInitialization ? "cli-init-database" : "cli-validate-database"))
     {
-        app.Logger.LogInformation("Database baseline step: {Step}", step);
-    }
+        var report = runDatabaseInitialization
+            ? seeder.InitializeNewDatabase(dbCtx)
+            : seeder.ValidateDatabase(dbCtx);
 
-    if (!report.Success)
-    {
-        foreach (var issue in report.Issues)
+        foreach (var step in report.Steps)
         {
-            app.Logger.LogError("Database baseline issue: {Issue}", issue);
+            app.Logger.LogInformation("Database baseline step: {Step}", step);
         }
 
-        Environment.ExitCode = 2;
-        return;
-    }
+        if (!report.Success)
+        {
+            foreach (var issue in report.Issues)
+            {
+                app.Logger.LogError("Database baseline issue: {Issue}", issue);
+            }
 
-    app.Logger.LogInformation(
-        runDatabaseInitialization
-            ? "数据库 baseline 初始化完成"
-            : "数据库 baseline 校验通过");
+            Environment.ExitCode = 2;
+            return;
+        }
+
+        app.Logger.LogInformation(
+            runDatabaseInitialization
+                ? "数据库 baseline 初始化完成"
+                : "数据库 baseline 校验通过");
+    }
     return;
 }
 
@@ -488,9 +496,15 @@ using (var scope = app.Services.CreateScope())
 {
     var dbCtx = scope.ServiceProvider.GetRequiredService<STOTOPDbContext>();
     var seeder = scope.ServiceProvider.GetRequiredService<IDatabaseSeeder>();
+    var platformScope = scope.ServiceProvider.GetRequiredService<IPlatformScopeFactory>();
     try
     {
-        seeder.MigrateAll(dbCtx);
+        // 启动期无 HTTP/无租户上下文：包受控平台作用域，令 seeder 中经 EF 写入 ITenantScoped 实体
+        // （如 BasicDataSeeder 播 FinAuxiliaryItem）不撞 fail-closed 写硬墙、读 ITenantScoped 表不落空集。
+        using (platformScope.Enter("startup-migration"))
+        {
+            seeder.MigrateAll(dbCtx);
+        }
         app.Logger.LogInformation("数据库迁移执行完成");
     }
     catch (Exception ex)
@@ -506,20 +520,26 @@ using (var scope = app.Services.CreateScope())
     try
     {
         var dbContext = scope.ServiceProvider.GetRequiredService<STOTOPDbContext>();
-        var defaultAccountSet = dbContext.Set<STOTOP.Module.Finance.Entities.FinAccountSet>()
-            .Where(a => a.FIsDefault)
-            .OrderBy(a => a.FID)
-            .FirstOrDefault();
-        if (defaultAccountSet != null)
+        var platformScope = scope.ServiceProvider.GetRequiredService<IPlatformScopeFactory>();
+        // FinAccountSet/FinVoucher 均为 ITenantScoped：启动期无租户上下文下裸读会被 fail-closed 过滤器落空集，
+        // 使本回填静默失效。包平台作用域放行读，恢复迁移语义。
+        using (platformScope.Enter("voucher-accountset-backfill"))
         {
-            var count = dbContext.Set<STOTOP.Module.Finance.Entities.FinVoucher>()
-                .Count(v => v.FAccountSetId == 0);
-            if (count > 0)
+            var defaultAccountSet = dbContext.Set<STOTOP.Module.Finance.Entities.FinAccountSet>()
+                .Where(a => a.FIsDefault)
+                .OrderBy(a => a.FID)
+                .FirstOrDefault();
+            if (defaultAccountSet != null)
             {
-                dbContext.Database.ExecuteSqlRaw(
-                    "UPDATE [FIN凭证] SET [F账套ID] = {0} WHERE [F账套ID] = 0",
-                    defaultAccountSet.FID);
-                app.Logger.LogInformation("已将 {Count} 张凭证分配到默认账套 {Name}", count, defaultAccountSet.FName);
+                var count = dbContext.Set<STOTOP.Module.Finance.Entities.FinVoucher>()
+                    .Count(v => v.FAccountSetId == 0);
+                if (count > 0)
+                {
+                    dbContext.Database.ExecuteSqlRaw(
+                        "UPDATE [FIN凭证] SET [F账套ID] = {0} WHERE [F账套ID] = 0",
+                        defaultAccountSet.FID);
+                    app.Logger.LogInformation("已将 {Count} 张凭证分配到默认账套 {Name}", count, defaultAccountSet.FName);
+                }
             }
         }
     }

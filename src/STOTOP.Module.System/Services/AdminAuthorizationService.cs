@@ -12,7 +12,7 @@ public class AdminAuthorizationService : IAdminAuthorizationService
     /// <summary>JWT中admin角色的Claim值</summary>
     public const string AdminRoleClaim = "OA_ADMIN";
 
-    public bool IsAdmin(ClaimsPrincipal user)
+    public bool IsAdmin(ClaimsPrincipal? user)
     {
         if (user?.Identity?.IsAuthenticated != true)
             return false;

@@ -11,7 +11,7 @@ public interface IAdminAuthorizationService
     /// <summary>
     /// 从JWT Claims判断是否admin（请求阶段使用，无需DB查询）
     /// </summary>
-    bool IsAdmin(ClaimsPrincipal user);
+    bool IsAdmin(ClaimsPrincipal? user);
 
     /// <summary>
     /// 通过userId查数据库判断是否admin角色（登录阶段/Claim不可用时使用）

@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.8" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <!-- 中性隔离自检项目：需注册全部活跃业务模块的 EF 配置，方能对全模型做跨模块漏标扫描。
+       退役模块 OA 有意不引用（不注册即不纳入扫描，与 CLAUDE.md『OA 不作新入口』一致）。 -->
+  <ItemGroup>
+    <ProjectReference Include="../../src/STOTOP.Infrastructure/STOTOP.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.System/STOTOP.Module.System.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.Finance/STOTOP.Module.Finance.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.Express/STOTOP.Module.Express.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.CRM/STOTOP.Module.CRM.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.CardFlow/STOTOP.Module.CardFlow.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.Points/STOTOP.Module.Points.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.Dormitory/STOTOP.Module.Dormitory.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.Quality/STOTOP.Module.Quality.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.Insurance/STOTOP.Module.Insurance.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.Salary/STOTOP.Module.Salary.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.Contract/STOTOP.Module.Contract.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.Workflow/STOTOP.Module.Workflow.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.KSF/STOTOP.Module.KSF.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.Vehicle/STOTOP.Module.Vehicle.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.PPV/STOTOP.Module.PPV.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.Supplier/STOTOP.Module.Supplier.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.Task/STOTOP.Module.Task.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.Conference/STOTOP.Module.Conference.csproj" />
+    <ProjectReference Include="../../src/STOTOP.Module.HR/STOTOP.Module.HR.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>

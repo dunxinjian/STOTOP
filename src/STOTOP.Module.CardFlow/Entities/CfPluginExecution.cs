@@ -3,12 +3,14 @@ using STOTOP.Core.Models;
 namespace STOTOP.Module.CardFlow.Entities;
 
 /// <summary>插件单次执行记录（从 CfAgentExecution 迁移而来）</summary>
-public class CfPluginExecution : BaseEntity
+public class CfPluginExecution : BaseEntity, ITenantScoped
 {
     /// <summary>所属批次ID（关联 CfBatch.FID）</summary>
     public long FBatchId { get; set; }
     /// <summary>组织ID（多租户隔离）</summary>
     public long FOrgId { get; set; }
+    /// <summary>租户ID（区域公司，多租户隔离键）</summary>
+    public long FTenantId { get; set; }
     /// <summary>AutoPlugin 名称</summary>
     public string FAutoPluginName { get; set; } = string.Empty;
     /// <summary>在管道中的排序索引（0-based）</summary>

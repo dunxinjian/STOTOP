@@ -5,6 +5,7 @@ using STOTOP.Core.Models;
 using STOTOP.Module.Task.Dtos;
 using STOTOP.Module.Task.Services;
 using STOTOP.Module.System.Filters;
+using STOTOP.Module.System.Services;
 
 namespace STOTOP.Module.Task.Controllers;
 
@@ -14,15 +15,18 @@ namespace STOTOP.Module.Task.Controllers;
 public class TaskController : ControllerBase
 {
     private readonly ITaskService _service;
+    private readonly IAdminAuthorizationService _adminAuth;
 
-    public TaskController(ITaskService service)
+    public TaskController(ITaskService service, IAdminAuthorizationService adminAuth)
     {
         _service = service;
+        _adminAuth = adminAuth;
     }
 
     private long GetUserId() => long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
     private long GetOrgId() => (long)(HttpContext.Items["CurrentOrgId"] ?? 0L);
-    private bool IsAdmin() => User.IsInRole("admin");
+    // 口径统一：走中心 IAdminAuthorizationService（认 OA_ADMIN 角色 Claim），不再按 IsInRole("admin") 角色名字面量判定。
+    private bool IsAdmin() => _adminAuth.IsAdmin(User);
 
     /// <summary>任务列表（分页，支持多维筛选）</summary>
     [HttpGet]
