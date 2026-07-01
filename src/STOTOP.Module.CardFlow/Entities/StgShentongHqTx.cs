@@ -25,7 +25,8 @@ public class StgShentongHqTx : BaseEntity, IStagingRecord
     public string F网点编号 { get; set; } = string.Empty;
     public string F网点名称 { get; set; } = string.Empty;
     public string? F费用类型 { get; set; }
-    public string F费用名称 { get; set; } = string.Empty;
+    // 申通新格式(5.7后)：F费用名称 改可空（资金往来调账行无费用名称）
+    public string? F费用名称 { get; set; }
     public decimal? F发生额收入 { get; set; }
     public decimal? F发生额支出 { get; set; }
     public decimal? F余额 { get; set; }
@@ -36,4 +37,8 @@ public class StgShentongHqTx : BaseEntity, IStagingRecord
     public string? F结算周期 { get; set; }
     public string? F操作人 { get; set; }
     public string? F科目编码 { get; set; }
+
+    // 申通新格式(5.7后)新增两列：方向不再靠编码前缀，改由这两列显式承载（旧格式导入留空）
+    public string? F费用收付类型 { get; set; }
+    public string? F进出港标识 { get; set; }
 }

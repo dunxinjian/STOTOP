@@ -33,8 +33,65 @@ public static class ExpressSeeder
             new(16, "调整EXP快递网点上级编号字段 (2026-06-11)", MigrateV16),
             new(17, "修正承包区孤儿组织引用 (2026-06-12)", MigrateV17),
             new(18, "回填城市加收矩阵缺失的省份ID (2026-06-12)", MigrateV18),
+            new(19, "阶段0多租户: Express 31张租户表加 F租户ID 隔离键列(NOT NULL DEFAULT 0,不启用过滤器)+租户索引 (2026-07-01)", MigrateV19),
+            new(20, "阶段0多租户: Express 存量行 F租户ID 回填到根组织单租户(=根组织id) (2026-07-01)", MigrateV20),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>阶段0 多租户隔离：需加 F租户ID 的 31 张租户表（全覆盖，见 design/24-tenant-migration-playbook.md）。</summary>
+    private static readonly string[] Phase0TenantTables =
+    {
+        "EXP费用减免", "EXP出港运单_计费结果_历史", "EXP出港运单_计费结果", "EXP出港运单_计费结果_成本明细_历史", "EXP出港运单_计费结果_成本明细",
+        "EXP目的地占比", "EXP客户返利", "EXP客户返利阶梯", "EXP客户运单号余额", "EXP均重上限",
+        "EXP成本方案", "EXP承包区", "EXP出港账单", "EXP出港账单审核日志", "EXP月度调整",
+        "EXP出港账单审核规则", "EXP快递网点名称映射", "EXP快递网点", "EXP政策返利", "EXP政策返利结算",
+        "EXP预付款记录", "EXP预付款余额", "EXP预付款流水", "EXP快递报价_出港加收", "EXP快递报价",
+        "EXP快递业务员名称映射", "EXP发件量阶梯", "EXP出港运单_基础信息", "EXP出港运单_历史", "EXP运单号段",
+        "EXP运单号交易",
+    };
+
+    /// <summary>
+    /// 阶段0·加列+索引：给租户表加 F租户ID 隔离键列 + 租户索引。仅 DDL、幂等(IF NOT EXISTS)。
+    /// 列定义 = bigint NOT NULL DEFAULT 0，与模型(long FTenantId + HasDefaultValue(0L))经 SchemaAutoSync 在 dev 自动生成的列一致；
+    /// prod 不跑 SchemaAutoSync，靠本步显式 ALTER 落列，避免 dev/prod 漂移。存量行先得 0(=未分配租户哨兵)，回填见 V20。
+    /// </summary>
+    private static void MigrateV19(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        foreach (var t in Phase0TenantTables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = N'{t}' AND COLUMN_NAME = N'F租户ID')
+            ALTER TABLE [{t}] ADD [F租户ID] bigint NOT NULL CONSTRAINT [DF_{t}_F租户ID] DEFAULT 0;");
+        }
+
+        foreach (var t in Phase0TenantTables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            IF NOT EXISTS (SELECT * FROM sys.indexes
+                WHERE name = N'IX_{t}_租户ID' AND object_id = OBJECT_ID(N'{t}'))
+            CREATE INDEX [IX_{t}_租户ID] ON [{t}] ([F租户ID]);");
+        }
+    }
+
+    /// <summary>
+    /// 阶段0·回填：当前生产库整棵组织树属单客户=单租户(见 design/23 v2)，存量行 F租户ID 全归根组织节点 FID。
+    /// 仅回填 WHERE F租户ID=0(未分配行)，幂等；fresh 库无存量业务行 → no-op，绝不误填别的租户。
+    /// </summary>
+    private static void MigrateV20(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        foreach (var t in Phase0TenantTables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+            IF @tenant IS NOT NULL
+                UPDATE [{t}] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
+        }
     }
 
     private static void MigrateV1(STOTOPDbContext context)

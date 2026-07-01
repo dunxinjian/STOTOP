@@ -183,6 +183,16 @@ public class DatabaseMigrator : IDatabaseSeeder
             ("PPV", ctx2 => PpvSeeder.Migrate(ctx2)),
             ("Salary", ctx2 => SalarySeeder.Migrate(ctx2)),
             ("CarrierQuality", ctx2 => CarrierQualitySeeder.Migrate(ctx2)),
+            // 阶段0 多租户：以下模块此前无版本化 Seeder，为落地 prod 的 F租户ID 加列+回填新建（照 Finance V12/V13）。
+            // 均非 critical（不在 DefaultCriticalModules），失败仅告警、不阻启动。
+            ("Task", ctx2 => TaskSeeder.Migrate(ctx2)),
+            ("Conference", ctx2 => ConferenceSeeder.Migrate(ctx2)),
+            ("Dormitory", ctx2 => DormitorySeeder.Migrate(ctx2)),
+            ("Quality", ctx2 => QualitySeeder.Migrate(ctx2)),
+            ("Insurance", ctx2 => InsuranceSeeder.Migrate(ctx2)),
+            ("Contract", ctx2 => ContractSeeder.Migrate(ctx2)),
+            ("Vehicle", ctx2 => VehicleSeeder.Migrate(ctx2)),
+            ("Supplier", ctx2 => SupplierSeeder.Migrate(ctx2)),
         };
 
         IServiceScope? replacementScope = null;

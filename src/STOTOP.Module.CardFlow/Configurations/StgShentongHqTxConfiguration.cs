@@ -31,7 +31,8 @@ public class StgShentongHqTxConfiguration : IEntityTypeConfiguration<StgShentong
         builder.Property(e => e.F网点编号).HasColumnName("F网点编号").HasMaxLength(200).IsRequired();
         builder.Property(e => e.F网点名称).HasColumnName("F网点名称").HasMaxLength(200).IsRequired();
         builder.Property(e => e.F费用类型).HasColumnName("F费用类型").HasMaxLength(200);
-        builder.Property(e => e.F费用名称).HasColumnName("F费用名称").HasMaxLength(200).IsRequired();
+        // 申通新格式(5.7后)：F费用名称 改可空（资金往来调账行无费用名称）
+        builder.Property(e => e.F费用名称).HasColumnName("F费用名称").HasMaxLength(200);
         builder.Property(e => e.F发生额收入).HasColumnName("F发生额收入").HasColumnType("money");
         builder.Property(e => e.F发生额支出).HasColumnName("F发生额支出").HasColumnType("money");
         builder.Property(e => e.F余额).HasColumnName("F余额").HasColumnType("money");
@@ -42,6 +43,10 @@ public class StgShentongHqTxConfiguration : IEntityTypeConfiguration<StgShentong
         builder.Property(e => e.F结算周期).HasColumnName("F结算周期").HasMaxLength(200);
         builder.Property(e => e.F操作人).HasColumnName("F操作人").HasMaxLength(200);
         builder.Property(e => e.F科目编码).HasColumnName("F科目编码").HasMaxLength(100);
+
+        // 申通新格式(5.7后)新增两列：方向由收付类型 + 进出港标识显式承载
+        builder.Property(e => e.F费用收付类型).HasColumnName("F费用收付类型").HasMaxLength(50);
+        builder.Property(e => e.F进出港标识).HasColumnName("F进出港标识").HasMaxLength(20);
 
         builder.HasIndex(e => e.F批次ID).HasDatabaseName("IX_STG申通总部交易明细_F批次ID");
         builder.HasIndex(e => e.FDataScopeId).HasDatabaseName("IX_STG申通总部交易明细_数据作用域").HasFilter("[FDataScopeId] IS NOT NULL");

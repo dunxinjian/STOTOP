@@ -1,4 +1,6 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using STOTOP.Infrastructure.Data;
 
 namespace STOTOP.WebAPI.Data.Seeders;
@@ -73,8 +75,235 @@ public static class CardFlowSeeder
             new(51, "派件量补丁：存量库补建 STG申通派件日明细+规则3006+流程2330（V23在存量库被网点质控占用未执行，复用幂等 MigrateV23）(2026-06-19)", MigrateV23),
             new(52, "凭证规则21按品牌版科目重配（建/追平 FID=21 + 备份V1）(2026-06-19)", MigrateV52),
             new(53, "createDraft占位科目注入：规则21 config 加 draftPlaceholderAccountId=700044(1901待处理财产损溢) (2026-06-19)", MigrateV53),
+            new(54, "申通新格式:STG申通总部交易明细 建表(缺失补建)+加 F费用收付类型/F进出港标识 两列 (2026-06-19,重建)", MigrateV54),
+            new(55, "申通新格式:导入规则3130(excelInput) (2026-06-19,重建)", MigrateV55),
+            new(56, "申通新格式:自动凭证规则3131(164组品牌版) (2026-06-19,重建)", MigrateV56),
+            new(57, "申通新格式:流程2331+版本2331+节点6892-6896 (2026-06-19,重建)", MigrateV57),
+            new(58, "申通新格式:STG申通总部交易明细 F费用名称 改可空(资金往来调账行无费用名称) (2026-06-22,重建)", MigrateV58),
+            new(59, "阶段0多租户: CardFlow 17张租户表加 F租户ID 隔离键列(NOT NULL DEFAULT 0,不启用过滤器)+租户索引 (2026-07-01)", MigrateV59),
+            new(60, "阶段0多租户: CardFlow 存量行 F租户ID 回填到根组织单租户(=根组织id) (2026-07-01)", MigrateV60),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // 申通总部交易明细【新格式 5.7 后】重建（V54-58）
+    // 设计蓝本: docs/superpowers/specs/2026-06-19-申通新格式交易明细凭证规则-design.md
+    //          + 映射草案 2026-06-19-申通新格式映射草案.md（164 组已核对）。
+    // 本批曾于 live(2026-06-19/22) 落库但源码随历史重置丢失；此处按 live as-built 逐字重建。
+    // 规则配置 JSON 存 Data/Seeders/Resources/*.json（Content 拷贝到输出，参数化插入，免转义）。
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>从 Data/Seeders/Resources/ 读取种子资源文件（Content 拷贝到输出目录，参照 BaselineReferenceDataSeeder 路径解析）。</summary>
+    private static string ReadSeedResource(string fileName)
+    {
+        var rel = Path.Combine("Data", "Seeders", "Resources", fileName);
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, rel),
+            Path.Combine(Directory.GetCurrentDirectory(), rel),
+            Path.Combine(Directory.GetCurrentDirectory(), "src", "STOTOP.WebAPI", rel),
+        };
+        var path = candidates.FirstOrDefault(File.Exists)
+            ?? throw new FileNotFoundException($"未找到种子资源: {rel}");
+        return File.ReadAllText(path);
+    }
+
+    /// <summary>幂等插入一条 CF自动插件_规则（规则配置 JSON 走 SqlParameter，避免大 JSON 的 SQL/C# 双重转义）。</summary>
+    private static void ExecInsertRule(STOTOPDbContext ctx, long fid, string typeCode, long orgId, string name, string configJson, string desc)
+    {
+        var conn = ctx.Database.GetDbConnection();
+        if (conn.State != ConnectionState.Open) conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = ctx.Database.CurrentTransaction?.GetDbTransaction();
+        cmd.CommandTimeout = MigrationRunner.GetConfig().CommandTimeoutSeconds;
+        cmd.CommandText = @"
+        SET IDENTITY_INSERT [CF自动插件_规则] ON;
+        IF NOT EXISTS (SELECT 1 FROM [CF自动插件_规则] WHERE [FID] = @fid)
+        INSERT INTO [CF自动插件_规则] ([FID], [F组织ID], [F类型编码], [F规则名称], [F规则配置JSON], [F状态], [F说明], [F并发戳], [F创建时间])
+        VALUES (@fid, @org, @type, @name, @cfg, 1, @desc, REPLACE(NEWID(), '-', ''), GETDATE());
+        SET IDENTITY_INSERT [CF自动插件_规则] OFF;";
+        void P(string n, object v) { var p = cmd.CreateParameter(); p.ParameterName = n; p.Value = v; cmd.Parameters.Add(p); }
+        P("@fid", fid); P("@org", orgId); P("@type", typeCode); P("@name", name); P("@cfg", configJson); P("@desc", desc);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// V54 申通新格式：① 补建 STG申通总部交易明细 基表（历史丢失、旧规则21 也依赖；STG 前缀表 EF 不自动建，
+    /// 列/索引逐字对齐 live）；② 加 F费用收付类型/F进出港标识 两可空列（新格式方向承载列，旧格式导入留空）。
+    /// F费用名称 先建为 NOT NULL（旧格式口径），由 V58 收窄为可空。
+    /// </summary>
+    private static void MigrateV54(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // ① 缺失则建基表（旧格式列 + live 索引）
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = N'STG申通总部交易明细')
+        CREATE TABLE [STG申通总部交易明细] (
+            [FID] BIGINT IDENTITY(1,1) PRIMARY KEY,
+            [FOrgId] BIGINT NOT NULL,
+            [F账套ID] BIGINT NULL,
+            [F批次ID] BIGINT NOT NULL,
+            [F原始行号] INT NOT NULL DEFAULT ((0)),
+            [F业务主键] NVARCHAR(256) NOT NULL DEFAULT (''),
+            [F处理状态] INT NOT NULL DEFAULT ((0)),
+            [F错误信息] NVARCHAR(MAX) NULL,
+            [F关联凭证ID] BIGINT NULL,
+            [FDataScopeId] NVARCHAR(64) NULL,
+            [FSourceWorkItemId] BIGINT NULL,
+            [FIsRevoked] BIT NOT NULL DEFAULT ((0)),
+            [F其他列数据] NVARCHAR(MAX) NULL,
+            [F创建时间] DATETIME2 NOT NULL DEFAULT (getdate()),
+            [F运单编号] NVARCHAR(200) NULL,
+            [F业务日期] DATETIME2 NOT NULL,
+            [F记账日期] DATETIME2 NULL,
+            [F业务摘要] NVARCHAR(200) NULL,
+            [F网点编号] NVARCHAR(200) NOT NULL DEFAULT (''),
+            [F网点名称] NVARCHAR(200) NOT NULL DEFAULT (''),
+            [F费用类型] NVARCHAR(200) NULL,
+            [F费用名称] NVARCHAR(200) NOT NULL DEFAULT (''),
+            [F发生额收入] MONEY NULL,
+            [F发生额支出] MONEY NULL,
+            [F余额] MONEY NULL,
+            [F账单类型] NVARCHAR(50) NULL,
+            [F流水号] NVARCHAR(200) NULL,
+            [F备注] NVARCHAR(200) NULL,
+            [F结算方式] NVARCHAR(200) NULL,
+            [F结算周期] NVARCHAR(200) NULL,
+            [F操作人] NVARCHAR(200) NULL,
+            [F科目编码] NVARCHAR(50) NULL,
+            [F归属网点编号] NVARCHAR(50) NULL
+        );
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_STG申通总部交易明细_FOrgId' AND object_id = OBJECT_ID(N'STG申通总部交易明细'))
+        CREATE INDEX [IX_STG申通总部交易明细_FOrgId] ON [STG申通总部交易明细]([FOrgId]);
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_STG申通总部交易明细_批次' AND object_id = OBJECT_ID(N'STG申通总部交易明细'))
+        CREATE INDEX [IX_STG申通总部交易明细_批次] ON [STG申通总部交易明细]([FOrgId],[F批次ID]);
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_STG申通总部交易明细_业务主键' AND object_id = OBJECT_ID(N'STG申通总部交易明细'))
+        CREATE UNIQUE INDEX [UX_STG申通总部交易明细_业务主键] ON [STG申通总部交易明细]([FOrgId],[F批次ID],[F业务主键]) WHERE ([FIsRevoked]=(0));");
+
+        // ② 新格式两列（可空，独立 batch —— 与建表分开，避免同批建表后引用新列的延迟名称解析问题）
+        ExecSql(ctx, @"IF COL_LENGTH(N'STG申通总部交易明细', N'F费用收付类型') IS NULL ALTER TABLE [STG申通总部交易明细] ADD [F费用收付类型] NVARCHAR(50) NULL;");
+        ExecSql(ctx, @"IF COL_LENGTH(N'STG申通总部交易明细', N'F进出港标识') IS NULL ALTER TABLE [STG申通总部交易明细] ADD [F进出港标识] NVARCHAR(20) NULL;");
+    }
+
+    /// <summary>V55 申通新格式：导入规则 3130（excelInput，蓝本=规则20）。配置见 Resources/shentong-hqtx-v2-rule3130.json。</summary>
+    private static void MigrateV55(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        ExecInsertRule(ctx, 3130, "excelInput", 192,
+            "申通总部交易明细导入规则(新格式5.7后)",
+            ReadSeedResource("shentong-hqtx-v2-rule3130.json"),
+            "申通5.7后新格式交易明细Excel导入(会计日期/费用编码/费用收付类型/进出港标识)");
+    }
+
+    /// <summary>V56 申通新格式：自动凭证规则 3131（rulesBased v2，164 组品牌版映射，蓝本=规则21）。配置见 Resources/shentong-hqtx-v2-rule3131.json。</summary>
+    private static void MigrateV56(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        ExecInsertRule(ctx, 3131, "AutoVoucher", 192,
+            "Tai申通总部交易明细生成凭证规则(新格式5.7后)",
+            ReadSeedResource("shentong-hqtx-v2-rule3131.json"),
+            "申通5.7后新格式交易明细自动凭证(164组品牌版映射,accountSet2)");
+    }
+
+    /// <summary>V57 申通新格式：流程 2331 + 版本 2331(当前) + 节点 6892-6896（Excel导入→质量→自动凭证→批次汇总→确认）。</summary>
+    private static void MigrateV57(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // CF卡片流程 2331（F乐观锁=rowversion 自动生成、F租户ID 由 V60 回填，均不显式插）
+        ExecSql(ctx, @"
+        SET IDENTITY_INSERT [CF卡片流程] ON;
+        IF NOT EXISTS (SELECT 1 FROM [CF卡片流程] WHERE [FID] = 2331)
+        INSERT INTO [CF卡片流程] ([FID], [F创建人ID], [F创建时间], [F描述], [F更新时间], [F流程名称], [F流程编码], [F状态], [F组织ID], [F触发配置JSON], [F是否模板])
+        VALUES (2331, 1, GETDATE(), N'申通5.7后新格式交易明细导入:Excel导入(规则3130)→质量→自动凭证(规则3131)→批次汇总→确认', GETDATE(), N'申通总部交易明细导入(新格式)', N'PL_ST_HQ_TX_V2', N'published', 192, N'{""type"":""fileUpload""}', 0);
+        SET IDENTITY_INSERT [CF卡片流程] OFF;");
+
+        // CF流程版本 2331（当前版本）
+        ExecSql(ctx, @"
+        SET IDENTITY_INSERT [CF流程版本] ON;
+        IF NOT EXISTS (SELECT 1 FROM [CF流程版本] WHERE [FID] = 2331)
+        INSERT INTO [CF流程版本] ([FID], [F创建人ID], [F创建时间], [F发布时间], [F是否当前版本], [F流程定义ID], [F版本号], [F状态])
+        VALUES (2331, 1, GETDATE(), GETDATE(), 1, 2331, 1, N'published');
+        SET IDENTITY_INSERT [CF流程版本] OFF;");
+
+        // CF流程节点 6892-6896（5 节点，流程版本ID=2331）
+        ExecSql(ctx, @"
+        SET IDENTITY_INSERT [CF流程节点] ON;
+        IF NOT EXISTS (SELECT 1 FROM [CF流程节点] WHERE [FID] = 6892)
+        INSERT INTO [CF流程节点] ([FID], [F流程版本ID], [F排序号], [F节点名称], [F类型], [F处理粒度], [F审批模式], [F插件注册ID], [F插件规则ID], [F节点键]) VALUES
+        (6892, 2331, 1, N'Excel导入解析', N'auto', N'batch', N'single', 1, 3130, N'stage_2331_1_6892'),
+        (6893, 2331, 2, N'质量分析', N'auto', N'batch', N'single', 3, NULL, N'stage_2331_2_6893'),
+        (6894, 2331, 3, N'自动凭证', N'auto', N'batch', N'single', 5, 3131, N'stage_2331_3_6894'),
+        (6895, 2331, 4, N'批次汇总', N'auto', N'batch', N'single', 14, NULL, N'stage_2331_4_6895'),
+        (6896, 2331, 5, N'确认通知', N'human', N'card', N'single', NULL, NULL, N'stage_2331_5_6896');
+        SET IDENTITY_INSERT [CF流程节点] OFF;");
+    }
+
+    /// <summary>V58 申通新格式：STG申通总部交易明细 F费用名称 收窄为可空（资金往来调账行无费用名称）。</summary>
+    private static void MigrateV58(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        ExecSql(ctx, @"
+        IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'STG申通总部交易明细') AND name = N'F费用名称' AND is_nullable = 0)
+            ALTER TABLE [STG申通总部交易明细] ALTER COLUMN [F费用名称] NVARCHAR(200) NULL;");
+    }
+
+    /// <summary>阶段0 多租户隔离：需加 F租户ID 的 17 张租户表（全覆盖，见 design/24-tenant-migration-playbook.md）。
+    /// 注：CardFlow 的 37 张 STG 暂存表间接受组织隔离、字面未匹配，本阶段不纳入（见 fan-out 提交说明）。</summary>
+    private static readonly string[] Phase0TenantTables =
+    {
+        "CF自由派发配置", "CF批次", "CF批次错误", "CF卡片余额", "CF业务派发记录",
+        "CF流程实例", "CF代审批委托", "CF卡片关联", "CF卡片流程", "CF流程组",
+        "CF通知配置", "CF编排实例", "CF编排模板", "CF自动插件", "CF自动插件_规则",
+        "CF自动插件_规则命中统计", "CF待办项",
+    };
+
+    /// <summary>
+    /// 阶段0·加列+索引：给租户表加 F租户ID 隔离键列 + 租户索引。仅 DDL、幂等(IF NOT EXISTS)。
+    /// 列定义 = bigint NOT NULL DEFAULT 0，与模型(long FTenantId + HasDefaultValue(0L))经 SchemaAutoSync 在 dev 自动生成的列一致；
+    /// prod 不跑 SchemaAutoSync，靠本步显式 ALTER 落列，避免 dev/prod 漂移。存量行先得 0(=未分配租户哨兵)，回填见 V60。
+    /// </summary>
+    private static void MigrateV59(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        foreach (var t in Phase0TenantTables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = N'{t}' AND COLUMN_NAME = N'F租户ID')
+            ALTER TABLE [{t}] ADD [F租户ID] bigint NOT NULL CONSTRAINT [DF_{t}_F租户ID] DEFAULT 0;");
+        }
+
+        foreach (var t in Phase0TenantTables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            IF NOT EXISTS (SELECT * FROM sys.indexes
+                WHERE name = N'IX_{t}_租户ID' AND object_id = OBJECT_ID(N'{t}'))
+            CREATE INDEX [IX_{t}_租户ID] ON [{t}] ([F租户ID]);");
+        }
+    }
+
+    /// <summary>
+    /// 阶段0·回填：当前生产库整棵组织树属单客户=单租户(见 design/23 v2)，存量行 F租户ID 全归根组织节点 FID。
+    /// 仅回填 WHERE F租户ID=0(未分配行)，幂等；fresh 库无存量业务行 → no-op，绝不误填别的租户。
+    /// </summary>
+    private static void MigrateV60(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        foreach (var t in Phase0TenantTables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+            IF @tenant IS NOT NULL
+                UPDATE [{t}] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
+        }
     }
 
     private static void MigrateV1(STOTOPDbContext ctx)
