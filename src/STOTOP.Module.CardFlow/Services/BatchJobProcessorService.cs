@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.CardFlow.Entities;
 
@@ -48,6 +49,11 @@ public class BatchJobProcessorService : BackgroundService
             try
             {
                 await using var scope = _scopeFactory.CreateAsyncScope();
+                // 后台 Channel 消费者无 HttpContext：显式设根租户上下文，经 AsyncLocal 穿透整条批次处理链
+                // （BatchTriggerService→FlowEngineService→插件/事件），令 ITenantScoped 读写不被 fail-closed 硬墙挡。
+                var orgContext = scope.ServiceProvider.GetService<IOrgContextAccessor>();
+                if (orgContext != null)
+                    orgContext.CurrentTenantId = scope.ServiceProvider.GetService<ITenantResolver>()?.GetRootTenantId();
                 var trigger = scope.ServiceProvider.GetRequiredService<IBatchTriggerService>();
                 await trigger.ProcessBatchJobAsync(job, stoppingToken);
             }
