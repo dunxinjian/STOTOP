@@ -26,7 +26,9 @@ public class FinBankStatementConfiguration : IEntityTypeConfiguration<FinBankSta
         builder.Property(e => e.FImportBatchId).HasColumnName("FImportBatchId");
         builder.Property(e => e.FCreatedTime).HasColumnName("FCreatedTime");
         builder.Property(e => e.FUpdatedTime).HasColumnName("FUpdatedTime");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
 
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN银行流水_租户ID");
         builder.HasIndex(e => e.FAccountSetId).HasDatabaseName("IX_FIN银行流水_AccountSetId");
         builder.HasIndex(e => e.FTransactionDate).HasDatabaseName("IX_FIN银行流水_TransactionDate");
         builder.HasIndex(e => e.FMatchStatus).HasDatabaseName("IX_FIN银行流水_MatchStatus");

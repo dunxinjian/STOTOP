@@ -9,7 +9,7 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 「电联录音」为 URL（可能逗号分隔多条录音地址，长文本）。
 /// 17 个业务列全部先以 string? 落地（时间/标识列也是字符串，归一阶段再解析）。
 /// </summary>
-public class StgShentongHomeDelivery : BaseEntity, IStagingRecord
+public class StgShentongHomeDelivery : BaseEntity, IStagingRecord, ITenantScoped
 {
     // IStagingRecord 系统字段（照抄 StgShentongFakeSign）
     public long F批次ID { get; set; }
@@ -23,6 +23,7 @@ public class StgShentongHomeDelivery : BaseEntity, IStagingRecord
     public long FOrgId { get; set; }
     public long? F账套ID { get; set; }
     public string? F归属网点编号 { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
 
     // 业务字段（17 列，对应 sheet「送货上门达成分析历史详情导出」表头）
     public string? F订单来源 { get; set; }

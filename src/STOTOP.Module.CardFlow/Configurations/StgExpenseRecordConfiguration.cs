@@ -22,6 +22,7 @@ public class StgExpenseRecordConfiguration : IEntityTypeConfiguration<StgExpense
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId");
         builder.Property(e => e.F账套ID).HasColumnName("F账套ID");
         builder.Property(e => e.F归属网点编号).HasColumnName("F归属网点编号").HasMaxLength(50);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
 
         // 业务字段
         builder.Property(e => e.F数据ID).HasColumnName("F数据ID").HasMaxLength(100);
@@ -40,5 +41,6 @@ public class StgExpenseRecordConfiguration : IEntityTypeConfiguration<StgExpense
 
         builder.HasIndex(e => e.F批次ID).HasDatabaseName("IX_STG费用支出记录_F批次ID");
         builder.HasIndex(e => e.FDataScopeId).HasDatabaseName("IX_STG费用支出记录_数据作用域").HasFilter("[FDataScopeId] IS NOT NULL");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_STG费用支出记录_租户ID");
     }
 }

@@ -21,7 +21,9 @@ public class FinAccountPeriodConfiguration : IEntityTypeConfiguration<FinAccount
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID").HasDefaultValue(0L);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
-        
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN会计期间_租户ID");
         builder.HasIndex(e => e.FAccountSetId).HasDatabaseName("IX_FIN会计期间_账套ID");
         builder.HasIndex(e => new { e.FAccountSetId, e.FYear, e.FPeriodNo }).IsUnique().HasDatabaseName("IX_FIN会计期间_年度期间");
     }

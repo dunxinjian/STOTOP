@@ -8,7 +8,7 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 29 个业务列全部先以 string? 落地（时间/标识列也是字符串，归一阶段再解析）。
 /// 注意：「进港/出港」含非法字符 /，dbColumn 去掉斜杠为 F进港出港（实体/EF/DDL/映射四处一致）。
 /// </summary>
-public class StgShentongInboundComplaint : BaseEntity, IStagingRecord
+public class StgShentongInboundComplaint : BaseEntity, IStagingRecord, ITenantScoped
 {
     // IStagingRecord 系统字段（照抄 StgShentongSuspectedLoss）
     public long F批次ID { get; set; }
@@ -22,6 +22,7 @@ public class StgShentongInboundComplaint : BaseEntity, IStagingRecord
     public long FOrgId { get; set; }
     public long? F账套ID { get; set; }
     public string? F归属网点编号 { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
 
     // 业务字段（29 列，对应 sheet「进港投诉明细」表头）
     public string? F统计日期 { get; set; }

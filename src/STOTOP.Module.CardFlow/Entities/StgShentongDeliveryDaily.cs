@@ -2,10 +2,11 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.CardFlow.Entities;
 
-public class StgShentongDeliveryDaily : BaseEntity, IStagingRecord
+public class StgShentongDeliveryDaily : BaseEntity, IStagingRecord, ITenantScoped
 {
     // ===== 暂存系统列 (IStagingRecord + ExcelInput 依赖) =====
     public long F批次ID { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public int? F原始行号 { get; set; }            // ExcelInput BulkCopy 无条件写 -> 必须有
     public int F处理状态 { get; set; }
     public string? F错误信息 { get; set; }

@@ -22,6 +22,8 @@ public class StgShentongSignRateAssessConfiguration : IEntityTypeConfiguration<S
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId");
         builder.Property(e => e.F账套ID).HasColumnName("F账套ID");
         builder.Property(e => e.F归属网点编号).HasColumnName("F归属网点编号").HasMaxLength(50);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_STG申通_签收率考核汇总_租户ID");
 
         // 业务字段（仅 6 列：退化表头一期只抽全局唯一名；分时段明细未逐列建模）
         builder.Property(e => e.F日期).HasColumnName("F日期").HasMaxLength(200);

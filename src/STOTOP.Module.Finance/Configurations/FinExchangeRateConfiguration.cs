@@ -18,7 +18,9 @@ public class FinExchangeRateConfiguration : IEntityTypeConfiguration<FinExchange
         builder.Property(e => e.FRate).HasColumnName("F汇率").HasColumnType("DECIMAL(18,6)");
         builder.Property(e => e.FEffectiveDate).HasColumnName("F生效日期");
         builder.Property(e => e.FCreateTime).HasColumnName("F创建时间");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
 
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN汇率_租户ID");
         builder.HasIndex(e => new { e.FAccountSetId, e.FCurrencyCode, e.FEffectiveDate })
             .HasDatabaseName("IX_FIN汇率_账套_币种_日期");
     }

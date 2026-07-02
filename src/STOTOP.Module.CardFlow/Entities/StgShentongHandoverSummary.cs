@@ -11,8 +11,10 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 揽收超48小时预估考核-日 → F揽收超48小时预估考核日（去 '-'）、滞留预估考核-日 → F滞留预估考核日（去 '-'）。
 /// excelColumn 保留原文。30 个业务列全部先以 string? 落地（数值列也是字符串，归一阶段再解析）。
 /// </summary>
-public class StgShentongHandoverSummary : BaseEntity, IStagingRecord
+public class StgShentongHandoverSummary : BaseEntity, IStagingRecord, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
+
     // IStagingRecord 系统字段（照抄 StgShentongBacklogMonitor）
     public long F批次ID { get; set; }
     public int F处理状态 { get; set; }

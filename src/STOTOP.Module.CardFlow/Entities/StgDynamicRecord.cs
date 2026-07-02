@@ -3,7 +3,7 @@ using STOTOP.Core.Models;
 namespace STOTOP.Module.CardFlow.Entities;
 
 /// <summary>通用暂存表实体 — 用于动态注册的数据源</summary>
-public class StgDynamicRecord : BaseEntity, IStagingRecord
+public class StgDynamicRecord : BaseEntity, IStagingRecord, ITenantScoped
 {
     public long F批次ID { get; set; }
     public int F原始行号 { get; set; }
@@ -20,4 +20,5 @@ public class StgDynamicRecord : BaseEntity, IStagingRecord
     public bool FIsRevoked { get; set; }
     public long? F账套ID { get; set; }
     public string? F归属网点编号 { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
 }

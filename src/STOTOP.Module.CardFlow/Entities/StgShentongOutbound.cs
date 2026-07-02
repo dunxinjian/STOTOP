@@ -2,7 +2,7 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.CardFlow.Entities;
 
-public class StgShentongOutbound : BaseEntity, IStagingRecord
+public class StgShentongOutbound : BaseEntity, IStagingRecord, ITenantScoped
 {
     // IStagingRecord 系统字段
     public long F批次ID { get; set; }
@@ -16,6 +16,7 @@ public class StgShentongOutbound : BaseEntity, IStagingRecord
     public long FOrgId { get; set; }
     public long? F账套ID { get; set; }
     public string? F归属网点编号 { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
 
     // 业务字段
     public string F流水号 { get; set; } = string.Empty;

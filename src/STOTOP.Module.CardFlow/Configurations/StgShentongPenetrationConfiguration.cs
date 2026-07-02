@@ -22,6 +22,7 @@ public class StgShentongPenetrationConfiguration : IEntityTypeConfiguration<StgS
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId");
         builder.Property(e => e.F账套ID).HasColumnName("F账套ID");
         builder.Property(e => e.F归属网点编号).HasColumnName("F归属网点编号").HasMaxLength(50);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
 
         // 业务字段（24 列，全部可空字符串）
         builder.Property(e => e.F统计周期).HasColumnName("F统计周期").HasMaxLength(200);
@@ -54,6 +55,7 @@ public class StgShentongPenetrationConfiguration : IEntityTypeConfiguration<StgS
         builder.Property(e => e.F业务主键).HasColumnName("F业务主键").HasMaxLength(500);
         builder.Property(e => e.F流水号).HasColumnName("F流水号").HasMaxLength(200);
 
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_STG申通_渗透建站考核_租户ID");
         builder.HasIndex(e => e.F批次ID).HasDatabaseName("IX_STG申通_渗透建站考核_F批次ID");
         builder.HasIndex(e => e.FDataScopeId).HasDatabaseName("IX_STG申通_渗透建站考核_数据作用域").HasFilter("[FDataScopeId] IS NOT NULL");
 

@@ -13,10 +13,11 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 19 个业务列全部先以 string? 落地（数值列也是字符串，归一阶段再解析）。
 /// 路由：upload-auto 读第 1 行=分组名，内容匹配无效 → 靠 fileNamePattern 小件员履约指标* 路由。
 /// </summary>
-public class StgShentongCourierFulfill : BaseEntity, IStagingRecord
+public class StgShentongCourierFulfill : BaseEntity, IStagingRecord, ITenantScoped
 {
     // IStagingRecord 系统字段（照抄 StgShentongSignRateAssess）
     public long F批次ID { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public int F处理状态 { get; set; }
     public string? F错误信息 { get; set; }
     public long? F关联凭证ID { get; set; }

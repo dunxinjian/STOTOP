@@ -8,10 +8,11 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 41 个业务列全部先以 string? 落地（时间/标识列也是字符串，归一阶段再解析）。
 /// 注意：「积压8-15天标识」「积压16-30天标识」「积压31-60天标识」含非法字符 -，dbColumn 去掉为 F积压815天标识 / F积压1630天标识 / F积压3160天标识。
 /// </summary>
-public class StgShentongBacklog : BaseEntity, IStagingRecord
+public class StgShentongBacklog : BaseEntity, IStagingRecord, ITenantScoped
 {
     // IStagingRecord 系统字段（照抄 StgShentongLogisticsCompleteness）
     public long F批次ID { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public int F处理状态 { get; set; }
     public string? F错误信息 { get; set; }
     public long? F关联凭证ID { get; set; }

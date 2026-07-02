@@ -9,8 +9,10 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 列名均合法（无括号/斜杠等非法字符），dbColumn 直接加 F 前缀（含 FT0/FT1/FT2/FT3 延迟列）。
 /// 55 个业务列全部先以 string? 落地（数值列也是字符串，归一阶段再解析）。
 /// </summary>
-public class StgShentongDeliveryNetSummary : BaseEntity, IStagingRecord
+public class StgShentongDeliveryNetSummary : BaseEntity, IStagingRecord, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
+
     // IStagingRecord 系统字段（照抄 StgShentongSignRateAssess）
     public long F批次ID { get; set; }
     public int F处理状态 { get; set; }

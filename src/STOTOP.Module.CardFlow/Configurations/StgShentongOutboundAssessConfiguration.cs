@@ -22,6 +22,7 @@ public class StgShentongOutboundAssessConfiguration : IEntityTypeConfiguration<S
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId");
         builder.Property(e => e.F账套ID).HasColumnName("F账套ID");
         builder.Property(e => e.F归属网点编号).HasColumnName("F归属网点编号").HasMaxLength(50);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
 
         // 业务字段（31 列；全角括号列 dbColumn 去括号）
         builder.Property(e => e.F所属网点编码).HasColumnName("F所属网点编码").HasMaxLength(200);
@@ -61,6 +62,7 @@ public class StgShentongOutboundAssessConfiguration : IEntityTypeConfiguration<S
         builder.Property(e => e.F业务主键).HasColumnName("F业务主键").HasMaxLength(500);
         builder.Property(e => e.F流水号).HasColumnName("F流水号").HasMaxLength(200);
 
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_STG申通_出仓考核汇总_租户ID");
         builder.HasIndex(e => e.F批次ID).HasDatabaseName("IX_STG申通_出仓考核汇总_F批次ID");
         builder.HasIndex(e => e.FDataScopeId).HasDatabaseName("IX_STG申通_出仓考核汇总_数据作用域").HasFilter("[FDataScopeId] IS NOT NULL");
 

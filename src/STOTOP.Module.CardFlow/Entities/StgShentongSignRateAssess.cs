@@ -12,8 +12,10 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 无法按名映射，一期不逐列建模，余列由插件自动归集进 F其他列数据。
 /// 6 个业务列全部先以 string? 落地（数值列也是字符串，归一阶段再解析）。
 /// </summary>
-public class StgShentongSignRateAssess : BaseEntity, IStagingRecord
+public class StgShentongSignRateAssess : BaseEntity, IStagingRecord, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
+
     // IStagingRecord 系统字段（照抄 StgShentongPenetration）
     public long F批次ID { get; set; }
     public int F处理状态 { get; set; }

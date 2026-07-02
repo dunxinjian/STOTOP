@@ -31,6 +31,8 @@ public class StgDynamicRecordConfiguration : IEntityTypeConfiguration<StgDynamic
         builder.Property(e => e.FIsRevoked).HasColumnName("FIsRevoked");
         builder.Property(e => e.F账套ID).HasColumnName("F账套ID");
         builder.Property(e => e.F归属网点编号).HasColumnName("F归属网点编号").HasMaxLength(50);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.HasIndex(e => e.FDataScopeId).HasDatabaseName("IX_STG通用导入数据_数据作用域").HasFilter("[FDataScopeId] IS NOT NULL");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_STG通用导入数据_租户ID");
     }
 }

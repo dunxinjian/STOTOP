@@ -10,10 +10,11 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 另含连字符列（积压8-15天量、t-1虚签投诉量 等），dbColumn 去掉 '-' → F积压815天量 / Ft1虚签投诉量。
 /// excelColumn 保留原文。64 个业务列全部先以 string? 落地（数值列也是字符串，归一阶段再解析）。
 /// </summary>
-public class StgShentongBacklogMonitor : BaseEntity, IStagingRecord
+public class StgShentongBacklogMonitor : BaseEntity, IStagingRecord, ITenantScoped
 {
     // IStagingRecord 系统字段（照抄 StgShentongSignRateAssess）
     public long F批次ID { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public int F处理状态 { get; set; }
     public string? F错误信息 { get; set; }
     public long? F关联凭证ID { get; set; }

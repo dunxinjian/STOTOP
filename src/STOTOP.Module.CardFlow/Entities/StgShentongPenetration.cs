@@ -7,8 +7,10 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 来源：渗透率建站考核导出（sheet「渗透率建站考核」，单行表头，24 列；1 行/网点/周期的汇总表）。
 /// 24 个业务列全部先以 string? 落地（比率/数值列也是字符串，归一阶段再解析）。
 /// </summary>
-public class StgShentongPenetration : BaseEntity, IStagingRecord
+public class StgShentongPenetration : BaseEntity, IStagingRecord, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
+
     // IStagingRecord 系统字段（照抄 StgShentongFakeSign）
     public long F批次ID { get; set; }
     public int F处理状态 { get; set; }

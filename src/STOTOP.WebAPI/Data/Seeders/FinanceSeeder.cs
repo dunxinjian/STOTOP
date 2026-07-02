@@ -44,6 +44,7 @@ public static class FinanceSeeder
             new(12, "阶段0多租户(Finance试点): 13张租户表加 F租户ID 隔离键列(NOT NULL DEFAULT 0,不启用过滤器)+租户索引 (2026-06-30)", MigrateV12),
             new(13, "阶段0多租户(Finance试点): 存量行 F租户ID 回填到 MDSTO 单租户(=根组织id) (2026-06-30)", MigrateV13),
             new(14, "阶段1补漏: FIN阿米巴手工数据(有FOrgId却漏标ITenantScoped) 加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户 (2026-07-01)", MigrateV14),
+            new(15, "阶段1全覆盖: Finance 账套传递族9表加 F租户ID 列(NOT NULL DEFAULT 0)+索引+经 F账套ID→FIN账套 传递回填 (2026-07-02)", MigrateV15),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -2346,5 +2347,55 @@ public static class FinanceSeeder
         DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
         IF @tenant IS NOT NULL
             UPDATE [FIN阿米巴手工数据] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
+    }
+
+    /// <summary>阶段1全覆盖·账套传递族：经 FAccountSetId 间接隔离的表(表名, F账套ID 列名)。多数列名=F账套ID，银行流水/银行对账记录=FAccountSetId(英文)。</summary>
+    private static readonly (string Table, string AcctCol)[] Phase1AccountSetTables =
+    {
+        ("FIN科目", "F账套ID"),
+        ("FIN科目余额", "F账套ID"),
+        ("FIN辅助核算余额", "F账套ID"),
+        ("FIN会计期间", "F账套ID"),
+        ("FIN资产卡片", "F账套ID"),
+        ("FIN银行流水", "FAccountSetId"),
+        ("FIN资产类别", "F账套ID"),
+        ("FIN银行对账记录", "FAccountSetId"),
+        ("FIN汇率", "F账套ID"),
+    };
+
+    /// <summary>
+    /// 阶段1全覆盖：账套传递族（经 FAccountSetId→FIN账套 间接隔离、本轮补 ITenantScoped）加 F租户ID 列(NOT NULL DEFAULT 0)+索引，
+    /// 并经 F账套ID 关联 FIN账套 取其 F租户ID 回填（非回填根组织——租户随所属账套）。加列/索引/回填分独立 ExecSql。
+    /// 回填用 INNER JOIN 只填有匹配账套的行；无匹配账套的行留 F租户ID=0（未分配哨兵，与 stage0 落空口径一致）。
+    /// FinAccountTemplate/Item(平台预置模板 FIsPreset 跨租户共享)有意不纳入，推迟阶段4。
+    /// </summary>
+    private static void MigrateV15(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        foreach (var (t, _) in Phase1AccountSetTables)
+        {
+            ExecSql(ctx, $@"
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = N'{t}' AND COLUMN_NAME = N'F租户ID')
+            ALTER TABLE [{t}] ADD [F租户ID] bigint NOT NULL CONSTRAINT [DF_{t}_F租户ID] DEFAULT 0;");
+        }
+
+        foreach (var (t, _) in Phase1AccountSetTables)
+        {
+            ExecSql(ctx, $@"
+            IF NOT EXISTS (SELECT * FROM sys.indexes
+                WHERE name = N'IX_{t}_租户ID' AND object_id = OBJECT_ID(N'{t}'))
+            CREATE INDEX [IX_{t}_租户ID] ON [{t}] ([F租户ID]);");
+        }
+
+        foreach (var (t, acctCol) in Phase1AccountSetTables)
+        {
+            ExecSql(ctx, $@"
+            UPDATE tgt SET tgt.[F租户ID] = a.[F租户ID]
+            FROM [{t}] tgt
+            INNER JOIN [FIN账套] a ON a.[FID] = tgt.[{acctCol}]
+            WHERE tgt.[F租户ID] = 0 AND a.[F租户ID] <> 0;");
+        }
     }
 }

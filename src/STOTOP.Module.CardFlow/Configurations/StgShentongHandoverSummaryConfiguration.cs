@@ -22,6 +22,7 @@ public class StgShentongHandoverSummaryConfiguration : IEntityTypeConfiguration<
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId");
         builder.Property(e => e.F账套ID).HasColumnName("F账套ID");
         builder.Property(e => e.F归属网点编号).HasColumnName("F归属网点编号").HasMaxLength(50);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
 
         // 业务字段（30 列；括号/连字符/'&' 列 dbColumn 已去除非法字符）
         builder.Property(e => e.F统计日期).HasColumnName("F统计日期").HasMaxLength(200);
@@ -62,6 +63,7 @@ public class StgShentongHandoverSummaryConfiguration : IEntityTypeConfiguration<
 
         builder.HasIndex(e => e.F批次ID).HasDatabaseName("IX_STG申通_交货滞留汇总_F批次ID");
         builder.HasIndex(e => e.FDataScopeId).HasDatabaseName("IX_STG申通_交货滞留汇总_数据作用域").HasFilter("[FDataScopeId] IS NOT NULL");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_STG申通_交货滞留汇总_租户ID");
 
         // 跨批次去重唯一索引（实际由 Seeder DDL 创建，此处声明保持模型一致性）
         // 交货滞留汇总 1 行/网点/日期，按「揽收所属网点编码 + 统计日期」去重。

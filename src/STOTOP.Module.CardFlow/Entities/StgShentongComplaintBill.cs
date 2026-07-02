@@ -10,10 +10,11 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 插件按列名映射会被同名列覆盖，故只映射本次确认在 row2 中「名称全局唯一」的 23 列；
 /// 其余 114 列由插件自动归集进 F其他列数据。23 列全部 string? 落地。
 /// </summary>
-public class StgShentongComplaintBill : BaseEntity, IStagingRecord
+public class StgShentongComplaintBill : BaseEntity, IStagingRecord, ITenantScoped
 {
     // IStagingRecord 系统字段（照抄 StgShentongSuspectedLoss）
     public long F批次ID { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public int F处理状态 { get; set; }
     public string? F错误信息 { get; set; }
     public long? F关联凭证ID { get; set; }

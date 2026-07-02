@@ -22,7 +22,9 @@ public class FinAccountBalanceConfiguration : IEntityTypeConfiguration<FinAccoun
         builder.Property(e => e.FAccountSetId).HasColumnName("F账套ID").HasDefaultValue(0L);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
-        
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN科目余额_租户ID");
         builder.HasIndex(e => e.FAccountSetId).HasDatabaseName("IX_FIN科目余额_账套ID");
         builder.HasIndex(e => new { e.FPeriodId, e.FAccountId }).IsUnique().HasDatabaseName("IX_FIN科目余额_期间科目");
         builder.HasIndex(e => e.FAccountId).HasDatabaseName("IX_FIN科目余额_科目ID");

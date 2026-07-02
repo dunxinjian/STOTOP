@@ -8,10 +8,11 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 63 个业务列全部先以 string? 落地（时间/数值/标识列也是字符串，归一阶段再解析）。
 /// 注意：「当天签收延迟0-24h标识」「当天签收延迟24-48h标识」含非法字符 -，dbColumn 去掉为 F当天签收延迟024h标识 / F当天签收延迟2448h标识。
 /// </summary>
-public class StgShentongDeliveryAssess : BaseEntity, IStagingRecord
+public class StgShentongDeliveryAssess : BaseEntity, IStagingRecord, ITenantScoped
 {
     // IStagingRecord 系统字段（照抄 StgShentongLogisticsCompleteness）
     public long F批次ID { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public int F处理状态 { get; set; }
     public string? F错误信息 { get; set; }
     public long? F关联凭证ID { get; set; }

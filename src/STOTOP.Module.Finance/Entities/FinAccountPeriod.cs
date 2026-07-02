@@ -6,8 +6,9 @@ namespace STOTOP.Module.Finance.Entities;
 // 其归属由 FAccountSetId 关联的账套（FinAccountSet 不隔离）间接管理；
 // FOrgId 仅作记录字段保留，不再受全局组织过滤器作用，
 // 避免在严格模式下 FOrgId=0 的种子期间被全部过滤导致下拉框为空。
-public class FinAccountPeriod : BaseEntity
+public class FinAccountPeriod : BaseEntity, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public int FYear { get; set; }
     public int FPeriodNo { get; set; }
     public DateTime FStartDate { get; set; }

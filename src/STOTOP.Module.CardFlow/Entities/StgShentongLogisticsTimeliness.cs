@@ -7,8 +7,10 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 来源：到件晚于签收/派件晚于签收/揽收上传不及时 三个文件同结构（sheet「及时性和准确性明细」），靠「问题类型」列区分。
 /// 17 个业务列全部先以 string? 落地（时间列也是字符串，归一阶段再解析）。
 /// </summary>
-public class StgShentongLogisticsTimeliness : BaseEntity, IStagingRecord
+public class StgShentongLogisticsTimeliness : BaseEntity, IStagingRecord, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
+
     // IStagingRecord 系统字段（照抄 StgShentongLogisticsCompleteness）
     public long F批次ID { get; set; }
     public int F处理状态 { get; set; }

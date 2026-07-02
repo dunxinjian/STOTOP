@@ -8,7 +8,7 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// sheet「0」，单行表头，26 列）。
 /// 26 个业务列全部先以 string? 落地（时间/金额/标识列也是字符串，归一阶段再解析）。
 /// </summary>
-public class StgShentongInterceptDetail : BaseEntity, IStagingRecord
+public class StgShentongInterceptDetail : BaseEntity, IStagingRecord, ITenantScoped
 {
     // IStagingRecord 系统字段（照抄 StgShentongFakeSign）
     public long F批次ID { get; set; }
@@ -22,6 +22,7 @@ public class StgShentongInterceptDetail : BaseEntity, IStagingRecord
     public long FOrgId { get; set; }
     public long? F账套ID { get; set; }
     public string? F归属网点编号 { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
 
     // 业务字段（26 列，对应 sheet「0」表头）
     public string? F统计日期 { get; set; }

@@ -62,7 +62,8 @@ public class TenantLeakScanTests
                       || typeof(IOrgOwned).IsAssignableFrom(et.ClrType)
                       || et.FindProperty("FOrgId") != null
                       || et.FindProperty("FOwnerOrgId") != null)
-            .Where(et => !typeof(IStagingRecord).IsAssignableFrom(et.ClrType))
+            // STG 暂存表(IStagingRecord)已在阶段1全覆盖补 ITenantScoped，不再整类豁免——
+            // 未来新增未挂租户的 STG 表(带 FOrgId)会被此门禁捕获。
             .Where(et => et.FindProperty("FAccountSetId") == null)
             .Where(et => !Whitelist.Contains(et.ClrType))
             .Select(et => et.ClrType.FullName!)

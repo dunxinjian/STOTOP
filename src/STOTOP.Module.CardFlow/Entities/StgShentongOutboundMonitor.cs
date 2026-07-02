@@ -7,8 +7,10 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 来源：未出仓实时监控导出（sheet「未出仓实时监控导出」）。
 /// 13 个业务列全部先以 string? 落地（时间/数值列也是字符串，归一阶段再解析）。
 /// </summary>
-public class StgShentongOutboundMonitor : BaseEntity, IStagingRecord
+public class StgShentongOutboundMonitor : BaseEntity, IStagingRecord, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
+
     // IStagingRecord 系统字段（照抄 StgShentongLogisticsCompleteness）
     public long F批次ID { get; set; }
     public int F处理状态 { get; set; }

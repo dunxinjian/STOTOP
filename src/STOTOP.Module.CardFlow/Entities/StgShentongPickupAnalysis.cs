@@ -8,8 +8,10 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 24 个业务列全部先以 string? 落地（时间/数值列也是字符串，归一阶段再解析）。
 /// 注意：本源主键列是「运单编号」（非「运单号」）；「订单揽收用时/h」含非法字符 /，dbColumn 去掉为 F订单揽收用时h。
 /// </summary>
-public class StgShentongPickupAnalysis : BaseEntity, IStagingRecord
+public class StgShentongPickupAnalysis : BaseEntity, IStagingRecord, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
+
     // IStagingRecord 系统字段（照抄 StgShentongLogisticsCompleteness）
     public long F批次ID { get; set; }
     public int F处理状态 { get; set; }

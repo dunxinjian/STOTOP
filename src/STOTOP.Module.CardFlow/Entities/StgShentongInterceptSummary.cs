@@ -8,8 +8,10 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 单行表头，10 列，所属网点×日期粒度（1 行/网点/日期）。列名均合法（无非法字符），dbColumn 直接加 F 前缀。
 /// 10 个业务列全部先以 string? 落地（数值列也是字符串，归一阶段再解析）。
 /// </summary>
-public class StgShentongInterceptSummary : BaseEntity, IStagingRecord
+public class StgShentongInterceptSummary : BaseEntity, IStagingRecord, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
+
     // IStagingRecord 系统字段（照抄 StgShentongBacklogMonitor）
     public long F批次ID { get; set; }
     public int F处理状态 { get; set; }

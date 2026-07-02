@@ -2,8 +2,9 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Finance.Entities;
 
-public class FinAuxiliaryBalance : BaseEntity, IAccountSetScoped
+public class FinAuxiliaryBalance : BaseEntity, IAccountSetScoped, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FPeriodId { get; set; }
     public long FAccountId { get; set; }
     public string FAuxiliaryJson { get; set; } = string.Empty;

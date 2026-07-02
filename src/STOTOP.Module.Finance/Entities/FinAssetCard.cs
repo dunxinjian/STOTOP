@@ -2,8 +2,9 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.Finance.Entities;
 
-public class FinAssetCard : BaseEntity
+public class FinAssetCard : BaseEntity, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string FCode { get; set; } = string.Empty;
     public string FName { get; set; } = string.Empty;
     public long FCategoryId { get; set; }

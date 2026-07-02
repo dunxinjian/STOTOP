@@ -22,6 +22,8 @@ public class StgShentongPickupAnalysisConfiguration : IEntityTypeConfiguration<S
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId");
         builder.Property(e => e.F账套ID).HasColumnName("F账套ID");
         builder.Property(e => e.F归属网点编号).HasColumnName("F归属网点编号").HasMaxLength(50);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_STG申通_揽收分析明细_租户ID");
 
         // 业务字段（24 列，全部可空字符串）
         builder.Property(e => e.F统计日期).HasColumnName("F统计日期").HasMaxLength(100);

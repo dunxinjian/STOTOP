@@ -83,6 +83,7 @@ public static class CardFlowSeeder
             new(59, "阶段0多租户: CardFlow 17张租户表加 F租户ID 隔离键列(NOT NULL DEFAULT 0,不启用过滤器)+租户索引 (2026-07-01)", MigrateV59),
             new(60, "阶段0多租户: CardFlow 存量行 F租户ID 回填到根组织单租户(=根组织id) (2026-07-01)", MigrateV60),
             new(61, "阶段1补漏: CF质量规则/CF自动插件_执行记录(有FOrgId却漏标ITenantScoped) 加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户 (2026-07-01)", MigrateV61),
+            new(62, "阶段1全覆盖: STG 36 暂存表加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户(OBJECT_ID 存在性守卫) (2026-07-02)", MigrateV62),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -337,6 +338,50 @@ public static class CardFlowSeeder
             SeederHelper.ExecuteRawSql(ctx, $@"
             DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
             IF @tenant IS NOT NULL
+                UPDATE [{t}] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
+        }
+    }
+
+    /// <summary>阶段1全覆盖: 36 张 EF 映射的 STG 暂存表(间接 IOrgScoped，本轮补 ITenantScoped)。
+    /// STG 前缀被 SchemaAutoSync/CreateMissingTables 排除、由更早 seeder 版本 CREATE，故列/索引须显式 DDL。</summary>
+    private static readonly string[] Phase1STGTenantTables =
+    {
+        "STG申通总部交易明细", "STG极兔总部交易明细", "STG韵达总部交易明细", "STG费用支出记录", "STG通用导入数据", "STG申通出港运单数据",
+        "STG申通派件日明细", "STG申通_积压明细", "STG申通_积压监控汇总", "STG申通_投诉账单明细", "STG申通_小件员履约指标", "STG申通_末端派送考核明细",
+        "STG申通_末端派送网点汇总", "STG申通_虚签投诉明细", "STG申通_虚假签收明细", "STG申通_履约率明细", "STG申通_交货滞留明细", "STG申通_交货滞留汇总",
+        "STG申通_送货上门明细", "STG申通_进港投诉明细", "STG申通_物流信息准确汇总", "STG申通_物流信息完整汇总", "STG申通_物流信息及时汇总", "STG申通_应拦截明细",
+        "STG申通_拦截汇总", "STG申通_物流完整性明细", "STG申通_物流及时准确明细", "STG申通_出仓考核汇总", "STG申通_未出仓监控明细", "STG申通_渗透建站考核",
+        "STG申通_照片质检明细", "STG申通_揽收分析明细", "STG申通_揽收考核汇总", "STG申通_签收率考核汇总", "STG申通_签收未达标明细", "STG申通_疑似遗失明细",
+    };
+
+    /// <summary>
+    /// 阶段1全覆盖·STG 暂存表加 F租户ID + 索引 + 回填根组织单租户。STG 表被自动建表/同步排除、由更早版本 CREATE，
+    /// 故显式 ALTER；每步带 OBJECT_ID 存在性守卫(个别 STG 表按需建、缺表则跳过不炸)。加列/索引/回填分独立 ExecSql。
+    /// </summary>
+    private static void MigrateV62(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        foreach (var t in Phase1STGTenantTables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            IF OBJECT_ID(N'{t}', N'U') IS NOT NULL AND COL_LENGTH(N'{t}', N'F租户ID') IS NULL
+                ALTER TABLE [{t}] ADD [F租户ID] bigint NOT NULL CONSTRAINT [DF_{t}_F租户ID] DEFAULT 0;");
+        }
+
+        foreach (var t in Phase1STGTenantTables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            IF OBJECT_ID(N'{t}', N'U') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.indexes
+                WHERE name = N'IX_{t}_租户ID' AND object_id = OBJECT_ID(N'{t}'))
+                CREATE INDEX [IX_{t}_租户ID] ON [{t}] ([F租户ID]);");
+        }
+
+        foreach (var t in Phase1STGTenantTables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+            IF @tenant IS NOT NULL AND OBJECT_ID(N'{t}', N'U') IS NOT NULL
                 UPDATE [{t}] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
         }
     }

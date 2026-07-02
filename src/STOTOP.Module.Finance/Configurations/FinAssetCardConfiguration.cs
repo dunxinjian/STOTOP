@@ -28,7 +28,9 @@ public class FinAssetCardConfiguration : IEntityTypeConfiguration<FinAssetCard>
         builder.Property(e => e.FAccountSetId).HasColumnName("F账套ID");
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
-        
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN资产卡片_租户ID");
         builder.HasIndex(e => e.FCode).IsUnique().HasDatabaseName("IX_FIN资产卡片_编码");
         builder.HasIndex(e => e.FCategoryId).HasDatabaseName("IX_FIN资产卡片_类别ID");
         builder.HasIndex(e => e.FStatus).HasDatabaseName("IX_FIN资产卡片_状态");

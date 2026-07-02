@@ -8,7 +8,7 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 1 行/网点/统计日期 的汇总表，本文件无网点编号，仅有网点名称。
 /// 14 个业务列全部先以 string? 落地（数量/比率列也是字符串，归一阶段再解析）。
 /// </summary>
-public class StgShentongInfoIndexAccurate : BaseEntity, IStagingRecord
+public class StgShentongInfoIndexAccurate : BaseEntity, IStagingRecord, ITenantScoped
 {
     // IStagingRecord 系统字段（照抄 StgShentongPenetration）
     public long F批次ID { get; set; }
@@ -22,6 +22,7 @@ public class StgShentongInfoIndexAccurate : BaseEntity, IStagingRecord
     public long FOrgId { get; set; }
     public long? F账套ID { get; set; }
     public string? F归属网点编号 { get; set; }
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
 
     // 业务字段（14 列，对应 sheet「准确性汇总（按天）」表头）
     public string? F统计日期 { get; set; }

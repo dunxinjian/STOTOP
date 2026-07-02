@@ -27,7 +27,9 @@ public class FinAccountConfiguration : IEntityTypeConfiguration<FinAccount>
         builder.Property(e => e.F启用期间).HasColumnName("F启用期间").HasDefaultValue(0);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
-        
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN科目_租户ID");
         builder.HasIndex(e => e.FAccountSetId).HasDatabaseName("IX_FIN科目_账套ID");
         builder.HasIndex(e => new { e.FCode, e.FAccountSetId }).IsUnique().HasDatabaseName("IX_FIN科目_编码_账套ID");
         builder.HasIndex(e => e.FParentId).HasDatabaseName("IX_FIN科目_父级ID");

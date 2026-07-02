@@ -17,7 +17,8 @@ public class ApplyTemplateTests
             .UseInMemoryDatabase($"{name}_{Guid.NewGuid():N}")
             .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
-        return new STOTOP.Infrastructure.Data.STOTOPDbContext(options, null);
+        // FinAccount 已 ITenantScoped：须注入租户上下文，否则 fail-closed 下建/读科目空集或写抛（生产 ApplyTemplate 走 HTTP 有租户）。
+        return new STOTOP.Infrastructure.Data.STOTOPDbContext(options, new TestDbContextFactory.TestContextAccessor { CurrentTenantId = 1 });
     }
 
     private static AccountTemplateService CreateService(STOTOP.Infrastructure.Data.STOTOPDbContext db)

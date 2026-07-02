@@ -18,7 +18,9 @@ public class FinBankReconciliationConfiguration : IEntityTypeConfiguration<FinBa
         builder.Property(e => e.FMatchType).HasColumnName("FMatchType").HasMaxLength(20);
         builder.Property(e => e.FMatchTime).HasColumnName("FMatchTime");
         builder.Property(e => e.FOperatorId).HasColumnName("FOperatorId");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
 
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_FIN银行对账记录_租户ID");
         builder.HasIndex(e => e.FAccountSetId).HasDatabaseName("IX_FIN银行对账记录_AccountSetId");
         builder.HasIndex(e => e.FBankStatementId).HasDatabaseName("IX_FIN银行对账记录_BankStatementId");
         builder.HasIndex(e => e.FVoucherId).HasDatabaseName("IX_FIN银行对账记录_VoucherId");

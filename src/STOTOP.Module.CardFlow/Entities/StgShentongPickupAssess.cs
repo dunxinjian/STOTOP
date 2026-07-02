@@ -9,8 +9,10 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 含末尾空格列：揽收承包区编码（原文末尾带空格）→ dbColumn 去尾空格 F揽收承包区编码；excelColumn 保留原始含空格文本。
 /// 19 个业务列全部先以 string? 落地（数值列也是字符串，归一阶段再解析）。
 /// </summary>
-public class StgShentongPickupAssess : BaseEntity, IStagingRecord
+public class StgShentongPickupAssess : BaseEntity, IStagingRecord, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
+
     // IStagingRecord 系统字段（照抄 StgShentongBacklogMonitor）
     public long F批次ID { get; set; }
     public int F处理状态 { get; set; }

@@ -8,8 +8,10 @@ namespace STOTOP.Module.CardFlow.Entities;
 /// 34 个业务列全部先以 string? 落地（时间/数值列也是字符串，归一阶段再解析）。
 /// 注意：「装车/发件网点」含非法字符 /，dbColumn 去掉斜杠为 F装车发件网点（实体/EF/DDL/映射四处一致）。
 /// </summary>
-public class StgShentongHandoverDelay : BaseEntity, IStagingRecord
+public class StgShentongHandoverDelay : BaseEntity, IStagingRecord, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
+
     // IStagingRecord 系统字段（照抄 StgShentongLogisticsCompleteness）
     public long F批次ID { get; set; }
     public int F处理状态 { get; set; }

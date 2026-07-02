@@ -22,6 +22,7 @@ public class StgShentongOutboundConfiguration : IEntityTypeConfiguration<StgShen
         builder.Property(e => e.FOrgId).HasColumnName("FOrgId");
         builder.Property(e => e.F账套ID).HasColumnName("F账套ID");
         builder.Property(e => e.F归属网点编号).HasColumnName("F归属网点编号").HasMaxLength(50);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
 
         // 业务字段
         builder.Property(e => e.F流水号).HasColumnName("F流水号").HasMaxLength(200).IsRequired();
@@ -56,6 +57,7 @@ public class StgShentongOutboundConfiguration : IEntityTypeConfiguration<StgShen
 
         builder.HasIndex(e => e.F批次ID).HasDatabaseName("IX_STG申通出港运单数据_F批次ID");
         builder.HasIndex(e => e.FDataScopeId).HasDatabaseName("IX_STG申通出港运单数据_数据作用域").HasFilter("[FDataScopeId] IS NOT NULL");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_STG申通出港运单数据_租户ID");
 
         // 跨批次去重唯一索引（实际由 Seeder DDL 创建，此处声明保持模型一致性）
         builder.HasIndex(e => new { e.F运单编号, e.F所属网点, e.FOrgId })
