@@ -21,7 +21,8 @@ public class DingTalkService : IDingTalkService
     private readonly ILogger<DingTalkService> _logger;
     private readonly IDingTalkSyncProgressNotifier _progressNotifier;
     private readonly IEventDispatcher _eventDispatcher;
-    
+    private readonly Interfaces.IOrgContextService _orgContextService;
+
     // Token 缓存：按配置ID区分（全局配置用 key=0）
     private static readonly ConcurrentDictionary<long, (string Token, DateTime ExpireTime)> _tokenCache = new();
     
@@ -87,13 +88,15 @@ public class DingTalkService : IDingTalkService
         IHttpClientFactory httpClientFactory,
         ILogger<DingTalkService> logger,
         IDingTalkSyncProgressNotifier progressNotifier,
-        IEventDispatcher eventDispatcher)
+        IEventDispatcher eventDispatcher,
+        Interfaces.IOrgContextService orgContextService)
     {
         _context = context;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
         _progressNotifier = progressNotifier;
         _eventDispatcher = eventDispatcher;
+        _orgContextService = orgContextService;
     }
 
     #region 从钉钉拉取
@@ -964,6 +967,7 @@ public class DingTalkService : IDingTalkService
         {
             try
             {
+                long syncedUserId = 0;
                 var existing = await _context.Set<SysUser>()
                     .AsTracking()
                     .FirstOrDefaultAsync(u => u.FDingTalkUserId == dtUser.UserId);
@@ -1019,6 +1023,7 @@ public class DingTalkService : IDingTalkService
                         }
                     }
 
+                    syncedUserId = existing.FID;
                     syncResult.SkipCount++;
                 }
                 else
@@ -1062,11 +1067,16 @@ public class DingTalkService : IDingTalkService
                             }
                         }
                     }
-    
+
+                    syncedUserId = user.FID;
                     syncResult.SuccessCount++;
                 }
-    
+
                 await _context.SaveChangesAsync();
+
+                // M3 增量双写：按最新 SYS用户组织 调和该用户的 SYS租户成员 + SYS任职(best-effort，不影响主同步)
+                if (syncedUserId != 0)
+                    await _orgContextService.ReconcileUserMembershipBestEffortAsync(syncedUserId);
             }
             catch (Exception ex)
             {

@@ -84,6 +84,9 @@ public static class OrgTreeMaterializer
             o.FScopeRootId = rootId;
             o.FScopeRootType = (int)rootType;
 
+            // 最近可切换祖先(含自身) —— O(1) 切换列表用，语义同旧 FindSwitchableAncestor
+            o.FSwitchRootId = chain.FirstOrDefault(n => n.FIsSwitchable)?.FID ?? 0;
+
             // 路径 /根/.../自身/
             var idsRootFirst = new List<long>();
             for (int i = chain.Count - 1; i >= 0; i--) idsRootFirst.Add(chain[i].FID);

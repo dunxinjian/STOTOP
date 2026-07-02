@@ -105,6 +105,14 @@ public class UpdateOrganizationRequest
     public string? Description { get; set; }
 }
 
+/// <summary>M3：租户成员(可切换租户)——阶段4 多租户切换用；单客户下通常 1 个。</summary>
+public class TenantMembershipDto
+{
+    public long TenantId { get; set; }
+    public string TenantName { get; set; } = string.Empty;
+    public bool IsPrimary { get; set; }
+}
+
 public class OrgAccountSetDto
 {
     public long Id { get; set; }

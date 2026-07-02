@@ -54,6 +54,10 @@ public class SysOrganization : BaseEntity
     /// <summary>物化：路径 /1/192/194/ 加速子树。</summary>
     public string? FPath { get; set; }
 
+    /// <summary>物化：最近可切换祖先(含自身, FIsSwitchable=true)的 FID；无则 0。
+    /// M3 用于 O(1) 切换列表(替代 FindSwitchableAncestor 的运行时上溯),语义与旧一致。</summary>
+    public long FSwitchRootId { get; set; } = 0;
+
     /// <summary>并发令牌（供树变更同事务重算的乐观锁）。</summary>
     public byte[]? FRowVersion { get; set; }
 

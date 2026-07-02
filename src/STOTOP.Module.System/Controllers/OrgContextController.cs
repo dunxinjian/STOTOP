@@ -30,6 +30,17 @@ public class OrgContextController : ControllerBase
         return ApiResult<List<UserOrganizationDto>>.Success(result);
     }
 
+    [HttpGet("my-tenants")]
+    public async Task<ApiResult<List<TenantMembershipDto>>> GetMyTenants()
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null)
+            return ApiResult<List<TenantMembershipDto>>.Fail("未登录", 401);
+
+        var result = await _orgContextService.GetMyTenantsAsync(userId.Value);
+        return ApiResult<List<TenantMembershipDto>>.Success(result);
+    }
+
     [HttpPost("switch")]
     public async Task<ApiResult<SwitchOrganizationResponse>> SwitchOrganization([FromBody] SwitchOrganizationRequest request)
     {

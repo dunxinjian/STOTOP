@@ -21,8 +21,48 @@ public static class SystemSeeder
             new(6, "阶段2A(M4): SYS组织类型 F组织类别 按 typeCode 映射 + SYS组织架构 F组织类别 派生回填 (2026-07-02)", MigrateV6),
             new(7, "阶段2A(M4): 物化 F租户ID/F父类别/F所属网点公司ID/F范围根/F路径 + 构建 SYS组织闭包(应用层重建) (2026-07-02)", MigrateV7),
             new(8, "阶段2A(M4): 合法树 + 组织类别域 + 范围根类型 DB CHECK 约束(回填/物化后) (2026-07-02)", MigrateV8),
+            new(9, "阶段2B(M3): SYS组织架构 加 F可切换根ID + 重物化(O(1)切换列表用) (2026-07-02)", MigrateV9),
+            new(10, "阶段2B(M3): 从 SYS用户组织 回填 SYS租户成员 + SYS任职(增量双写地基) (2026-07-02)", MigrateV10),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>阶段2B·加列+重物化：SYS组织架构 加 F可切换根ID（最近可切换祖先，O(1) 切换列表用）+ 调 RebuildAll 重算(含该列)。</summary>
+    private static void MigrateV9(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        AddColumnIfMissing(ctx, "SYS组织架构", "F可切换根ID", "bigint NOT NULL CONSTRAINT [DF_SYS组织架构_F可切换根ID] DEFAULT 0");
+        CreateIndexIfMissing(ctx, "SYS组织架构", "IX_SYS组织架构_可切换根ID", "[F可切换根ID]");
+        OrgTreeMaterializer.RebuildAll(ctx); // 幂等重算，填充 F可切换根ID
+    }
+
+    /// <summary>阶段2B·回填：从 SYS用户组织 派生 SYS租户成员(每用户一行,单客户=已接受主租户) + SYS任职(每任职一行,主任职 → 可参与范围放大)。
+    /// 表由 CreateMissingTables 建;仅首次(SYS任职 空)回填,幂等。</summary>
+    private static void MigrateV10(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // 成员：每用户一行(单客户单租户=根组织),已接受、主租户
+        SeederHelper.ExecuteRawSql(ctx, @"
+        DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+        IF @tenant IS NOT NULL
+        INSERT INTO [SYS租户成员] ([F用户ID], [F租户ID], [F是否主租户], [F邀请状态], [F加入时间], [F状态], [F创建时间], [F更新时间])
+        SELECT DISTINCT uo.[F用户ID], @tenant, 1, 2, GETDATE(), 1, GETDATE(), GETDATE()
+        FROM [SYS用户组织] uo
+        WHERE NOT EXISTS (SELECT 1 FROM [SYS租户成员] m WHERE m.[F用户ID] = uo.[F用户ID] AND m.[F租户ID] = @tenant);");
+
+        // 任职：每 SYS用户组织 行一条(仅首次回填,避免重复);主任职 → F可参与范围放大
+        SeederHelper.ExecuteRawSql(ctx, @"
+        DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+        IF @tenant IS NOT NULL AND NOT EXISTS (SELECT 1 FROM [SYS任职])
+        INSERT INTO [SYS任职] ([F租户ID], [F成员ID], [F组织ID], [F直属上级ID], [F是否主任职], [F可参与范围放大], [F岗位], [F工号], [F入职日期], [F是否在职], [F状态], [F创建时间], [F更新时间])
+        SELECT @tenant, m.[FID], uo.[F组织ID], uo.[F直接上级ID],
+               CASE WHEN uo.[F是否主组织] = 1 THEN 1 ELSE 0 END,
+               CASE WHEN uo.[F是否主组织] = 1 THEN 1 ELSE 0 END,
+               uo.[F职位], uo.[F工号], uo.[F入职日期], uo.[F是否当前], uo.[F状态], GETDATE(), GETDATE()
+        FROM [SYS用户组织] uo
+        JOIN [SYS租户成员] m ON m.[F用户ID] = uo.[F用户ID] AND m.[F租户ID] = @tenant;");
     }
 
     /// <summary>阶段2A·加列+索引：给 SYS组织架构 加 M4 组织模型列 + SYS组织类型 加 F组织类别。

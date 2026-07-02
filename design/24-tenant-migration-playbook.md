@@ -352,6 +352,19 @@ R8 落地：`SYS数据范围授权`(`SysScopeGrant`) + `RecomputeScopeGrants`（
 - **验证**：全图 0 错；System.Tests 22/22（+6 OrgModelTests）；全量回归绿（唯 CardFlow 6 Excel 真文件非回归 baseline）；**真实 dev 库 V5-V8 跑通**：F组织类别 0:1/1:3/2:4/4:312、范围根类型 集团71/区域203/网点公司46、闭包1334行/自反320、3 CHECK 就位、0 不一致行。
 - **待办**：fresh-DB V1 压缩 INSERT 需为列限定式（对 SYS组织架构 加列后仍安全；dev/prod 已有 V1 不重跑，fresh 库须核）；跨版本——V8 CHECK 要求非根行 F父类别 非空，旧代码(V4)建 org 不设 FKind/FParentKind 会撞 CHECK（共享库须全员前进 stage2）。
 
+#### 阶段2B as-built（M3 成员/任职拆分 · 2026-07-02 · 增量安全）
+
+用户裁定 **增量安全**（新表 + 回填 + O(1) 切换 + 双写；10 读消费者暂留旧表）：
+
+- **新表**：`SysTenantMember`(SYS租户成员，跨租户 R6 切换依据，**刻意不实现 `ITenantScoped`**——一个用户可属多客户，切换须见其全部租户成员；无 `FOrgId` 故漏标门禁不触发) + `SysAppointment`(SYS任职，喂 R8 的 `FScopeEligible`，**实现 `ITenantScoped`** 入硬墙；`FOrgId` 为任职节点普通列、非隔离键，故**不**实现 `IOrgScoped`——R8 重算须跨用户全部任职读，按当前组织单节点过滤会漏)。两者均新 EF 表，由 `CreateMissingTables` 自动建。
+- **切换列表 O(1)**：`SysOrganization` 加物化 `F可切换根ID`(=最近 `FIsSwitchable` 祖先含自身，`OrgTreeMaterializer` 计算)；`GetUserOrganizationsAsync` 重写为单查询(SYS用户组织当前行 → join 组织 → join 可切换根 → 去重)，**退役 `FindSwitchableAncestor` + 全表载入**，语义与旧一致。
+- **增量双写(best-effort)**：`OrgContextService` 注入 `ITenantResolver`；建/改/删任职后 `SyncNewTablesBestEffortAsync`；`DingTalkService` 注入 `IOrgContextService`，部门同步每用户后 `ReconcileUserMembershipBestEffortAsync`(按当前 SYS用户组织 全量调和)。**best-effort**：`try/catch`+`LogWarning`——`SysAppointment` 在无租户上下文时撞 fail-closed 写硬墙被吞、绝不破坏主 SYS用户组织 写入。**10 个读消费者(EmployeeOrgQueryService/DingTalk/PerformanceService/ApproverResolver/RankingService/AuxiliaryService 等)仍读旧 SYS用户组织**——旧表退役 + 读消费者迁移留收尾。
+- **admin 收敛**：`SwitchOrganizationAsync` admin 不再要求成员行(与切换列表/中间件一致)。新增 `/api/system/org-context/my-tenants`(阶段4 前端多租户切换用)。
+- **Seeder**：`SystemSeeder V9`(加 `F可切换根ID`+索引+`RebuildAll` 重物化) / `V10`(raw SQL 从 SYS用户组织 回填成员[每用户一行·已接受·主租户]+任职[每行·主任职→可放大]，幂等)。
+- **坑**：`STOTOP.Module.Task` 命名空间遮蔽 `System.Threading.Tasks.Task`(测试命名空间在 `STOTOP.Module` 下，enclosing-namespace 查找先于 using)→ 测试用 `using STT = System.Threading.Tasks;` 写 `STT.Task`。
+- **验证**：全图 0 错；System.Tests 27/27(+5)；全量回归绿(CardFlow 6 Excel 非回归)；真实 dev 库 V9/V10 跑通——租户成员 1965(=去重用户)、任职 1997(=当前行)、主任职 1966 可放大 / 非主 31 不放大、`F可切换根ID` 全 320 非 0、承包区197→太仓美申192、0 孤儿任职。
+- **待办**：旧 SYS用户组织 退役 + 10 读消费者迁到 SYS任职；`FScopeEligible` 目前由 `FIsPrimaryOrg` 派生(挂名/借调精细化留后)；多客户上线后 `SysAppointment` 写入须保证租户上下文(现 best-effort 在无上下文时跳过)。
+
 ### 阶段3（财务对齐）— M6
 
 | 现状锚点 | 动作 |

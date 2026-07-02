@@ -39,6 +39,7 @@ public class SysOrganizationConfiguration : IEntityTypeConfiguration<SysOrganiza
         builder.Property(e => e.FScopeRootId).HasColumnName("F范围根ID").HasDefaultValue(0L);
         builder.Property(e => e.FScopeRootType).HasColumnName("F范围根类型").HasDefaultValue((int)Entities.OrgScopeType.Group);
         builder.Property(e => e.FPath).HasColumnName("F路径").HasMaxLength(400);
+        builder.Property(e => e.FSwitchRootId).HasColumnName("F可切换根ID").HasDefaultValue(0L);
         builder.Property(e => e.FRowVersion).HasColumnName("F版本号").IsRowVersion();
 
         builder.HasIndex(e => e.FUID).IsUnique();
