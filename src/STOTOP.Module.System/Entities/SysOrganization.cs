@@ -29,6 +29,34 @@ public class SysOrganization : BaseEntity
     public DateTime FCreateTime { get; set; } = DateTime.Now;
     public DateTime FUpdateTime { get; set; } = DateTime.Now;
 
+    // ===== M4 多租户阶段2 组织模型（由 OrgTreeMaterializer 物化维护）=====
+
+    /// <summary>租户ID（= 本节点所属租户根 FID；单客户下 = 组织树根 MDSTO）。
+    /// 说明：组织树是租户结构骨架，携带 F租户ID 供多租户按租户裁剪，但**不**实现 ITenantScoped、不进 fail-closed 硬墙——
+    /// 组织树在登录/切换等尚未确立租户上下文的引导路径被读取(中间件对这些路径 skip)，进硬墙会读空自锁。多租户组织可视性靠 R8 + 服务层租户过滤。</summary>
+    public long FTenantId { get; set; } = 0;
+
+    /// <summary>组织类别（<see cref="OrgKind"/>：0集团/1区域公司/2网点公司/3中心/4部门/5班组），单一真源，派生自 FTypeId。</summary>
+    public int FKind { get; set; } = (int)OrgKind.Dept;
+
+    /// <summary>物化：父节点 FKind（根为 null）。仅为让"合法父子"成为行内 CHECK 可判（跨行父子约束无法用普通 CHECK）。</summary>
+    public int? FParentKind { get; set; }
+
+    /// <summary>物化：最近网点公司(FKind=Company)祖先(含自身)的 FID；不在任何网点公司下为 null。</summary>
+    public long? FCompanyId { get; set; }
+
+    /// <summary>物化：R8 范围根节点 FID（ResolveScopeRoot）。</summary>
+    public long FScopeRootId { get; set; } = 0;
+
+    /// <summary>物化：R8 范围根类型（<see cref="OrgScopeType"/>：1集团/2区域公司/3中心/4网点公司）。</summary>
+    public int FScopeRootType { get; set; } = (int)OrgScopeType.Group;
+
+    /// <summary>物化：路径 /1/192/194/ 加速子树。</summary>
+    public string? FPath { get; set; }
+
+    /// <summary>并发令牌（供树变更同事务重算的乐观锁）。</summary>
+    public byte[]? FRowVersion { get; set; }
+
     // 导航属性
     public virtual SysOrgType? OrgType { get; set; }
     public virtual SysUser? Manager { get; set; }

@@ -17,6 +17,9 @@ public class SysOrgType
     /// <summary>所属层级（1=集团，2=子公司/中心，3=分公司/部门，4=团组）</summary>
     public int FLevel { get; set; }
 
+    /// <summary>组织类别（<see cref="OrgKind"/>，M4 阶段2）：本类型默认映射到的 6 类之一，供 SysOrganization.FKind 派生回填。</summary>
+    public int FKind { get; set; } = (int)OrgKind.Dept;
+
     /// <summary>是否可关联账套</summary>
     public bool FCanBindAccountSet { get; set; }
 

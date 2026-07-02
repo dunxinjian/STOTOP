@@ -32,6 +32,10 @@ public class OrganizationDto
 
     // 类型新字段（来自 SYS组织类型 表）
     public long TypeId { get; set; }
+
+    /// <summary>M4 组织类别（OrgKind：0集团/1区域公司/2网点公司/3中心/4部门/5班组），单一真源。</summary>
+    public int Kind { get; set; }
+
     public string TypeCode { get; set; } = string.Empty;
     public string TypeName { get; set; } = string.Empty;
     public int TypeLevel { get; set; }

@@ -31,8 +31,22 @@ public class SysOrganizationConfiguration : IEntityTypeConfiguration<SysOrganiza
         builder.Property(e => e.FCreateTime).HasColumnName("F创建时间").HasDefaultValueSql("GETDATE()");
         builder.Property(e => e.FUpdateTime).HasColumnName("F更新时间").HasDefaultValueSql("GETDATE()");
 
+        // ===== M4 多租户阶段2 组织模型列 =====
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        builder.Property(e => e.FKind).HasColumnName("F组织类别").HasDefaultValue((int)Entities.OrgKind.Dept);
+        builder.Property(e => e.FParentKind).HasColumnName("F父类别");
+        builder.Property(e => e.FCompanyId).HasColumnName("F所属网点公司ID");
+        builder.Property(e => e.FScopeRootId).HasColumnName("F范围根ID").HasDefaultValue(0L);
+        builder.Property(e => e.FScopeRootType).HasColumnName("F范围根类型").HasDefaultValue((int)Entities.OrgScopeType.Group);
+        builder.Property(e => e.FPath).HasColumnName("F路径").HasMaxLength(400);
+        builder.Property(e => e.FRowVersion).HasColumnName("F版本号").IsRowVersion();
+
         builder.HasIndex(e => e.FUID).IsUnique();
         builder.HasIndex(e => e.FCode).IsUnique();
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_SYS组织架构_租户ID");
+        builder.HasIndex(e => e.FKind).HasDatabaseName("IX_SYS组织架构_组织类别");
+        builder.HasIndex(e => e.FParentId).HasDatabaseName("IX_SYS组织架构_父ID");
+        builder.HasIndex(e => e.FScopeRootId).HasDatabaseName("IX_SYS组织架构_范围根ID");
 
         builder.HasOne(e => e.OrgType)
             .WithMany()

@@ -87,11 +87,11 @@ public class OrganizationService : IOrganizationService
         if (orgType == null)
             return ApiResult<OrganizationDto>.Fail($"组织类型 {request.TypeId} 不存在");
 
-        // 子公司/集团属于公司级组织，需强制可切换并自动关联 admin
-        var isCompanyLevel = new[] { "SUBSIDIARY", "GROUP" }.Contains(orgType.FCode);
+        // 公司级组织(集团/区域公司)需强制可切换并自动关联 admin（M4：由 FKind 派生，替代 FCode 字面量）
+        var isCompanyLevel = orgType.FKind == (int)OrgKind.Group || orgType.FKind == (int)OrgKind.Region;
 
-        // 层级校验
-        var levelError = await ValidateOrgTypeLevelAsync(orgType, request.ParentId);
+        // 合法父子校验（M4：FKind 对合法性，支持跳级变深度）
+        var levelError = await ValidateOrgKindAsync(orgType, request.ParentId);
         if (levelError != null)
             return ApiResult<OrganizationDto>.Fail(levelError);
 
@@ -103,6 +103,7 @@ public class OrganizationService : IOrganizationService
             FCode = request.Code,
             FParentId = request.ParentId,
             FTypeId = request.TypeId,
+            FKind = orgType.FKind,
             FType = orgType.FName,
             FSort = request.Sort,
             FStatus = request.Status,
@@ -128,6 +129,9 @@ public class OrganizationService : IOrganizationService
         {
             await EnsureAdminOrgAssociationAsync(org.FID);
         }
+
+        // M4：新节点入树后重算物化字段(父类别/网点公司/范围根/路径) + 闭包
+        OrgTreeMaterializer.RebuildAll(_context);
 
         var dto = MapToDto(org);
 
@@ -159,11 +163,11 @@ public class OrganizationService : IOrganizationService
         if (orgType == null)
             return ApiResult<OrganizationDto>.Fail($"组织类型 {request.TypeId} 不存在");
 
-        // 子公司/集团属于公司级组织，需强制可切换并自动关联 admin
-        var isCompanyLevel = new[] { "SUBSIDIARY", "GROUP" }.Contains(orgType.FCode);
+        // 公司级组织(集团/区域公司)需强制可切换并自动关联 admin（M4：由 FKind 派生）
+        var isCompanyLevel = orgType.FKind == (int)OrgKind.Group || orgType.FKind == (int)OrgKind.Region;
 
-        // 层级校验
-        var levelError = await ValidateOrgTypeLevelAsync(orgType, request.ParentId);
+        // 合法父子校验（M4：FKind 对合法性）
+        var levelError = await ValidateOrgKindAsync(orgType, request.ParentId);
         if (levelError != null)
             return ApiResult<OrganizationDto>.Fail(levelError);
 
@@ -184,6 +188,7 @@ public class OrganizationService : IOrganizationService
         org.FCode = request.Code;
         org.FParentId = request.ParentId;
         org.FTypeId = request.TypeId;
+        org.FKind = orgType.FKind;
         org.FType = orgType.FName;
         org.FSort = request.Sort;
         if (request.Status.HasValue)
@@ -209,6 +214,9 @@ public class OrganizationService : IOrganizationService
         {
             await EnsureAdminOrgAssociationAsync(org.FID);
         }
+
+        // M4：节点类型/上级可能变（reparent/改类别）→ 重算物化字段 + 闭包
+        OrgTreeMaterializer.RebuildAll(_context);
 
         // 名称变更时发布辅助核算同步事件
         if (oldName != request.Name)
@@ -284,6 +292,9 @@ public class OrganizationService : IOrganizationService
         _context.Set<SysOrganization>().Remove(org);
         await _context.SaveChangesAsync();
 
+        // M4：删除后重建闭包/物化（移除该节点相关闭包行）
+        OrgTreeMaterializer.RebuildAll(_context);
+
         // 记录变更日志
         var (userId, userName) = GetCurrentUser();
         await _changeLogService.LogChangeAsync("组织架构", id, orgName, "删除",
@@ -293,34 +304,28 @@ public class OrganizationService : IOrganizationService
     }
 
     /// <summary>
-    /// 基于 OrgType.FLevel 校验父子层级合法性
+    /// M4：基于 FKind (父,子) 对合法性校验父子（支持跳级变深度，替代旧 FLevel==父+1 严格规则）。
+    /// 规则见 <see cref="OrgTreeMaterializer.IsLegalChild"/> / <see cref="OrgTreeMaterializer.IsLegalRootKind"/>。
     /// </summary>
-    private async Task<string?> ValidateOrgTypeLevelAsync(SysOrgType newType, long parentId)
+    private async Task<string?> ValidateOrgKindAsync(SysOrgType newType, long parentId)
     {
-        // 根节点：Level == 1 且无父节点
-        if (newType.FLevel == 1)
+        var childKind = newType.FKind;
+
+        // 根节点（无上级）
+        if (parentId == 0)
         {
-            if (parentId != 0)
-                return $"{newType.FName}（层级1）只能作为根节点，上级必须为空";
+            if (!OrgTreeMaterializer.IsLegalRootKind(childKind))
+                return $"{newType.FName}不能作为根节点（仅集团/区域公司/网点公司可作根）";
             return null;
         }
 
-        // 非根节点必须有上级
-        if (parentId == 0)
-            return $"{newType.FName}不能作为根节点，请选择上级组织";
-
         var parent = await _context.Set<SysOrganization>()
-            .Include(o => o.OrgType)
             .FirstOrDefaultAsync(o => o.FID == parentId);
-
         if (parent == null)
             return "上级组织不存在";
 
-        if (parent.OrgType == null)
-            return "上级组织的类型数据缺失，无法校验层级";
-
-        if (newType.FLevel != parent.OrgType.FLevel + 1)
-            return $"{newType.FName}（层级{newType.FLevel}）不能挂在{parent.OrgType.FName}（层级{parent.OrgType.FLevel}）下";
+        if (!OrgTreeMaterializer.IsLegalChild(parent.FKind, childKind))
+            return $"{newType.FName}不能挂在该上级下（父子类别不合法）";
 
         return null;
     }
@@ -356,6 +361,7 @@ public class OrganizationService : IOrganizationService
             Code = o.FCode,
             ParentId = o.FParentId,
             TypeId = o.FTypeId,
+            Kind = o.FKind,
             TypeCode = o.OrgType?.FCode ?? string.Empty,
             TypeName = o.OrgType?.FName ?? o.FType,
             TypeLevel = o.OrgType?.FLevel ?? 0,

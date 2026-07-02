@@ -340,6 +340,18 @@ R8 落地：`SYS数据范围授权`(`SysScopeGrant`) + `RecomputeScopeGrants`（
 > 新建 Seeder 其 `steps` 必须从 V1 起连续。
 **风险**：双身份 `SYS网点公司↔SYS组织(Company)` 事务联动+对账；物化写放大；范围根物化与树变更同事务一致性（`FRowVersion`+快照隔离）。
 
+#### 阶段2A as-built（M4 组织 schema 地基 · 2026-07-02 · 分支 `feat/tenant-isolation-stage2`）
+
+先落 M4 地基（下游 R8/网点公司归属/闭包上卷都依赖）。**据 P0 真实树实测（dev 库 320 节点、单根 `MDSTO(FID=1)`、类型只用 GROUP×1/SUBSIDIARY×3/NETWORK_POINT(7)×4/DEPT×312）+ 用户裁定**：
+
+- **FKind 保守映射**（`SysOrganization.FKind` 单一真源，`OrgKind`：0集团/1区域公司/2网点公司/3中心/4部门/5班组）：`MDSTO→集团`、`3 个 SUBSIDIARY→区域公司`、`4 个 type-7→网点公司`（这 4 个"XX子公司"实为太仓美申的网点公司=阿米巴 business_unit）、**其余 312 DEPT 全→部门**；中心/班组细分留后续业务。恰好 = 按 typeCode→FKind 查找回填。
+- **合法树放宽**：允许 `部门→部门` 深链（现实"中心→网点→团"皆扁平 DEPT），否则严格 CHECK 拒现有数据。合法父子（含放宽）由物化的 `F父类别`(FParentKind) 做**行内 DB CHECK**（跨行父子约束普通 CHECK 无法表达，本仓零触发器先例故弃触发器）。
+- **范围根 4 级**（`OrgScopeType`：`FScopeRootType` = 1集团/2区域公司/3中心/4网点公司）——**修订 design/23 §4.3/§7 的 3 级(TENANT/CENTER/COMPANY, TENANT 实为"区域公司")**：v2 集团=租户下辖多区域公司，需区域公司作独立范围层（区域用户只看本区域、集团总部汇总）。`ResolveScopeRoot`：最近网点公司→网点公司；否则最近"子树含网点公司的中心"→中心；否则最近区域公司→区域公司；否则集团。
+- **组织树刻意不挂 fail-closed 硬墙**：`SysOrganization`/`SysOrgClosure` 加 `F租户ID` 列并物化，但**不实现 `ITenantScoped`**——组织树是租户结构骨架，在登录/切换等 `OrgContextMiddleware` skip 的引导路径被读取（未确立租户上下文），进硬墙会读空自锁。多租户组织可视性靠 R8 + 服务层租户过滤。漏标门禁只查有 `FOrgId` 的实体，组织树无 `FOrgId` 故合规不误报。
+- **实现**：`SysOrganization` 加 8 列（F租户ID/F组织类别/F父类别/F所属网点公司ID/F范围根ID/F范围根类型/F路径/F版本号）；新 `SYS组织闭包`(SysOrgClosure，复合 PK)；`OrgTreeMaterializer`（合法规则 + ResolveScopeRoot + RebuildAll 全量物化+重建闭包，provider-agnostic 可 InMemory 测；OrganizationService 建/改/删后调用）；`SysOrgType` 加 `F组织类别`；`ValidateOrgTypeLevelAsync`(FLevel==父+1) → `ValidateOrgKindAsync`(FKind 对合法性)；`isCompanyLevel` 由 FCode 字面量 → FKind∈{集团,区域公司}。`SystemSeeder V5-V8`：V5 加列+索引、V6 FKind 映射回填、V7 RebuildAll 物化+建闭包、V8 CHECK（组织类别域/范围根类型域/合法父子；**须排 V6/V7 之后**——给已填充表加 CHECK 同步全表校验）。因保留 SysOrgType 查找表+typeCode/typeName 不变，**前端 DTO 契约不动、2A 无前端改动**。
+- **验证**：全图 0 错；System.Tests 22/22（+6 OrgModelTests）；全量回归绿（唯 CardFlow 6 Excel 真文件非回归 baseline）；**真实 dev 库 V5-V8 跑通**：F组织类别 0:1/1:3/2:4/4:312、范围根类型 集团71/区域203/网点公司46、闭包1334行/自反320、3 CHECK 就位、0 不一致行。
+- **待办**：fresh-DB V1 压缩 INSERT 需为列限定式（对 SYS组织架构 加列后仍安全；dev/prod 已有 V1 不重跑，fresh 库须核）；跨版本——V8 CHECK 要求非根行 F父类别 非空，旧代码(V4)建 org 不设 FKind/FParentKind 会撞 CHECK（共享库须全员前进 stage2）。
+
 ### 阶段3（财务对齐）— M6
 
 | 现状锚点 | 动作 |

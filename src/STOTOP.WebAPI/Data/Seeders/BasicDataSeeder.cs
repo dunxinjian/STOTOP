@@ -98,17 +98,19 @@ public static class BasicDataSeeder
         if (context.Set<SysOrgType>().Any()) return;
 
         var now = DateTime.Now;
+        // FKind（M4 阶段2）= typeCode 到 6 类的映射：GROUP→集团0 / SUBSIDIARY→区域公司1 / CENTER→中心3 /
+        // BRANCH→网点公司2 / DEPT→部门4 / TEAM→班组5 / NETWORK_POINT→网点公司2 / FRANCHISE_AREA→部门4 / LAST_MILE_STATION→部门4。
         var types = new List<SysOrgType>
         {
-            new() { FID = 1, FCode = "GROUP",      FName = "集团",  FLevel = 1, FCanBindAccountSet = true,  FCanSwitch = true,  FIcon = "OfficeBuilding", FSortOrder = 1, FIsEnabled = true, FCreateTime = now },
-            new() { FID = 2, FCode = "SUBSIDIARY", FName = "子公司", FLevel = 2, FCanBindAccountSet = true,  FCanSwitch = true,  FIcon = "Building",       FSortOrder = 2, FIsEnabled = true, FCreateTime = now },
-            new() { FID = 3, FCode = "CENTER",     FName = "中心",  FLevel = 2, FCanBindAccountSet = false, FCanSwitch = false, FIcon = "Grid",           FSortOrder = 3, FIsEnabled = true, FCreateTime = now },
-            new() { FID = 4, FCode = "BRANCH",     FName = "分公司", FLevel = 3, FCanBindAccountSet = true,  FCanSwitch = true,  FIcon = "Location",      FSortOrder = 4, FIsEnabled = true, FCreateTime = now },
-            new() { FID = 5, FCode = "DEPT",       FName = "部门",  FLevel = 3, FCanBindAccountSet = false, FCanSwitch = false, FIcon = "Files",          FSortOrder = 5, FIsEnabled = true, FCreateTime = now },
-            new() { FID = 6, FCode = "TEAM",       FName = "团组",  FLevel = 4, FCanBindAccountSet = false, FCanSwitch = false, FIcon = "User",           FSortOrder = 6, FIsEnabled = true, FCreateTime = now },
-            new() { FID = 7, FCode = "NETWORK_POINT",      FName = "快递网点", FLevel = 3, FCanBindAccountSet = false, FCanSwitch = false, FIcon = "apartment",     FSortOrder = 7, FIsEnabled = true, FCreateTime = now },
-            new() { FID = 8, FCode = "FRANCHISE_AREA",     FName = "承包区",  FLevel = 4, FCanBindAccountSet = false, FCanSwitch = false, FIcon = "location_city", FSortOrder = 8, FIsEnabled = true, FCreateTime = now },
-            new() { FID = 9, FCode = "LAST_MILE_STATION",  FName = "末端驿站", FLevel = 4, FCanBindAccountSet = false, FCanSwitch = false, FIcon = "store",         FSortOrder = 9, FIsEnabled = true, FCreateTime = now },
+            new() { FID = 1, FCode = "GROUP",      FName = "集团",  FLevel = 1, FKind = 0, FCanBindAccountSet = true,  FCanSwitch = true,  FIcon = "OfficeBuilding", FSortOrder = 1, FIsEnabled = true, FCreateTime = now },
+            new() { FID = 2, FCode = "SUBSIDIARY", FName = "子公司", FLevel = 2, FKind = 1, FCanBindAccountSet = true,  FCanSwitch = true,  FIcon = "Building",       FSortOrder = 2, FIsEnabled = true, FCreateTime = now },
+            new() { FID = 3, FCode = "CENTER",     FName = "中心",  FLevel = 2, FKind = 3, FCanBindAccountSet = false, FCanSwitch = false, FIcon = "Grid",           FSortOrder = 3, FIsEnabled = true, FCreateTime = now },
+            new() { FID = 4, FCode = "BRANCH",     FName = "分公司", FLevel = 3, FKind = 2, FCanBindAccountSet = true,  FCanSwitch = true,  FIcon = "Location",      FSortOrder = 4, FIsEnabled = true, FCreateTime = now },
+            new() { FID = 5, FCode = "DEPT",       FName = "部门",  FLevel = 3, FKind = 4, FCanBindAccountSet = false, FCanSwitch = false, FIcon = "Files",          FSortOrder = 5, FIsEnabled = true, FCreateTime = now },
+            new() { FID = 6, FCode = "TEAM",       FName = "团组",  FLevel = 4, FKind = 5, FCanBindAccountSet = false, FCanSwitch = false, FIcon = "User",           FSortOrder = 6, FIsEnabled = true, FCreateTime = now },
+            new() { FID = 7, FCode = "NETWORK_POINT",      FName = "快递网点", FLevel = 3, FKind = 2, FCanBindAccountSet = false, FCanSwitch = false, FIcon = "apartment",     FSortOrder = 7, FIsEnabled = true, FCreateTime = now },
+            new() { FID = 8, FCode = "FRANCHISE_AREA",     FName = "承包区",  FLevel = 4, FKind = 4, FCanBindAccountSet = false, FCanSwitch = false, FIcon = "location_city", FSortOrder = 8, FIsEnabled = true, FCreateTime = now },
+            new() { FID = 9, FCode = "LAST_MILE_STATION",  FName = "末端驿站", FLevel = 4, FKind = 4, FCanBindAccountSet = false, FCanSwitch = false, FIcon = "store",         FSortOrder = 9, FIsEnabled = true, FCreateTime = now },
         };
 
         context.Set<SysOrgType>().AddRange(types);

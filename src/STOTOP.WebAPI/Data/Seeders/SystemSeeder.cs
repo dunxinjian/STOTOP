@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using STOTOP.Infrastructure.Data;
+using STOTOP.Module.System.Services;
 
 namespace STOTOP.WebAPI.Data.Seeders;
 
@@ -16,9 +17,116 @@ public static class SystemSeeder
             new(2, "阶段0多租户: System 2张租户表(SYS反馈动态/SYS反馈卡片)加 F租户ID 隔离键列(NOT NULL DEFAULT 0,不启用过滤器)+租户索引 (2026-07-01)", MigrateV2),
             new(3, "阶段0多租户: System 存量行 F租户ID 回填到根组织单租户(=根组织id) (2026-07-01)", MigrateV3),
             new(4, "阶段1收尾(裁定): SYS编码序列(编号序列按租户隔离) 加 F租户ID 列+索引+回填根组织单租户 (2026-07-02)", MigrateV4),
+            new(5, "阶段2A(M4): SYS组织架构 加组织模型列(F租户ID/F组织类别/F父类别/F所属网点公司ID/F范围根ID/F范围根类型/F路径/F版本号) + SYS组织类型 加 F组织类别 + 索引 (2026-07-02)", MigrateV5),
+            new(6, "阶段2A(M4): SYS组织类型 F组织类别 按 typeCode 映射 + SYS组织架构 F组织类别 派生回填 (2026-07-02)", MigrateV6),
+            new(7, "阶段2A(M4): 物化 F租户ID/F父类别/F所属网点公司ID/F范围根/F路径 + 构建 SYS组织闭包(应用层重建) (2026-07-02)", MigrateV7),
+            new(8, "阶段2A(M4): 合法树 + 组织类别域 + 范围根类型 DB CHECK 约束(回填/物化后) (2026-07-02)", MigrateV8),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
+
+    /// <summary>阶段2A·加列+索引：给 SYS组织架构 加 M4 组织模型列 + SYS组织类型 加 F组织类别。
+    /// 幂等(IF NOT EXISTS)；列定义与模型(SysOrganizationConfiguration/SysOrgTypeConfiguration)一致，避免 dev(SchemaAutoSync)/prod 漂移。
+    /// SYS组织闭包 是新 EF 表，由 CreateMissingTables/CreateRelationalArtifacts 在种子前建表+索引，无需本步显式 CREATE。</summary>
+    private static void MigrateV5(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // 每列一段独立 ExecSql（加列后同批 UPDATE 会因延迟名称解析失败，回填在 V6/V7 另起步骤）
+        AddColumnIfMissing(ctx, "SYS组织架构", "F租户ID", "bigint NOT NULL CONSTRAINT [DF_SYS组织架构_F租户ID] DEFAULT 0");
+        AddColumnIfMissing(ctx, "SYS组织架构", "F组织类别", "int NOT NULL CONSTRAINT [DF_SYS组织架构_F组织类别] DEFAULT 4");
+        AddColumnIfMissing(ctx, "SYS组织架构", "F父类别", "int NULL");
+        AddColumnIfMissing(ctx, "SYS组织架构", "F所属网点公司ID", "bigint NULL");
+        AddColumnIfMissing(ctx, "SYS组织架构", "F范围根ID", "bigint NOT NULL CONSTRAINT [DF_SYS组织架构_F范围根ID] DEFAULT 0");
+        AddColumnIfMissing(ctx, "SYS组织架构", "F范围根类型", "int NOT NULL CONSTRAINT [DF_SYS组织架构_F范围根类型] DEFAULT 1");
+        AddColumnIfMissing(ctx, "SYS组织架构", "F路径", "nvarchar(400) NULL");
+        AddColumnIfMissing(ctx, "SYS组织架构", "F版本号", "rowversion");
+
+        AddColumnIfMissing(ctx, "SYS组织类型", "F组织类别", "int NOT NULL CONSTRAINT [DF_SYS组织类型_F组织类别] DEFAULT 4");
+
+        CreateIndexIfMissing(ctx, "SYS组织架构", "IX_SYS组织架构_租户ID", "[F租户ID]");
+        CreateIndexIfMissing(ctx, "SYS组织架构", "IX_SYS组织架构_组织类别", "[F组织类别]");
+        CreateIndexIfMissing(ctx, "SYS组织架构", "IX_SYS组织架构_父ID", "[F父ID]");
+        CreateIndexIfMissing(ctx, "SYS组织架构", "IX_SYS组织架构_范围根ID", "[F范围根ID]");
+    }
+
+    /// <summary>阶段2A·类别回填：SYS组织类型 F组织类别 按 typeCode 映射（GROUP→0/SUBSIDIARY→1/CENTER→3/BRANCH→2/DEPT→4/TEAM→5/NETWORK_POINT→2/其余→4）；
+    /// SYS组织架构 F组织类别 = 所属类型的 F组织类别（保守映射，与 P0 实测吻合：MDSTO→集团、3子公司→区域公司、4个type7→网点公司、其余→部门）。幂等。</summary>
+    private static void MigrateV6(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+        UPDATE [SYS组织类型] SET [F组织类别] =
+            CASE [F编码]
+                WHEN 'GROUP' THEN 0
+                WHEN 'SUBSIDIARY' THEN 1
+                WHEN 'CENTER' THEN 3
+                WHEN 'BRANCH' THEN 2
+                WHEN 'DEPT' THEN 4
+                WHEN 'TEAM' THEN 5
+                WHEN 'NETWORK_POINT' THEN 2
+                WHEN 'FRANCHISE_AREA' THEN 4
+                WHEN 'LAST_MILE_STATION' THEN 4
+                ELSE [F组织类别]
+            END;");
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+        UPDATE o SET o.[F组织类别] = t.[F组织类别]
+        FROM [SYS组织架构] o
+        JOIN [SYS组织类型] t ON o.[F类型ID] = t.[FID];");
+    }
+
+    /// <summary>阶段2A·物化：从邻接树派生 F租户ID/F父类别/F所属网点公司ID/F范围根ID/类型/F路径 + 重建 SYS组织闭包。
+    /// 应用层重建(OrgTreeMaterializer)：树小(~320节点)，在迁移步内一次全量重算，避免手写递归 CTE。须在 V6(F组织类别 已回填) 之后。</summary>
+    private static void MigrateV7(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        OrgTreeMaterializer.RebuildAll(ctx);
+    }
+
+    /// <summary>阶段2A·DB CHECK（须在 V6/V7 回填物化之后——给已填充表加 CHECK 会同步全表校验；现有数据在保守映射+放宽合法树下全部满足）：
+    /// 组织类别域(0-5)、范围根类型域(1-4)、合法父子(靠物化 F父类别 行内判定，含放宽的 部门→部门；根 F父ID=0 时类别∈{集团,区域公司,网点公司})。</summary>
+    private static void MigrateV8(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        AddCheckIfMissing(ctx, "SYS组织架构", "CK_SYS组织架构_组织类别域",
+            "[F组织类别] BETWEEN 0 AND 5");
+
+        AddCheckIfMissing(ctx, "SYS组织架构", "CK_SYS组织架构_范围根类型域",
+            "[F范围根类型] BETWEEN 1 AND 4");
+
+        // 合法父子（父类别→子类别 合法对；根 F父ID=0 → 类别∈{0集团,1区域公司,2网点公司}）
+        AddCheckIfMissing(ctx, "SYS组织架构", "CK_SYS组织架构_合法父子", @"
+            ([F父ID] = 0 AND [F组织类别] IN (0,1,2))
+            OR ([F父ID] <> 0 AND [F父类别] IS NOT NULL AND (
+                   ([F父类别] = 0 AND [F组织类别] IN (1,3,4))
+                OR ([F父类别] = 1 AND [F组织类别] IN (2,3,4))
+                OR ([F父类别] = 3 AND [F组织类别] IN (2,4))
+                OR ([F父类别] = 2 AND [F组织类别] IN (4))
+                OR ([F父类别] = 4 AND [F组织类别] IN (4,5))
+            ))");
+    }
+
+    // ===== 阶段2A 迁移辅助（幂等 DDL）=====
+    private static void AddColumnIfMissing(STOTOPDbContext ctx, string table, string column, string definition)
+        => SeederHelper.ExecuteRawSql(ctx, $@"
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = N'{table}' AND COLUMN_NAME = N'{column}')
+        ALTER TABLE [{table}] ADD [{column}] {definition};");
+
+    private static void CreateIndexIfMissing(STOTOPDbContext ctx, string table, string indexName, string columns)
+        => SeederHelper.ExecuteRawSql(ctx, $@"
+        IF NOT EXISTS (SELECT * FROM sys.indexes
+            WHERE name = N'{indexName}' AND object_id = OBJECT_ID(N'{table}'))
+        CREATE INDEX [{indexName}] ON [{table}] ({columns});");
+
+    private static void AddCheckIfMissing(STOTOPDbContext ctx, string table, string constraintName, string checkExpr)
+        => SeederHelper.ExecuteRawSql(ctx, $@"
+        IF NOT EXISTS (SELECT * FROM sys.check_constraints
+            WHERE name = N'{constraintName}' AND parent_object_id = OBJECT_ID(N'{table}'))
+        ALTER TABLE [{table}] ADD CONSTRAINT [{constraintName}] CHECK ({checkExpr});");
 
     /// <summary>阶段0 多租户隔离：需加 F租户ID 的 2 张租户表（反馈中心，全覆盖，见 design/24-tenant-migration-playbook.md）。</summary>
     private static readonly string[] Phase0TenantTables =

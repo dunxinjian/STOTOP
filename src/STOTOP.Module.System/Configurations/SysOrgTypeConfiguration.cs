@@ -30,6 +30,10 @@ public class SysOrgTypeConfiguration : IEntityTypeConfiguration<SysOrgType>
             .HasColumnName("F层级")
             .IsRequired();
 
+        builder.Property(e => e.FKind)
+            .HasColumnName("F组织类别")
+            .HasDefaultValue((int)Entities.OrgKind.Dept);
+
         builder.Property(e => e.FCanBindAccountSet)
             .HasColumnName("F可关联账套")
             .HasDefaultValue(false);
