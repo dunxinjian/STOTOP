@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using STOTOP.Core.Models;
 using STOTOP.Core.Services;
@@ -74,11 +75,14 @@ public class OrgContextMiddleware
 
         if (!string.IsNullOrEmpty(orgContextHeader) && long.TryParse(orgContextHeader, out var orgId))
         {
-            // admin 用户跳过组织归属验证，直接设置
+            // admin 用户跳过组织归属验证，直接设置。
+            // M7 硬化：admin 保持"租户内"——仅采信组织覆盖，租户硬墙仍作用、【不】进平台作用域（避免越权跨租户）；
+            // 但此覆盖属高权旁路，对变更类请求写审计以可追溯（best-effort，见下方助手）。
             var adminService = context.RequestServices.GetRequiredService<IAdminAuthorizationService>();
             if (adminService.IsAdmin(context.User))
             {
                 context.Items["CurrentOrgId"] = orgId;
+                await AuditAdminOrgOverrideBestEffortAsync(context, userId, orgId);
                 await _next(context);
                 return;
             }
@@ -146,5 +150,41 @@ public class OrgContextMiddleware
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// best-effort 记录 admin 组织覆盖审计：仅对变更类方法（POST/PUT/DELETE/PATCH）记录以压噪（GET 浏览不写）；
+    /// 受 <c>Security:AuditPlatformBypass</c> 开关控制（默认开）；任何异常吞掉、绝不影响 admin 请求。
+    /// </summary>
+    private static async Task AuditAdminOrgOverrideBestEffortAsync(HttpContext context, long userId, long orgId)
+    {
+        var method = context.Request.Method;
+        if (!HttpMethods.IsPost(method) && !HttpMethods.IsPut(method)
+            && !HttpMethods.IsDelete(method) && !HttpMethods.IsPatch(method))
+            return;
+
+        var config = context.RequestServices.GetService<IConfiguration>();
+        if (config?.GetValue<bool?>("Security:AuditPlatformBypass") == false)
+            return;
+
+        try
+        {
+            var audit = context.RequestServices.GetRequiredService<ISecurityAuditService>();
+            var account = context.User.FindFirst(ClaimTypes.Name)?.Value
+                       ?? context.User.FindFirst("userName")?.Value;
+            var extra = JsonSerializer.Serialize(
+                new { orgId, method, path = context.Request.Path.Value }, CamelCaseOptions);
+            await audit.LogEvent(
+                userId: userId,
+                account: account,
+                eventType: "AdminOrgOverride",
+                eventResult: "Success",
+                ipAddress: context.Connection.RemoteIpAddress?.ToString(),
+                extraData: extra);
+        }
+        catch
+        {
+            // best-effort：审计失败不影响 admin 请求（如审计表/连接不可用）。
+        }
     }
 }

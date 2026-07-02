@@ -30,6 +30,8 @@ public static class SystemModuleExtensions
         // 安全与会话管理服务
         services.AddScoped<SecurityConfigService>();
         services.AddScoped<SecurityAuditService>();
+        // 审计写入接口 → 复用同一 SecurityAuditService 实例（供平台旁路审计以抽象依赖、可测）。
+        services.AddScoped<ISecurityAuditService>(sp => sp.GetRequiredService<SecurityAuditService>());
         services.AddScoped<SessionService>();
 
         services.AddScoped<IThemeSettingService, ThemeSettingService>();

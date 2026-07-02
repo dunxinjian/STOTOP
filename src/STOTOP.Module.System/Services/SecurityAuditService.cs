@@ -5,7 +5,7 @@ using STOTOP.Module.System.Entities;
 
 namespace STOTOP.Module.System.Services;
 
-public class SecurityAuditService
+public class SecurityAuditService : ISecurityAuditService
 {
     private readonly IConfiguration _configuration;
 

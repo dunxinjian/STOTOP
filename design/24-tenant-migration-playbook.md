@@ -313,6 +313,21 @@ private void FillTenantIdForNewEntities() {
 3. **ambiguous 待裁决**：`CfNumberSequence`/`SysCodeSequence`(序列是否按租户重置)、`ExpLastMileStation`(合作驿站无组织→租户映射)、`FinAccountTemplate`(预置+自建混合，推迟阶段4)——在门禁白名单挂起。
 4. **只读后台 Job 无上下文读空**：`WorkItemTimeoutJob`/`PushRetryJob` 等未走 9ca8184 设租户，fail-closed 下读空集(单客户期功能退化非安全洞)；随多客户上线用 `IPlatformScopeFactory` 或按 Job 目标租户设上下文。
 
+> **遗留清单进度（截至 2026-07-02）**：② STG 37 表 + Finance 账套传递族 已全覆盖补标（分支 `feat/tenant-isolation-stage1-coverage`，`CardFlowSeeder V62`/`FinanceSeeder V15`）；③ ambiguous 已逐项裁定（`CfNumberSequence`/`SysCodeSequence`/`HrEmployee`/`ExpAgent`/`ExpLastMileStation` 挂租户，配置/字典/注册表入白名单，`FinAccountTemplate` 推迟阶段4；`SystemSeeder V4`/`ExpressSeeder V21`/新建 `HrSeeder`）；④ 12 个破损后台 Job 已修（分支 `feat/tenant-isolation-stage1-followup`，非 HTTP 入口设根租户 + `HttpOrgContextAccessor` override 转静态 `AsyncLocal` 穿透子作用域）。
+
+#### 阶段1 M7 as-built（admin 平台旁路【审计优先】硬化 · 2026-07-02 · 分支 `feat/tenant-isolation-stage1-m7`）
+
+M7 收敛为**审计优先硬化**（经用户裁定两条口径）：
+- **`FIsPlatformAdmin` 平台身份模型 + 钉钉 `DingTalkAuthController` token 签 `OA_ADMIN` 口径统一 → 推迟阶段4**。二者真正价值是"平台超管 vs 租户管理员"分离（多客户 SaaS 才需要）+ 属授权授予类变更；现 admin 身份 `OA_ADMIN` claim + `F角色ID=1` 已可用。
+- **admin 保持"租户内"**：租户硬墙仍作用于 admin；admin 组织切换只采信组织、**不**进平台作用域（进则越权跨租户，与 design/23 独立平台层冲突）。`IPlatformScopeFactory` 只留给真·平台跨租户操作（现 = 启动/种子/CLI 三入口）。
+
+本轮已实施（零 schema / 零权限 / 零隔离边界变更，只加审计 + 门禁）：
+- **平台作用域审计**：`PlatformScopeFactory.Enter` 写 `PlatformScopeEnter` 安全审计（`reason`→`FExtraData`），复用 `SecurityAuditService`（Dapper 直插、绕 EF 过滤器，启动期亦可写）；抽 `ISecurityAuditService` 接口以可测。**best-effort**：审计失败（如全新库首启审计表未建）仅 `LogWarning`、绝不中断平台操作。
+- **admin 组织覆盖审计**：`OrgContextMiddleware` admin 传 `X-Org-Context` 覆盖组织归属处，对**变更类方法**(POST/PUT/DELETE/PATCH)写 `AdminOrgOverride` 审计（GET 压噪不写）；行为保持不变（仅设 `CurrentOrgId`、不进平台作用域）。
+- **灰度开关**：`Security:AuditPlatformBypass`（默认开）可不重发布关闭两处审计。
+- **门禁**：`PlatformBypassAuditTests`（7 用例）——平台作用域进入/恢复 + 审计事件 + best-effort 不阻断 + 灰度关；**admin 组织覆盖 `_next` 期间读 `IsPlatformScope==false`** 锁死"admin 保持租户内"决策（防将来误把 admin 包进 `Enter`）+ 审计写/GET 压噪/抛异常放行。System.Tests 16/16 绿。
+- **保留类旁路不改**（已认可平台身份合法旁路且租户硬墙兜底）：`RequirePermissionAttribute`/`RequireAccountSetPermissionAttribute`/`HangfireDashboardAuthorizationFilter`/`AuthService` 登录期全量权限·菜单/启动期 `IgnoreQueryFilters` 身份查找/`DatabaseService.GenerateSetupToken`。`CardService.GetByIdAsync` 的 `canViewAll` 未被查询链消费（潜在功能缺陷）记独立 follow-up（属扩权、非本轮硬化）。
+
 ### 阶段2（组织模型重建）— M3+M4+M5
 
 | M | 现状锚点 | 动作 |
