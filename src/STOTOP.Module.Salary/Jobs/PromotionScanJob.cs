@@ -1,6 +1,7 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Infrastructure.Events;
 using STOTOP.Module.Salary.Entities;
@@ -25,15 +26,21 @@ public class PromotionScanJob
     private readonly STOTOPDbContext _db;
     private readonly ILogger<PromotionScanJob> _logger;
     private readonly IEventDispatcher _eventDispatcher;
+    private readonly IOrgContextAccessor _orgContext;
+    private readonly ITenantResolver _tenantResolver;
 
     public PromotionScanJob(
         STOTOPDbContext db,
         ILogger<PromotionScanJob> logger,
-        IEventDispatcher eventDispatcher)
+        IEventDispatcher eventDispatcher,
+        IOrgContextAccessor orgContext,
+        ITenantResolver tenantResolver)
     {
         _db = db;
         _logger = logger;
         _eventDispatcher = eventDispatcher;
+        _orgContext = orgContext;
+        _tenantResolver = tenantResolver;
     }
 
     /// <summary>
@@ -42,6 +49,9 @@ public class PromotionScanJob
     /// <param name="specificEmployeeId">仅扫描指定员工（手动触发场景），不传则全量</param>
     public async Task Execute(long? specificEmployeeId = null)
     {
+        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
+        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
+
         _logger.LogInformation("PromotionScanJob 启动 | specificEmployee={Employee}",
             specificEmployeeId?.ToString() ?? "<all>");
 

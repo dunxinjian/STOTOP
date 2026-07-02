@@ -2,6 +2,7 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using STOTOP.Core.Interfaces;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Events;
 using STOTOP.Module.Contract.Entities;
 using STOTOP.Module.Contract.Events;
@@ -19,6 +20,8 @@ public class ContractExpiryReminderJob
     private readonly IRepository<ConContract> _contractRepo;
     private readonly IRepository<ConContractReminder> _reminderRepo;
     private readonly IEventDispatcher _eventDispatcher;
+    private readonly IOrgContextAccessor _orgContext;
+    private readonly ITenantResolver _tenantResolver;
     private readonly ILogger<ContractExpiryReminderJob> _logger;
 
     /// <summary>
@@ -41,11 +44,15 @@ public class ContractExpiryReminderJob
         IRepository<ConContract> contractRepo,
         IRepository<ConContractReminder> reminderRepo,
         IEventDispatcher eventDispatcher,
+        IOrgContextAccessor orgContext,
+        ITenantResolver tenantResolver,
         ILogger<ContractExpiryReminderJob> logger)
     {
         _contractRepo = contractRepo;
         _reminderRepo = reminderRepo;
         _eventDispatcher = eventDispatcher;
+        _orgContext = orgContext;
+        _tenantResolver = tenantResolver;
         _logger = logger;
     }
 
@@ -54,6 +61,9 @@ public class ContractExpiryReminderJob
     /// </summary>
     public async Task ExecuteAsync()
     {
+        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
+        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
+
         _logger.LogInformation("合同到期提醒Job开始执行...");
 
         try

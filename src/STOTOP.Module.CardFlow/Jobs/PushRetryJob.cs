@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.CardFlow.Entities;
 using STOTOP.Module.CardFlow.Services.Interfaces;
@@ -12,20 +13,29 @@ public class PushRetryJob
 
     private readonly STOTOPDbContext _dbContext;
     private readonly INotificationDispatcher _notificationDispatcher;
+    private readonly IOrgContextAccessor _orgContextAccessor;
+    private readonly ITenantResolver _tenantResolver;
     private readonly ILogger<PushRetryJob> _logger;
 
     public PushRetryJob(
         STOTOPDbContext dbContext,
         INotificationDispatcher notificationDispatcher,
+        IOrgContextAccessor orgContextAccessor,
+        ITenantResolver tenantResolver,
         ILogger<PushRetryJob> logger)
     {
         _dbContext = dbContext;
         _notificationDispatcher = notificationDispatcher;
+        _orgContextAccessor = orgContextAccessor;
+        _tenantResolver = tenantResolver;
         _logger = logger;
     }
 
     public async Task ExecuteAsync()
     {
+        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
+        _orgContextAccessor.CurrentTenantId = _tenantResolver.GetRootTenantId();
+
         _logger.LogInformation("CardFlow 推送失败重试任务开始");
 
         try

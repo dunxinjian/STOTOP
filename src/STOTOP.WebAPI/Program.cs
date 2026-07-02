@@ -298,7 +298,9 @@ builder.Services.AddCors(options =>
 builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
 
 // Event Dispatcher
-builder.Services.AddSingleton<IEventDispatcher, InProcessEventDispatcher>();
+// Scoped（非 Singleton）：InProcessEventDispatcher 需注入当前作用域 IOrgContextAccessor 传播租户上下文至处理器子作用域。
+// 已核无单例消费者（消费方均为 Scoped 服务/Hangfire 任务），改 Scoped 无 captive dependency。
+builder.Services.AddScoped<IEventDispatcher, InProcessEventDispatcher>();
 
 // Database Seeder
 builder.Services.AddSingleton<IDatabaseSeeder, DatabaseMigrator>();

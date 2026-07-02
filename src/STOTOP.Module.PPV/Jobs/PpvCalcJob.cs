@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using STOTOP.Core.Contracts.Hr;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Infrastructure.Events;
 using STOTOP.Module.PPV.Entities;
@@ -33,17 +34,23 @@ public class PpvCalcJob
     private readonly ILogger<PpvCalcJob> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly IEventDispatcher _eventDispatcher;
+    private readonly IOrgContextAccessor _orgContext;
+    private readonly ITenantResolver _tenantResolver;
 
     public PpvCalcJob(
         STOTOPDbContext db,
         ILogger<PpvCalcJob> logger,
         IServiceProvider serviceProvider,
-        IEventDispatcher eventDispatcher)
+        IEventDispatcher eventDispatcher,
+        IOrgContextAccessor orgContext,
+        ITenantResolver tenantResolver)
     {
         _db = db;
         _logger = logger;
         _serviceProvider = serviceProvider;
         _eventDispatcher = eventDispatcher;
+        _orgContext = orgContext;
+        _tenantResolver = tenantResolver;
     }
 
     /// <summary>
@@ -53,6 +60,9 @@ public class PpvCalcJob
     /// <param name="specificEmployeeId">仅核算指定员工（手动重跑场景），不传则全量</param>
     public async Task Execute(string? period = null, long? specificEmployeeId = null)
     {
+        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读 ITenantScoped 不空、写回填 FTenantId）。
+        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
+
         period ??= DateTime.Now.AddMonths(-1).ToString("yyyyMM");
         var periodEndDate = GetPeriodEndDate(period);
 

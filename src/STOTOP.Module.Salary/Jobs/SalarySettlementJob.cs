@@ -1,6 +1,7 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.KSF.Entities;
 using STOTOP.Module.PPV.Entities;
@@ -26,15 +27,21 @@ public class SalarySettlementJob
     private readonly STOTOPDbContext _db;
     private readonly ILogger<SalarySettlementJob> _logger;
     private readonly ISalaryConfigService _configService;
+    private readonly IOrgContextAccessor _orgContext;
+    private readonly ITenantResolver _tenantResolver;
 
     public SalarySettlementJob(
         STOTOPDbContext db,
         ILogger<SalarySettlementJob> logger,
-        ISalaryConfigService configService)
+        ISalaryConfigService configService,
+        IOrgContextAccessor orgContext,
+        ITenantResolver tenantResolver)
     {
         _db = db;
         _logger = logger;
         _configService = configService;
+        _orgContext = orgContext;
+        _tenantResolver = tenantResolver;
     }
 
     /// <summary>
@@ -44,6 +51,9 @@ public class SalarySettlementJob
     /// <param name="specificEmployeeId">仅结算指定员工（手动重跑场景），不传则全量</param>
     public async Task Execute(string? period = null, long? specificEmployeeId = null)
     {
+        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
+        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
+
         period ??= DateTime.Now.AddMonths(-1).ToString("yyyyMM");
 
         _logger.LogInformation("SalarySettlementJob 启动 | period={Period} | specificEmployee={Employee}",

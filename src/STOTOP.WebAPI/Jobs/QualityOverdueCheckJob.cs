@@ -1,6 +1,7 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.CardFlow.Entities;
 using STOTOP.Module.Workflow.Entities;
@@ -13,18 +14,27 @@ namespace STOTOP.WebAPI.Jobs;
 public class QualityOverdueCheckJob
 {
     private readonly STOTOPDbContext _context;
+    private readonly IOrgContextAccessor _orgContext;
+    private readonly ITenantResolver _tenantResolver;
     private readonly ILogger<QualityOverdueCheckJob> _logger;
 
     public QualityOverdueCheckJob(
         STOTOPDbContext context,
+        IOrgContextAccessor orgContext,
+        ITenantResolver tenantResolver,
         ILogger<QualityOverdueCheckJob> logger)
     {
         _context = context;
+        _orgContext = orgContext;
+        _tenantResolver = tenantResolver;
         _logger = logger;
     }
 
     public async Task ExecuteAsync()
     {
+        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
+        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
+
         _logger.LogInformation("开始执行质量问题超时检查...");
         try
         {

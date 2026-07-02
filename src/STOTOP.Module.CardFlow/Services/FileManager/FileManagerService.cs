@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Core.Models;
+using STOTOP.Core.Services;
 using STOTOP.Module.CardFlow.Dtos;
 using STOTOP.Module.CardFlow.Entities;
 
@@ -14,16 +15,20 @@ public class FileManagerService
     private readonly STOTOPDbContext _context;
     private readonly IConfiguration _configuration;
     private readonly ILogger<FileManagerService> _logger;
+    private readonly IOrgContextAccessor _orgContext;
+    private readonly ITenantResolver _tenantResolver;
 
     private const string UploadBaseDir = "uploads/datacenter";
 
 
 
-    public FileManagerService(STOTOPDbContext context, IConfiguration configuration, ILogger<FileManagerService> logger)
+    public FileManagerService(STOTOPDbContext context, IConfiguration configuration, ILogger<FileManagerService> logger, IOrgContextAccessor orgContext, ITenantResolver tenantResolver)
     {
         _context = context;
         _configuration = configuration;
         _logger = logger;
+        _orgContext = orgContext;
+        _tenantResolver = tenantResolver;
     }
 
     /// <summary>分页查询服务器上传文件列表</summary>
@@ -312,6 +317,9 @@ public class FileManagerService
     /// <summary>按指定策略执行清理（Hangfire 调用入口）</summary>
     public async Task<CleanupResultDto> ExecuteCleanupByPolicyAsync(long policyId, CancellationToken ct)
     {
+        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
+        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
+
         var policy = await _context.Set<CfFileCleanupPolicy>()
             .FirstOrDefaultAsync(p => p.FID == policyId, ct);
 

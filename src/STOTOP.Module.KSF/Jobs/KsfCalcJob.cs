@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using STOTOP.Core.Contracts.Hr;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Infrastructure.Events;
 using STOTOP.Module.KSF.Entities;
@@ -36,6 +37,8 @@ public class KsfCalcJob
     private readonly IEmployeeOrgQueryService _employeeOrgService;
     private readonly IEventDispatcher _eventDispatcher;
     private readonly IServiceProvider _serviceProvider;
+    private readonly IOrgContextAccessor _orgContext;
+    private readonly ITenantResolver _tenantResolver;
     private readonly ILogger<KsfCalcJob> _logger;
 
     /// <summary>运行上下文缓存（指标取数结果，跨员工复用），仅在单次 Job 运行内有效。</summary>
@@ -46,12 +49,16 @@ public class KsfCalcJob
         IEmployeeOrgQueryService employeeOrgService,
         IEventDispatcher eventDispatcher,
         IServiceProvider serviceProvider,
+        IOrgContextAccessor orgContext,
+        ITenantResolver tenantResolver,
         ILogger<KsfCalcJob> logger)
     {
         _db = db;
         _employeeOrgService = employeeOrgService;
         _eventDispatcher = eventDispatcher;
         _serviceProvider = serviceProvider;
+        _orgContext = orgContext;
+        _tenantResolver = tenantResolver;
         _logger = logger;
     }
 
@@ -64,6 +71,9 @@ public class KsfCalcJob
     [AutomaticRetry(Attempts = 0)]
     public async Task ExecuteAsync(string? period = null, long? specificEmployeeId = null)
     {
+        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
+        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
+
         period ??= DateTime.Now.AddMonths(-1).ToString("yyyyMM");
         var periodEndDate = GetPeriodEndDate(period);
 

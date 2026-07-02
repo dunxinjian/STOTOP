@@ -3,6 +3,7 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Infrastructure.Events;
 using STOTOP.Module.Salary.Entities;
@@ -30,19 +31,25 @@ public class BScoreResetJob
     private readonly IServiceProvider _serviceProvider;
     private readonly IEventDispatcher _eventDispatcher;
     private readonly ISalaryConfigService _configService;
+    private readonly IOrgContextAccessor _orgContext;
+    private readonly ITenantResolver _tenantResolver;
 
     public BScoreResetJob(
         STOTOPDbContext db,
         ILogger<BScoreResetJob> logger,
         IServiceProvider serviceProvider,
         IEventDispatcher eventDispatcher,
-        ISalaryConfigService configService)
+        ISalaryConfigService configService,
+        IOrgContextAccessor orgContext,
+        ITenantResolver tenantResolver)
     {
         _db = db;
         _logger = logger;
         _serviceProvider = serviceProvider;
         _eventDispatcher = eventDispatcher;
         _configService = configService;
+        _orgContext = orgContext;
+        _tenantResolver = tenantResolver;
     }
 
     /// <summary>
@@ -52,6 +59,9 @@ public class BScoreResetJob
     /// <param name="specificEmployeeId">仅处理指定员工（手动重跑场景），不传则全量</param>
     public async Task Execute(string? period = null, long? specificEmployeeId = null)
     {
+        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
+        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
+
         period ??= DateTime.Now.AddMonths(-1).ToString("yyyyMM");
 
         _logger.LogInformation("BScoreResetJob 启动 | period={Period} | specificEmployee={Employee}",
@@ -151,6 +161,11 @@ public class BScoreResetJob
             throw new InvalidOperationException("无法加载 IPointService 类型，Module.Points 可能未部署");
 
         using var scope = _serviceProvider.CreateScope();
+        // 内层 scope 有独立的 IOrgContextAccessor（CurrentTenantId=null），DeductAsync 读/写 PmPointRecord(ITenantScoped)
+        // 会撞 fail-closed 硬墙——须在内层 scope 同样设根租户上下文（外层设置不跨 scope 传播）。
+        var innerOrgContext = scope.ServiceProvider.GetService<IOrgContextAccessor>();
+        if (innerOrgContext != null)
+            innerOrgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
         var pointService = scope.ServiceProvider.GetService(pointServiceType);
         if (pointService == null)
             throw new InvalidOperationException("IPointService 未在 DI 容器中注册");

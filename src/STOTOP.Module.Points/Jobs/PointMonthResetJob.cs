@@ -2,6 +2,7 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using STOTOP.Core.Models;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Infrastructure.Events;
 using STOTOP.Module.Points.Constants;
@@ -35,22 +36,31 @@ public class PointMonthResetJob
     private readonly STOTOPDbContext _db;
     private readonly IPointService _pointService;
     private readonly IEventDispatcher _eventDispatcher;
+    private readonly IOrgContextAccessor _orgContext;
+    private readonly ITenantResolver _tenantResolver;
     private readonly ILogger<PointMonthResetJob> _logger;
 
     public PointMonthResetJob(
         STOTOPDbContext db,
         IPointService pointService,
         IEventDispatcher eventDispatcher,
+        IOrgContextAccessor orgContext,
+        ITenantResolver tenantResolver,
         ILogger<PointMonthResetJob> logger)
     {
         _db = db;
         _pointService = pointService;
         _eventDispatcher = eventDispatcher;
+        _orgContext = orgContext;
+        _tenantResolver = tenantResolver;
         _logger = logger;
     }
 
     public async global::System.Threading.Tasks.Task ExecuteAsync()
     {
+        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
+        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
+
         // 计算上月最后一日 23:59:59.999 作为半开区间右端点
         var now = DateTime.Now;
         var thisMonthFirst = new DateTime(now.Year, now.Month, 1);
