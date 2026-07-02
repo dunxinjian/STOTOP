@@ -193,6 +193,8 @@ public class DatabaseMigrator : IDatabaseSeeder
             ("Contract", ctx2 => ContractSeeder.Migrate(ctx2)),
             ("Vehicle", ctx2 => VehicleSeeder.Migrate(ctx2)),
             ("Supplier", ctx2 => SupplierSeeder.Migrate(ctx2)),
+            // 阶段1收尾：HR 首次纳入租户隔离（用户裁定员工按租户），新建 HrSeeder 落 HR员工 的 F租户ID 加列+回填。非 critical。
+            ("HR", ctx2 => HrSeeder.Migrate(ctx2)),
         };
 
         IServiceScope? replacementScope = null;

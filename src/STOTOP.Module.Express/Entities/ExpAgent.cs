@@ -1,10 +1,14 @@
+using STOTOP.Core.Models;
+
 namespace STOTOP.Module.Express.Entities;
 
 /// <summary>
 /// 业务代理（主键为 F编号，不继承 BaseEntity）
 /// </summary>
-public class ExpAgent
+public class ExpAgent : ITenantScoped
 {
+    /// <summary>租户ID（区域公司，多租户隔离键）</summary>
+    public long FTenantId { get; set; }
     /// <summary>编号（主键）</summary>
     public string FCode { get; set; } = string.Empty;
     /// <summary>名称</summary>

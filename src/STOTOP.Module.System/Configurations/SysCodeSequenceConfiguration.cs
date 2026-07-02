@@ -11,6 +11,7 @@ public class SysCodeSequenceConfiguration : IEntityTypeConfiguration<SysCodeSequ
         builder.ToTable("SYS编码序列");
 
         builder.Property(e => e.FID).HasColumnName("FID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FRuleId).HasColumnName("F规则ID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
         builder.Property(e => e.FPeriodKey).HasColumnName("F周期标识").HasMaxLength(20).IsRequired().HasDefaultValue("");
@@ -18,6 +19,7 @@ public class SysCodeSequenceConfiguration : IEntityTypeConfiguration<SysCodeSequ
         builder.Property(e => e.FUpdateTime).HasColumnName("F修改时间").HasDefaultValueSql("GETDATE()");
 
         builder.HasIndex(e => new { e.FRuleId, e.FOrgId, e.FPeriodKey }).IsUnique();
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_SYS编码序列_租户ID");
 
         builder.HasOne(e => e.Rule)
             .WithMany(r => r.Sequences)

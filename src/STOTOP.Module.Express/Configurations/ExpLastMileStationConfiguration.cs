@@ -12,6 +12,7 @@ public class ExpLastMileStationConfiguration : IEntityTypeConfiguration<ExpLastM
 
         builder.HasKey(e => e.FCode);
         builder.Property(e => e.FCode).HasColumnName("F编号").HasMaxLength(50);
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FStationType).HasColumnName("F类型").HasDefaultValue(1);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
         builder.Property(e => e.FName).HasColumnName("F名称").HasMaxLength(100);
@@ -31,6 +32,7 @@ public class ExpLastMileStationConfiguration : IEntityTypeConfiguration<ExpLastM
         builder.HasIndex(e => e.FOrgId).IsUnique()
             .HasDatabaseName("IX_EXP末端驿站_F组织ID")
             .HasFilter("[F组织ID] IS NOT NULL");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_EXP末端驿站_租户ID");
 
         builder.HasOne(e => e.Organization)
             .WithMany()

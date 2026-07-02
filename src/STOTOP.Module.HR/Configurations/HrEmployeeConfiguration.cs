@@ -11,6 +11,7 @@ public class HrEmployeeConfiguration : IEntityTypeConfiguration<HrEmployee>
         builder.ToTable("HR员工");
 
         builder.Property(e => e.FID).HasColumnName("FID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FUID).HasColumnName("FUID").HasMaxLength(64).IsRequired();
         builder.Property(e => e.FUserId).HasColumnName("F用户ID");
         builder.Property(e => e.FName).HasColumnName("F姓名").HasMaxLength(50).IsRequired();
@@ -36,6 +37,7 @@ public class HrEmployeeConfiguration : IEntityTypeConfiguration<HrEmployee>
 
         builder.HasIndex(e => e.FUID).IsUnique();
         builder.HasIndex(e => e.FUserId).IsUnique();
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_HR员工_租户ID");
 
         builder.HasMany(e => e.PaymentAccounts)
             .WithOne(e => e.Employee)

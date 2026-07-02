@@ -11,6 +11,7 @@ public class CfNumberSequenceConfiguration : IEntityTypeConfiguration<CfNumberSe
         builder.ToTable("CF编号序号");
 
         builder.Property(e => e.FID).HasColumnName("FID");
+        builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
         builder.Property(e => e.FFlowDefinitionId).HasColumnName("F流程定义ID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
         builder.Property(e => e.FYear).HasColumnName("F年份");
@@ -21,5 +22,6 @@ public class CfNumberSequenceConfiguration : IEntityTypeConfiguration<CfNumberSe
         builder.HasIndex(e => new { e.FFlowDefinitionId, e.FOrgId, e.FYear })
             .IsUnique()
             .HasDatabaseName("IX_CF编号序号_唯一");
+        builder.HasIndex(e => e.FTenantId).HasDatabaseName("IX_CF编号序号_租户ID");
     }
 }

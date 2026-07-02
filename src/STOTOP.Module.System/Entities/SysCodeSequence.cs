@@ -2,8 +2,9 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.System.Entities;
 
-public class SysCodeSequence : BaseEntity
+public class SysCodeSequence : BaseEntity, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public long FRuleId { get; set; }
     public long? FOrgId { get; set; }
     public string FPeriodKey { get; set; } = string.Empty;

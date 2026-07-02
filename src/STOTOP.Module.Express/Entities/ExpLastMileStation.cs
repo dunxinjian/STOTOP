@@ -1,3 +1,4 @@
+using STOTOP.Core.Models;
 using STOTOP.Module.System.Entities;
 
 namespace STOTOP.Module.Express.Entities;
@@ -6,8 +7,10 @@ namespace STOTOP.Module.Express.Entities;
 /// 末端驿站（主键为 F编号，不继承 BaseEntity）
 /// 混合模式：直营=组织扩展，合作=独立实体
 /// </summary>
-public class ExpLastMileStation
+public class ExpLastMileStation : ITenantScoped
 {
+    /// <summary>租户ID（区域公司，多租户隔离键）</summary>
+    public long FTenantId { get; set; }
     /// <summary>编号（主键）</summary>
     public string FCode { get; set; } = string.Empty;
     /// <summary>类型 1=直营 2=合作</summary>

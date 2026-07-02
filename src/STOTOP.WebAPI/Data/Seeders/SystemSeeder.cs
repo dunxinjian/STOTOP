@@ -15,6 +15,7 @@ public static class SystemSeeder
             new(1, "数据库基线 (2026-05-26)", MigrateV1),
             new(2, "阶段0多租户: System 2张租户表(SYS反馈动态/SYS反馈卡片)加 F租户ID 隔离键列(NOT NULL DEFAULT 0,不启用过滤器)+租户索引 (2026-07-01)", MigrateV2),
             new(3, "阶段0多租户: System 存量行 F租户ID 回填到根组织单租户(=根组织id) (2026-07-01)", MigrateV3),
+            new(4, "阶段1收尾(裁定): SYS编码序列(编号序列按租户隔离) 加 F租户ID 列+索引+回填根组织单租户 (2026-07-02)", MigrateV4),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -67,6 +68,27 @@ public static class SystemSeeder
             IF @tenant IS NOT NULL
                 UPDATE [{t}] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
         }
+    }
+
+    /// <summary>阶段1收尾(用户裁定编号序列按租户隔离)：SYS编码序列 加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户。</summary>
+    private static void MigrateV4(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = N'SYS编码序列' AND COLUMN_NAME = N'F租户ID')
+        ALTER TABLE [SYS编码序列] ADD [F租户ID] bigint NOT NULL CONSTRAINT [DF_SYS编码序列_F租户ID] DEFAULT 0;");
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM sys.indexes
+            WHERE name = N'IX_SYS编码序列_租户ID' AND object_id = OBJECT_ID(N'SYS编码序列'))
+        CREATE INDEX [IX_SYS编码序列_租户ID] ON [SYS编码序列] ([F租户ID]);");
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+        DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+        IF @tenant IS NOT NULL
+            UPDATE [SYS编码序列] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
     }
 
     private static void MigrateV1(STOTOPDbContext ctx)

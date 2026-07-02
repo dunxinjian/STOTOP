@@ -35,6 +35,7 @@ public static class ExpressSeeder
             new(18, "回填城市加收矩阵缺失的省份ID (2026-06-12)", MigrateV18),
             new(19, "阶段0多租户: Express 31张租户表加 F租户ID 隔离键列(NOT NULL DEFAULT 0,不启用过滤器)+租户索引 (2026-07-01)", MigrateV19),
             new(20, "阶段0多租户: Express 存量行 F租户ID 回填到根组织单租户(=根组织id) (2026-07-01)", MigrateV20),
+            new(21, "阶段1收尾(裁定): EXP业务代理/EXP末端驿站(按租户隔离) 加 F租户ID 列+索引+回填根组织单租户 (2026-07-02)", MigrateV21),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -86,6 +87,38 @@ public static class ExpressSeeder
         if (!SeederHelper.IsSqlServer(ctx)) return;
 
         foreach (var t in Phase0TenantTables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+            IF @tenant IS NOT NULL
+                UPDATE [{t}] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
+        }
+    }
+
+    /// <summary>阶段1收尾(用户裁定业务代理/末端驿站按租户隔离)：EXP业务代理/EXP末端驿站 加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户。</summary>
+    private static void MigrateV21(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        string[] tables = { "EXP业务代理", "EXP末端驿站" };
+
+        foreach (var t in tables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = N'{t}' AND COLUMN_NAME = N'F租户ID')
+            ALTER TABLE [{t}] ADD [F租户ID] bigint NOT NULL CONSTRAINT [DF_{t}_F租户ID] DEFAULT 0;");
+        }
+
+        foreach (var t in tables)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            IF NOT EXISTS (SELECT * FROM sys.indexes
+                WHERE name = N'IX_{t}_租户ID' AND object_id = OBJECT_ID(N'{t}'))
+            CREATE INDEX [IX_{t}_租户ID] ON [{t}] ([F租户ID]);");
+        }
+
+        foreach (var t in tables)
         {
             SeederHelper.ExecuteRawSql(ctx, $@"
             DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);

@@ -2,8 +2,9 @@ using STOTOP.Core.Models;
 
 namespace STOTOP.Module.HR.Entities;
 
-public class HrEmployee : BaseEntity
+public class HrEmployee : BaseEntity, ITenantScoped
 {
+    public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）
     public string FUID { get; set; } = Guid.NewGuid().ToString("N");
     public long FUserId { get; set; }
     public string FName { get; set; } = string.Empty;

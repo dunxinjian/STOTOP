@@ -1,7 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using STOTOP.Core.Models;
-using STOTOP.Module.CardFlow.Entities;
-using STOTOP.Module.Express.Entities;
 using STOTOP.Module.Finance.Entities;
 using STOTOP.Module.System.Entities;
 using Xunit;
@@ -25,14 +23,10 @@ public class TenantLeakScanTests
         typeof(SysUserOrganization),
         // 平台：用户↔角色 RBAC 绑定（FOrgId 可空=可选按组织授权），身份/权限骨架，非被隔离业务行。
         typeof(SysUserRole),
-        // 基础设施/待裁决：编号序列水位（FOrgId 可空），是否按租户各自计数取决于 SysCodeRule.FOrgIsolation（scout ambiguous）。
-        typeof(SysCodeSequence),
-        // 待裁决：CardFlow 编号序列是否按租户重置（scout ambiguous）——随阶段2 序列口径定论。
-        typeof(CfNumberSequence),
         // 共享/延后：账套模板（FIsPreset 平台预置 + 租户自建混合），design 明确推迟阶段4 统一处理。
         typeof(FinAccountTemplate),
-        // 延后/待裁决：末端驿站主数据（非 BaseEntity；FOrgId 可空——合作驿站无组织、租户映射需业务定论），本阶段不纳入。
-        typeof(ExpLastMileStation),
+        // 注：CfNumberSequence/SysCodeSequence(编号序列)、ExpLastMileStation(末端驿站)、HrEmployee(员工)、ExpAgent(代理)
+        //     已按用户裁定补 ITenantScoped，移出/不入白名单。
     };
 
     [Fact]
