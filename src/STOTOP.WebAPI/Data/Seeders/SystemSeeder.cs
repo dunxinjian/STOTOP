@@ -23,8 +23,22 @@ public static class SystemSeeder
             new(8, "阶段2A(M4): 合法树 + 组织类别域 + 范围根类型 DB CHECK 约束(回填/物化后) (2026-07-02)", MigrateV8),
             new(9, "阶段2B(M3): SYS组织架构 加 F可切换根ID + 重物化(O(1)切换列表用) (2026-07-02)", MigrateV9),
             new(10, "阶段2B(M3): 从 SYS用户组织 回填 SYS租户成员 + SYS任职(增量双写地基) (2026-07-02)", MigrateV10),
+            new(11, "阶段2C(M5): 从 FKind=网点公司 组织节点回填 SYS网点公司(1:1) (2026-07-02)", MigrateV11),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>阶段2C·回填：每个 FKind=网点公司(2) 组织节点建一条 SYS网点公司(1:1)。表由 CreateMissingTables 建；幂等(NOT EXISTS)。</summary>
+    private static void MigrateV11(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+        INSERT INTO [SYS网点公司] ([F租户ID], [F组织节点ID], [F名称], [F状态], [F创建时间], [F更新时间])
+        SELECT o.[F租户ID], o.[FID], o.[F名称], 1, GETDATE(), GETDATE()
+        FROM [SYS组织架构] o
+        WHERE o.[F组织类别] = 2
+          AND NOT EXISTS (SELECT 1 FROM [SYS网点公司] c WHERE c.[F组织节点ID] = o.[FID]);");
     }
 
     /// <summary>阶段2B·加列+重物化：SYS组织架构 加 F可切换根ID（最近可切换祖先，O(1) 切换列表用）+ 调 RebuildAll 重算(含该列)。</summary>

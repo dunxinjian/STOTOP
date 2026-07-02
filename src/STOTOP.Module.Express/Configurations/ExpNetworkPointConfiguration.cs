@@ -30,8 +30,9 @@ public class ExpNetworkPointConfiguration : IEntityTypeConfiguration<ExpNetworkP
         builder.Property(e => e.FRemark).HasColumnName("F备注").HasMaxLength(500);
         // ===== BU网点扩展属性 =====
         builder.Property(e => e.FFullName).HasColumnName("F网点全称").HasMaxLength(200);
-        builder.Property(e => e.FEntityCompany).HasColumnName("F实体公司").HasMaxLength(200);
-        builder.Property(e => e.FExpressBrand).HasColumnName("F快递品牌").HasMaxLength(50);
+        // M5：所属网点公司 + 品牌编码（旧 F实体公司/F快递品牌 死字段退役，见 ExpressSeeder V22）
+        builder.Property(e => e.FCompanyId).HasColumnName("F网点公司ID");
+        builder.Property(e => e.FBrandCode).HasColumnName("F品牌编码").HasColumnType("nchar(2)");
         builder.Property(e => e.FPickupEmployeeCode).HasColumnName("F揽收员编码").HasMaxLength(50);
         builder.Property(e => e.FParentPointCode).HasColumnName("F上级网点编号").HasMaxLength(50);
         builder.Property(e => e.FSortOrder).HasColumnName("F排序");
@@ -39,6 +40,11 @@ public class ExpNetworkPointConfiguration : IEntityTypeConfiguration<ExpNetworkP
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
 
         builder.HasIndex(e => e.FOrgId).HasDatabaseName("IX_EXP快递网点_F组织ID");
+        // R1：每网点公司每品牌至多一网点（仅在两者均有值+启用时约束；现网无公司映射故暂休眠）
+        builder.HasIndex(e => new { e.FCompanyId, e.FBrandCode })
+            .IsUnique()
+            .HasFilter("[F状态] = 1 AND [F网点公司ID] IS NOT NULL AND [F品牌编码] IS NOT NULL")
+            .HasDatabaseName("UQ_EXP快递网点_网点公司_品牌");
 
         builder.HasOne(e => e.Organization)
             .WithMany()

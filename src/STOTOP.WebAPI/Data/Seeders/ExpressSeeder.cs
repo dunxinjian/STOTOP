@@ -36,8 +36,43 @@ public static class ExpressSeeder
             new(19, "阶段0多租户: Express 31张租户表加 F租户ID 隔离键列(NOT NULL DEFAULT 0,不启用过滤器)+租户索引 (2026-07-01)", MigrateV19),
             new(20, "阶段0多租户: Express 存量行 F租户ID 回填到根组织单租户(=根组织id) (2026-07-01)", MigrateV20),
             new(21, "阶段1收尾(裁定): EXP业务代理/EXP末端驿站(按租户隔离) 加 F租户ID 列+索引+回填根组织单租户 (2026-07-02)", MigrateV21),
+            new(22, "阶段2C(M5): EXP快递网点 加 F网点公司ID/F品牌编码 + (公司,品牌)过滤唯一索引 + 回填品牌(自F快递品牌) + 退役死字段 F实体公司/F快递品牌 (2026-07-02)", MigrateV22),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>
+    /// 阶段2C(M5)：EXP快递网点 网点公司/品牌 建模。加 F网点公司ID(→SYS网点公司,现网无映射暂空,归属分配属业务)+F品牌编码(→EXP品牌);
+    /// 回填 F品牌编码 自旧死字段 F快递品牌;退役死字段 F实体公司/F快递品牌(代码零引用);建 (公司,品牌) 过滤唯一索引(现网无公司映射故休眠)。
+    /// prod 不跑 SchemaAutoSync,靠本步显式 ALTER;声明式过滤唯一索引在 prod 于 CreateRelationalArtifacts(failOnError=false)前列缺失时 fail-soft,故本步显式补建。
+    /// </summary>
+    private static void MigrateV22(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // 加列（幂等）
+        SeederHelper.ExecuteRawSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=N'EXP快递网点' AND COLUMN_NAME=N'F网点公司ID')
+            ALTER TABLE [EXP快递网点] ADD [F网点公司ID] bigint NULL;");
+        SeederHelper.ExecuteRawSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=N'EXP快递网点' AND COLUMN_NAME=N'F品牌编码')
+            ALTER TABLE [EXP快递网点] ADD [F品牌编码] nchar(2) NULL;");
+
+        // 回填品牌编码 自旧 F快递品牌（若旧列还在）
+        SeederHelper.ExecuteRawSql(ctx, @"
+        IF EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=N'EXP快递网点' AND COLUMN_NAME=N'F快递品牌')
+            UPDATE [EXP快递网点] SET [F品牌编码] = NULLIF(LTRIM(RTRIM([F快递品牌])), N'')
+            WHERE [F品牌编码] IS NULL AND [F快递品牌] IS NOT NULL AND LTRIM(RTRIM([F快递品牌])) <> N'';");
+
+        // (公司,品牌) 过滤唯一索引（现网无公司映射，休眠；显式补建，因 prod CreateRelationalArtifacts 早于本列存在）
+        SeederHelper.ExecuteRawSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name=N'UQ_EXP快递网点_网点公司_品牌' AND object_id=OBJECT_ID(N'EXP快递网点'))
+            CREATE UNIQUE INDEX [UQ_EXP快递网点_网点公司_品牌] ON [EXP快递网点] ([F网点公司ID],[F品牌编码])
+            WHERE [F状态]=1 AND [F网点公司ID] IS NOT NULL AND [F品牌编码] IS NOT NULL;");
+
+        // 退役死字段（代码零引用；先回填品牌后再删）
+        SeederHelper.DropColumnSafe(ctx, "EXP快递网点", "F实体公司");
+        SeederHelper.DropColumnSafe(ctx, "EXP快递网点", "F快递品牌");
     }
 
     /// <summary>阶段0 多租户隔离：需加 F租户ID 的 31 张租户表（全覆盖，见 design/24-tenant-migration-playbook.md）。</summary>

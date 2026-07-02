@@ -365,6 +365,17 @@ R8 落地：`SYS数据范围授权`(`SysScopeGrant`) + `RecomputeScopeGrants`（
 - **验证**：全图 0 错；System.Tests 27/27(+5)；全量回归绿(CardFlow 6 Excel 非回归)；真实 dev 库 V9/V10 跑通——租户成员 1965(=去重用户)、任职 1997(=当前行)、主任职 1966 可放大 / 非主 31 不放大、`F可切换根ID` 全 320 非 0、承包区197→太仓美申192、0 孤儿任职。
 - **待办**：旧 SYS用户组织 退役 + 10 读消费者迁到 SYS任职；`FScopeEligible` 目前由 `FIsPrimaryOrg` 派生(挂名/借调精细化留后)；多客户上线后 `SysAppointment` 写入须保证租户上下文(现 best-effort 在无上下文时跳过)。
 
+#### 阶段2C as-built（M5 网点出树 + SYS网点公司 · 2026-07-02）
+
+**P0 澄清**：组织类型7"快递网点"的 4 个节点(城区/南郊/沙溪/浏河子公司)语义即**网点公司**(=阿米巴 business_unit)，**非**要退役的"网点当 org 节点"；品牌侧网点(`ExpNetworkPoint`/`EXP快递网点`)本就是独立 `F编号` 表(早已出树)。故 2C = 把 4 个 `FKind=网点公司` 节点 formalize 为 `SysOutletCompany`，并给 `ExpNetworkPoint` 补公司/品牌列，**不退役 type-7**。
+
+- **新表 `SysOutletCompany`(SYS网点公司)**：`BaseEntity`+`ITenantScoped`(无 `FOrgId`，门禁不触发)；`FOrgNodeId` 与 `FKind=网点公司` org 节点 1:1(唯一索引)+`FName`/`FCreditCode?`/`FRowVersion`。`SystemSeeder V11` 从 `FKind=2` 节点回填(dev 4 行，与节点数一致)。阶段3 的 `FIN经营单元` 将由它 1:1 派生。
+- **`ExpNetworkPoint`(表名不改，避免破坏 schema-contract 测试 + 成本方案 raw SQL join)**：删死字段 `FEntityCompany`/`FExpressBrand`(代码零引用)；加 `FCompanyId`(`F网点公司ID`→SysOutletCompany)+`FBrandCode`(`F品牌编码`→`EXP品牌.F编码`；注意 `EXP品牌` 主键是 NCHAR(2) 字符串码非 FID，故用 code)+`(FCompanyId,FBrandCode)` 过滤唯一索引(R1)。`ExpressSeeder V22`：加列→回填 `FBrandCode` 自旧 `F快递品牌`→显式建过滤唯一索引→`DropColumnSafe` 退役死字段(drop 在回填后)。
+- **数据现实**：现网网点均挂区域公司节点、**无网点公司映射**→ `FCompanyId` 暂空(网点→网点公司归属分配属**业务任务**)，过滤唯一索引因此休眠。
+- **prod-safety(已核实)**：正常启动 `MigrateAll`→`CreateRelationalArtifacts(failOnError=false)`，故对既有表新列的声明式索引在 prod(列由 seeder 后加)于建索引时 **fail-soft(仅告警)**，真正建索引靠 seeder 显式 `CreateIndexIfMissing`(V5/V9/V22)。`InitializeNewDatabase`(CLI，fresh)才 `failOnError=true`，但 fresh 库列已由 `CreateMissingTables` 建齐。→ **2A/2B/2C"给既有表加列+声明式索引"模式 prod 安全**。
+- **验证**：全图 0 错；System.Tests 27/27、Express.Tests 74/74(schema-contract 绿)；真实 dev 库 V11/V22 跑通(SYS网点公司 4 行 1:1、`FBrandCode` 16 ST、死列已删、新列+索引就位)。
+- **待办**：网点→网点公司归属分配(业务)；阶段3 `FIN经营单元` 由 SysOutletCompany 1:1 派生 + 阿米巴 `business_unit`/`GetUnitsTree` 迁到闭包上卷。
+
 ### 阶段3（财务对齐）— M6
 
 | 现状锚点 | 动作 |

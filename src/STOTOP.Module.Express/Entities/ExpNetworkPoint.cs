@@ -42,10 +42,10 @@ public class ExpNetworkPoint : IOrgOwned, ITenantScoped
     // ===== BU网点扩展属性 =====
     /// <summary>网点全称</summary>
     public string? FFullName { get; set; }
-    /// <summary>实体公司</summary>
-    public string? FEntityCompany { get; set; }
-    /// <summary>快递品牌</summary>
-    public string? FExpressBrand { get; set; }
+    /// <summary>M5：所属网点公司ID（→ SYS网点公司.FID）。现网网点均挂区域公司节点、无公司映射，故暂空——归属分配是业务任务。</summary>
+    public long? FCompanyId { get; set; }
+    /// <summary>M5：品牌编码（→ EXP品牌.F编码，如 ST=申通）。回填自旧 F快递品牌 死字段。</summary>
+    public string? FBrandCode { get; set; }
     /// <summary>揽收员编码</summary>
     public string? FPickupEmployeeCode { get; set; }
     /// <summary>上级网点编号</summary>
