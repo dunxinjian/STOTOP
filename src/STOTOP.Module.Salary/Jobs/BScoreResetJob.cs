@@ -161,11 +161,6 @@ public class BScoreResetJob
             throw new InvalidOperationException("无法加载 IPointService 类型，Module.Points 可能未部署");
 
         using var scope = _serviceProvider.CreateScope();
-        // 内层 scope 有独立的 IOrgContextAccessor（CurrentTenantId=null），DeductAsync 读/写 PmPointRecord(ITenantScoped)
-        // 会撞 fail-closed 硬墙——须在内层 scope 同样设根租户上下文（外层设置不跨 scope 传播）。
-        var innerOrgContext = scope.ServiceProvider.GetService<IOrgContextAccessor>();
-        if (innerOrgContext != null)
-            innerOrgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
         var pointService = scope.ServiceProvider.GetService(pointServiceType);
         if (pointService == null)
             throw new InvalidOperationException("IPointService 未在 DI 容器中注册");
