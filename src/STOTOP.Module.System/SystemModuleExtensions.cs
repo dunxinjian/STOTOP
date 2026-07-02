@@ -25,6 +25,7 @@ public static class SystemModuleExtensions
         services.AddScoped<IChangeLogService, ChangeLogService>();
         services.AddScoped<IPositionService, PositionService>();
         services.AddScoped<IOrgContextService, OrgContextService>();
+        services.AddScoped<IScopeGrantService, ScopeGrantService>();
         services.AddScoped<IDingTalkService, DingTalkService>();
 
         // 安全与会话管理服务

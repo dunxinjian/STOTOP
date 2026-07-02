@@ -39,7 +39,8 @@ public class OrgMembershipTests
     private static OrgContextService MakeService(STOTOPDbContext ctx, bool admin = false)
         => new(ctx, new HttpContextAccessor(), new FakeChangeLog(),
                NullLogger<OrgContextService>.Instance, new FakeAdminAuth { AdminResult = admin },
-               new TestDbContextFactory.TestContextAccessor { CurrentTenantId = 1 });
+               new TestDbContextFactory.TestContextAccessor { CurrentTenantId = 1 },
+               new ScopeGrantService(ctx));
 
     private static void AddOrg(STOTOPDbContext ctx, long id, long parentId, OrgKind kind, bool switchable, string name)
         => ctx.Set<SysOrganization>().Add(new SysOrganization

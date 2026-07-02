@@ -18,8 +18,9 @@ public class OrgContextService : IOrgContextService
     private readonly ILogger<OrgContextService> _logger;
     private readonly IAdminAuthorizationService _adminAuth;
     private readonly IOrgContextAccessor _orgContextAccessor;
+    private readonly IScopeGrantService _scopeGrantService;
 
-    public OrgContextService(STOTOPDbContext context, IHttpContextAccessor httpContextAccessor, IChangeLogService changeLogService, ILogger<OrgContextService> logger, IAdminAuthorizationService adminAuth, IOrgContextAccessor orgContextAccessor)
+    public OrgContextService(STOTOPDbContext context, IHttpContextAccessor httpContextAccessor, IChangeLogService changeLogService, ILogger<OrgContextService> logger, IAdminAuthorizationService adminAuth, IOrgContextAccessor orgContextAccessor, IScopeGrantService scopeGrantService)
     {
         _context = context;
         _httpContextAccessor = httpContextAccessor;
@@ -27,6 +28,7 @@ public class OrgContextService : IOrgContextService
         _logger = logger;
         _adminAuth = adminAuth;
         _orgContextAccessor = orgContextAccessor;
+        _scopeGrantService = scopeGrantService;
     }
 
     private (long? UserId, string? UserName) GetCurrentUser()
@@ -351,6 +353,7 @@ public class OrgContextService : IOrgContextService
                     _context.Set<SysAppointment>().Remove(appt);
                     await _context.SaveChangesAsync();
                 }
+                await _scopeGrantService.RecomputeScopeGrantsAsync(userId, tenantId.Value); // R8：任职变 → 重算派生授权
                 return;
             }
 
@@ -389,6 +392,8 @@ public class OrgContextService : IOrgContextService
             appt.FStatus = uo.FStatus;
             appt.FUpdateTime = DateTime.Now;
             await _context.SaveChangesAsync();
+
+            await _scopeGrantService.RecomputeScopeGrantsAsync(userId, tenantId.Value); // R8：任职变 → 重算派生授权
         }
         catch (Exception ex)
         {
@@ -405,6 +410,9 @@ public class OrgContextService : IOrgContextService
                      .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted).ToList())
             e.State = EntityState.Detached;
         foreach (var e in _context.ChangeTracker.Entries<SysTenantMember>()
+                     .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted).ToList())
+            e.State = EntityState.Detached;
+        foreach (var e in _context.ChangeTracker.Entries<SysScopeGrant>()
                      .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted).ToList())
             e.State = EntityState.Detached;
     }
@@ -471,6 +479,8 @@ public class OrgContextService : IOrgContextService
                 appt.FUpdateTime = DateTime.Now;
             }
             await _context.SaveChangesAsync();
+
+            await _scopeGrantService.RecomputeScopeGrantsAsync(userId, tenantId.Value); // R8：任职变 → 重算派生授权
         }
         catch (Exception ex)
         {

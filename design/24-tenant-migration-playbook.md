@@ -376,6 +376,19 @@ R8 落地：`SYS数据范围授权`(`SysScopeGrant`) + `RecomputeScopeGrants`（
 - **验证**：全图 0 错；System.Tests 27/27、Express.Tests 74/74(schema-contract 绿)；真实 dev 库 V11/V22 跑通(SYS网点公司 4 行 1:1、`FBrandCode` 16 ST、死列已删、新列+索引就位)。
 - **待办**：网点→网点公司归属分配(业务)；阶段3 `FIN经营单元` 由 SysOutletCompany 1:1 派生 + 阿米巴 `business_unit`/`GetUnitsTree` 迁到闭包上卷。
 
+#### 阶段2D as-built（R8 数据范围地基 + 门禁 + 试点 · 2026-07-03）
+
+**纯净新增**——此前 org 过滤器只夹单节点(`FOrgId==CurrentOrgId`、无子树)。本轮只落**地基/引擎/回填/测试**，**不铺开全模块** `ApplyVisibilityScope` 接入(单租户可视域退化为整棵树、当期零功能收益)。
+
+- **新表 `SysScopeGrant`(SYS数据范围授权)**：`BaseEntity`+`ITenantScoped`(无 `FOrgId`，门禁不触发)；`FUserId`/`FTenantId`/`FScopeType`(1集团/2区域/3中心/4网点公司)/`FScopeNodeId`(=物化范围根)/`FScopeAction`(Read/Write/All)/`FGrantSource`(派生/手工)/`FApprovalId?`/`FExpireAt?`。
+- **引擎 `ScopeGrantService`**：`RecomputeScopeGrantsAsync`(§7.2：删旧派生 → 当前可放大任职取物化 `FScopeRootId/Type` → **集团级归一** → 写 Read 派生授权)；`GetVisibleNodeIdsAsync`(§7.3：授权过硬墙 → 集团级=整租户树、否则经 `SYS组织闭包` 展开子树 → `FTenantId` **二次夹逼** → 空=fail-closed)；`AddManualGrantAsync`(D6：`(Write/All,集团)` 无 `FApprovalId` 拒)。
+- **`ApplyVisibilityScope<T:IOrgScoped>` IQueryable 扩展**(Infrastructure，跨模块可复用)：**刻意不进全局过滤器**，逐查询 opt-in；注释明示 fail-open 风险。
+- **hook**：`OrgContextService` best-effort 双写后调 `RecomputeScopeGrants`(`CurrentTenantId` 与硬墙同源；`DetachPendingMembershipEntities` 已含 `SysScopeGrant`)。`SystemSeeder V12` set-based 回填各用户派生授权 + 集团归一。
+- **生产查询接入=有意 SKIP**：fail-closed 下无授权用户会被锁死、单租户零收益 → 本轮只提供扩展+引擎+回填+测试证端到端；生产逐查询 opt-in 留后续(admin/无授权兜底、别锁死)。
+- **验证**：全图 0 错；System.Tests 34/34(+7)；全量回归绿；真实 dev 库 V12 跑通(授权 集团400/区域1275/网点公司290、1965 授权用户=1965 可放大任职用户、集团归一 0 违、0 非范围根授权、承包区用户→网点公司级)。
+
+> **阶段2 收口**：四子阶段(M4/M3/M5/R8地基)全部实现 + dev 验证 + per-sub-phase rule-review。待跨子阶段整体终审(2A 物化 → 2B 任职 `FScopeEligible` → 2D 派生授权 的链路缝)+ 全量回归 + 用户提交。
+
 ### 阶段3（财务对齐）— M6
 
 | 现状锚点 | 动作 |

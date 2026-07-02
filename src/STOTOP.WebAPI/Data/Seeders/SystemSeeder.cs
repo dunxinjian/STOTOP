@@ -24,8 +24,36 @@ public static class SystemSeeder
             new(9, "阶段2B(M3): SYS组织架构 加 F可切换根ID + 重物化(O(1)切换列表用) (2026-07-02)", MigrateV9),
             new(10, "阶段2B(M3): 从 SYS用户组织 回填 SYS租户成员 + SYS任职(增量双写地基) (2026-07-02)", MigrateV10),
             new(11, "阶段2C(M5): 从 FKind=网点公司 组织节点回填 SYS网点公司(1:1) (2026-07-02)", MigrateV11),
+            new(12, "阶段2D(R8): 从任职(可放大)物化范围根回填 SYS数据范围授权(派生 Read,集团级归一) (2026-07-03)", MigrateV12),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>阶段2D·回填：从每用户当前可放大任职的物化范围根(2A)算派生 Read 授权;集团级归一(有集团级则删其非集团派生)。
+    /// 表由 CreateMissingTables 建;须在 V7/V9(范围根物化)+V10(任职回填)之后。幂等(INSERT NOT EXISTS)。</summary>
+    private static void MigrateV12(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // 每 (用户, 不同范围根) 一条派生 Read 授权
+        SeederHelper.ExecuteRawSql(ctx, @"
+        INSERT INTO [SYS数据范围授权] ([F用户ID],[F租户ID],[F范围类型],[F范围节点ID],[F范围动作],[F授权来源],[F状态],[F创建时间],[F更新时间])
+        SELECT DISTINCT m.[F用户ID], a.[F租户ID], o.[F范围根类型], o.[F范围根ID], 1, 1, 1, GETDATE(), GETDATE()
+        FROM [SYS任职] a
+        JOIN [SYS租户成员] m ON a.[F成员ID]=m.[FID]
+        JOIN [SYS组织架构] o ON a.[F组织ID]=o.[FID]
+        WHERE a.[F是否在职]=1 AND a.[F可参与范围放大]=1
+          AND NOT EXISTS (SELECT 1 FROM [SYS数据范围授权] g
+                          WHERE g.[F用户ID]=m.[F用户ID] AND g.[F租户ID]=a.[F租户ID]
+                            AND g.[F范围节点ID]=o.[F范围根ID] AND g.[F授权来源]=1);");
+
+        // 集团级归一：有集团(1)级派生授权的用户 → 删其非集团派生授权
+        SeederHelper.ExecuteRawSql(ctx, @"
+        DELETE g FROM [SYS数据范围授权] g
+        WHERE g.[F授权来源]=1 AND g.[F范围类型]<>1
+          AND EXISTS (SELECT 1 FROM [SYS数据范围授权] g2
+                      WHERE g2.[F用户ID]=g.[F用户ID] AND g2.[F租户ID]=g.[F租户ID]
+                        AND g2.[F授权来源]=1 AND g2.[F范围类型]=1);");
     }
 
     /// <summary>阶段2C·回填：每个 FKind=网点公司(2) 组织节点建一条 SYS网点公司(1:1)。表由 CreateMissingTables 建；幂等(NOT EXISTS)。</summary>
