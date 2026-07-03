@@ -91,7 +91,7 @@ public class OrganizationService : IOrganizationService
         var isCompanyLevel = orgType.FKind == (int)OrgKind.Group || orgType.FKind == (int)OrgKind.Region;
 
         // 合法父子校验（M4：FKind 对合法性，支持跳级变深度）
-        var levelError = await ValidateOrgKindAsync(orgType, request.ParentId);
+        var (levelError, parentNode) = await ValidateOrgKindAsync(orgType, request.ParentId);
         if (levelError != null)
             return ApiResult<OrganizationDto>.Fail(levelError);
 
@@ -104,6 +104,7 @@ public class OrganizationService : IOrganizationService
             FParentId = request.ParentId,
             FTypeId = request.TypeId,
             FKind = orgType.FKind,
+            FParentKind = parentNode?.FKind, // 写入前置好，满足 CK_合法父子（RebuildAll 事后重算兜底）
             FType = orgType.FName,
             FSort = request.Sort,
             FStatus = request.Status,
@@ -167,7 +168,7 @@ public class OrganizationService : IOrganizationService
         var isCompanyLevel = orgType.FKind == (int)OrgKind.Group || orgType.FKind == (int)OrgKind.Region;
 
         // 合法父子校验（M4：FKind 对合法性）
-        var levelError = await ValidateOrgKindAsync(orgType, request.ParentId);
+        var (levelError, parentNode) = await ValidateOrgKindAsync(orgType, request.ParentId);
         if (levelError != null)
             return ApiResult<OrganizationDto>.Fail(levelError);
 
@@ -189,6 +190,7 @@ public class OrganizationService : IOrganizationService
         org.FParentId = request.ParentId;
         org.FTypeId = request.TypeId;
         org.FKind = orgType.FKind;
+        org.FParentKind = parentNode?.FKind; // reparent/改类别时同步置好，满足 CK_合法父子
         org.FType = orgType.FName;
         org.FSort = request.Sort;
         if (request.Status.HasValue)
@@ -306,8 +308,10 @@ public class OrganizationService : IOrganizationService
     /// <summary>
     /// M4：基于 FKind (父,子) 对合法性校验父子（支持跳级变深度，替代旧 FLevel==父+1 严格规则）。
     /// 规则见 <see cref="OrgTreeMaterializer.IsLegalChild"/> / <see cref="OrgTreeMaterializer.IsLegalRootKind"/>。
+    /// 顺带返回父节点——调用方须在 INSERT/UPDATE 前设 FParentKind(=父.FKind)，否则撞 DB CHECK(CK_合法父子 要求非根行 F父类别 非空;
+    /// RebuildAll 在 SaveChanges 之后才重算，救不了写入瞬时态)。
     /// </summary>
-    private async Task<string?> ValidateOrgKindAsync(SysOrgType newType, long parentId)
+    private async Task<(string? Error, SysOrganization? Parent)> ValidateOrgKindAsync(SysOrgType newType, long parentId)
     {
         var childKind = newType.FKind;
 
@@ -315,19 +319,19 @@ public class OrganizationService : IOrganizationService
         if (parentId == 0)
         {
             if (!OrgTreeMaterializer.IsLegalRootKind(childKind))
-                return $"{newType.FName}不能作为根节点（仅集团/区域公司/网点公司可作根）";
-            return null;
+                return ($"{newType.FName}不能作为根节点（仅集团/区域公司/网点公司可作根）", null);
+            return (null, null);
         }
 
         var parent = await _context.Set<SysOrganization>()
             .FirstOrDefaultAsync(o => o.FID == parentId);
         if (parent == null)
-            return "上级组织不存在";
+            return ("上级组织不存在", null);
 
         if (!OrgTreeMaterializer.IsLegalChild(parent.FKind, childKind))
-            return $"{newType.FName}不能挂在该上级下（父子类别不合法）";
+            return ($"{newType.FName}不能挂在该上级下（父子类别不合法）", parent);
 
-        return null;
+        return (null, parent);
     }
 
     /// <summary>

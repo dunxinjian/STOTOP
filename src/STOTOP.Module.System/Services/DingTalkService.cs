@@ -894,35 +894,43 @@ public class DingTalkService : IDingTalkService
                 }
                 else
                 {
-                    // 创建新组织
+                    // 创建新组织（M4：默认部门类别；FParentKind 须在写入前置好，否则撞 CK_合法父子——
+                    // 部门不能作根，故父未映射时挂租户根节点而非 FParentId=0）
                     var org = new SysOrganization
                     {
                         FUID = Guid.NewGuid().ToString("N"),
                         FName = dept.Name,
                         FCode = $"DT_{dept.DeptId}",
-                        FParentId = 0, // 后续根据钉钉父部门映射
                         FTypeId = 5, // 默认为部门
+                        FKind = (int)OrgKind.Dept,
                         FDingTalkDeptId = deptIdStr,
                         FDingTalkDeptName = dept.Name,
                         FDingTalkBindStatus = 1
                     };
-    
-                    // 尝试找到父部门的本地映射
+
+                    // 父部门本地映射；未映射 → 挂租户根（原 FParentId=0 会造"部门当根"，被合法树 CHECK 拒绝）
+                    SysOrganization? parentOrg = null;
                     if (dept.ParentId > 1)
                     {
                         var parentDeptIdStr = dept.ParentId.ToString();
-                        var parentOrg = await _context.Set<SysOrganization>()
+                        parentOrg = await _context.Set<SysOrganization>()
                             .FirstOrDefaultAsync(o => o.FDingTalkDeptId == parentDeptIdStr);
-                        if (parentOrg != null)
-                        {
-                            org.FParentId = parentOrg.FID;
-                        }
                     }
-    
+                    parentOrg ??= await _context.Set<SysOrganization>()
+                        .FirstOrDefaultAsync(o => o.FParentId == 0);
+                    if (parentOrg == null)
+                    {
+                        syncResult.FailCount++;
+                        syncResult.Errors?.Add($"部门 {dept.Name}({dept.DeptId}) 同步失败: 无法定位父组织/租户根");
+                        continue;
+                    }
+                    org.FParentId = parentOrg.FID;
+                    org.FParentKind = parentOrg.FKind;
+
                     await _context.Set<SysOrganization>().AddAsync(org);
                     syncResult.SuccessCount++;
                 }
-    
+
                 await _context.SaveChangesAsync();
             }
             catch (Exception ex)
@@ -950,13 +958,21 @@ public class DingTalkService : IDingTalkService
         if (orphanOrgs.Count > 0)
         {
             _logger.LogInformation("发现 {Count} 个顶级组织（FParentId=0），将挂载到根节点（FID=1）", orphanOrgs.Count);
+            var rootKind = await _context.Set<SysOrganization>()
+                .Where(o => o.FID == 1)
+                .Select(o => (int?)o.FKind)
+                .FirstOrDefaultAsync();
             foreach (var org in orphanOrgs)
             {
                 org.FParentId = 1;
+                org.FParentKind = rootKind; // 写入前置好，满足 CK_合法父子
                 org.FUpdateTime = DateTime.Now;
             }
             await _context.SaveChangesAsync();
         }
+
+        // M4：钉钉同步建/挂载的节点入树后统一重算物化字段(F父类别/范围根/路径/可切换根)+闭包
+        OrgTreeMaterializer.RebuildAll(_context);
     }
 
     private async Task SyncUsers(List<DingTalkUserDto> users, SyncResultDto syncResult, Func<int, int, Task>? progressCallback = null)
