@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.Finance.Entities;
+using STOTOP.Module.Finance.Services;
 using STOTOP.Module.System.Entities;
 
 namespace STOTOP.WebAPI.Data.Seeders;
@@ -46,8 +47,18 @@ public static class FinanceSeeder
             new(14, "阶段1补漏: FIN阿米巴手工数据(有FOrgId却漏标ITenantScoped) 加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户 (2026-07-01)", MigrateV14),
             new(15, "阶段1全覆盖: Finance 账套传递族9表加 F租户ID 列(NOT NULL DEFAULT 0)+索引+经 F账套ID→FIN账套 传递回填 (2026-07-02)", MigrateV15),
             new(16, "阶段3A(M6): FIN账套 加 F网点公司ID(可空,→SYS网点公司)+F账套绑定模式(NOT NULL DEFAULT 1=按区域公司) (2026-07-03)", MigrateV16),
+            new(17, "阶段3B(M6): 从 SYS网点公司 1:1 物化派生 FIN经营单元(禁手工,公司停用联动) (2026-07-03)", MigrateV17),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>阶段3B(M6)·经营单元派生：从 SYS网点公司 1:1 回填 FIN经营单元(表由 CreateMissingTables 建)。
+    /// 应用层派生(FinOperatingUnitDeriver,幂等)——须在 System 侧 SYS网点公司 已回填(SystemSeeder V11)之后;
+    /// 启动期迁移管线 System 先于 Finance(见 DatabaseSeederAdapter tier 顺序),故 V11 必已跑。</summary>
+    private static void MigrateV17(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        FinOperatingUnitDeriver.SyncAllFromOutletCompanies(ctx);
     }
 
     /// <summary>阶段3A(M6)·账套双模：FIN账套 加 F网点公司ID(可空,模式2按公司时填)+F账套绑定模式(1按区域公司/2按网点公司)。
