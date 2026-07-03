@@ -399,6 +399,13 @@ R8 落地：`SYS数据范围授权`(`SysScopeGrant`) + `RecomputeScopeGrants`（
 
 > **【需确认】`FinAccountSet.FOrgId` 现网指向**（公司节点 vs 树根；种子里账套1=2、账套2=192 似指具体节点，以现网为准）。
 
+> **3A/3B/3C 已实施 + dev 验证**（分支 `feat/tenant-isolation-stage3`）：
+> - **3A**（`FinanceSeeder V16`）：`FinAccountSet` 加 `FCompanyId`(可空)+`FAccountSetBindMode`(NOT NULL DEFAULT 1)；`RequireAccountSetPermissionAttribute` 补账套∈租户校验（经 `FIN账套` 硬墙 `AnyAsync`，他租户账套 403）。
+> - **3B**（`FinanceSeeder V17`）：`FinOperatingUnit`(FIN经营单元) 从 `SysOutletCompany` 1:1 物化派生（`FinOperatingUnitDeriver`，dev 4 行 OU-1..4）。
+> - **3C**（`FinanceSeeder V18` schema + `BasicDataSeeder V1` 建桥）：**方案A（最小改动、P&L 叶数中性）**。`FinOperatingUnit` 加 `F来源类型`/`F来源业务单元ID`(→`FIN辅助核算项目.FID`) 双向**交叉引用桥**：按 (租户, 公司名去"子"→规范名) 匹配 `business_unit` aux（名不一致"城区子公司"vs"城区公司"故禁纯名/纯码 join）——4 网点公司 aux 建桥，**出港业务(方向)/太仓美申(区域自身) 不桥**（避免区域重复计数）；反标被桥 aux 的 `F来源类型='FIN经营单元'`（消 `FSourceType` 恒 null 缺口）。阿米巴报表 `AmoebaPLService`：`business_unit` aux 仍作分组键（`MapToUnit`/映射规则/凭证**零改**→叶数逐行不变），新增 `BuildUnitRegionParentMapAsync` 经闭包最近区域公司(`FKind=Region`)填 `AmoebaUnitData.ParentId`（区域上卷，**纯附加**）。
+>   - **建桥点时序（关键坑，首轮对抗审查 CONFIRMED）**：`business_unit` aux 由 `BasicDataSeeder`(BasicData tier) 播种，**晚于** Finance tier——故 Finance `V18` 的 Deriver 在 **fresh 库**上 aux 尚不存在→桥空。修复：`V18` 覆盖 **existing-DB 升级**（aux 已在），`BasicDataSeeder V1`(SeedBUAuxiliary 之后) 调 Deriver 覆盖 **fresh-DB 首建**，两处幂等各建一次。
+>   - dev 实测：凭证引用 business_unit=0 行、KSF 全 0 行、CfPluginRule pin business_unit=0 行——迁移唯一活跃面 = 5 条 `FinAmoebaMappingRule` + 报表；故 KSF/凭证/Points **零改**（code path 保留，桥兼容）。**区域上卷取数**（`AmoebaReportScope.Region` 过滤 + 件量分摊分母 + 前端区域树）= **有意拆后续 part-2**（见 [[business-unit-vs-outlet-company-modeling]] "拆两段"）。
+
 ### 阶段4（身份/SaaS）— M8+M9
 
 | M | 现状锚点 | 动作 |

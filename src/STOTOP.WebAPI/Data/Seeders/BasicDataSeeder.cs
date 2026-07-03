@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.Finance.Entities;
+using STOTOP.Module.Finance.Services;
 using STOTOP.Module.System.Entities;
 
 namespace STOTOP.WebAPI.Data.Seeders;
@@ -31,14 +32,18 @@ public static class BasicDataSeeder
         if (isSqlServer)
         {
             ctx.Database.ExecuteSqlRaw(@"
-                UPDATE [FIN辅助核算项目] 
+                UPDATE [FIN辅助核算项目]
                 SET [F账套ID] = ISNULL((SELECT TOP 1 FID FROM [FIN账套] WHERE [F是否默认] = 1), 1)
                 WHERE [F辅助类型] = 'business_unit' AND [F账套ID] = 0;
 
-                UPDATE [FIN辅助核算项目] 
+                UPDATE [FIN辅助核算项目]
                 SET [F组织ID] = ISNULL((SELECT TOP 1 FID FROM [SYS组织架构] WHERE [F父ID] = 0 OR [F父ID] IS NULL), 1)
                 WHERE [F辅助类型] = 'business_unit' AND [F组织ID] = 0;
             ");
+
+            // 阶段3C：business_unit aux 刚在上方 SeedBUAuxiliary 落地 → 此处重跑经营单元派生器补建"网点公司↔business_unit aux"交叉引用桥。
+            // 这是 **fresh-DB 唯一有效建桥点**(Finance V18 早于本 tier,那时 aux 尚未播种→桥空);existing-DB 由 Finance V18 已建成,本步幂等重确认。
+            FinOperatingUnitDeriver.SyncAllFromOutletCompanies(ctx);
         }
 
         // 同步 EXP品牌 → FIN辅助核算项目（express_brand 类型，全局 F账套ID=0, F组织ID=0）

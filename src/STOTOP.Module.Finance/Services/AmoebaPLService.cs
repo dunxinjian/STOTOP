@@ -140,6 +140,8 @@ public class AmoebaPLService
         }
 
         // 12. 构建响应
+        // 阶段3C：区域上卷父映射（附加，不改叶单元 P&L）——网点公司级经营单元 → 其区域公司(business_unit aux)
+        var unitParentMap = await BuildUnitRegionParentMapAsync(units);
         AmoebaReportResponse response;
         if (request.ViewMode == "site")
         {
@@ -147,7 +149,7 @@ public class AmoebaPLService
         }
         else
         {
-            response = BuildUnitViewResponse(allocatedPoints, units, request);
+            response = BuildUnitViewResponse(allocatedPoints, units, request, unitParentMap);
         }
 
         // 13. 组织级汇总
@@ -2731,6 +2733,54 @@ public class AmoebaPLService
     #region 映射逻辑
 
     /// <summary>
+    /// 阶段3C·区域上卷父映射（附加能力，不改任何叶单元 P&L）：为报表经营单元(business_unit aux)算区域父。
+    /// 路径：aux ← FIN经营单元.F来源业务单元ID → 网点公司 → 组织节点 → 闭包最近区域公司(FKind=Region) → 同名 business_unit aux。
+    /// 只网点公司级 aux 得父；出港业务(方向)/太仓美申(区域自身)无桥→不入表→保持平铺(避免区域重复计数)。
+    /// 返回 {叶单元 aux FID → 区域 aux FID}。
+    /// </summary>
+    private async Task<Dictionary<long, long?>> BuildUnitRegionParentMapAsync(List<FinAuxiliaryItem> units)
+    {
+        var map = new Dictionary<long, long?>();
+        if (units.Count == 0) return map;
+
+        var ous = await _dbContext.Set<FinOperatingUnit>()
+            .Where(u => u.FStatus == 1 && u.FSourceLegacyAuxId != null)
+            .Select(u => new { u.FCompanyId, LegacyAuxId = u.FSourceLegacyAuxId!.Value })
+            .ToListAsync();
+        if (ous.Count == 0) return map;
+
+        var companyIds = ous.Select(o => o.FCompanyId).Distinct().ToList();
+        var companyToNode = await _dbContext.Set<SysOutletCompany>()
+            .Where(c => companyIds.Contains(c.FID))
+            .ToDictionaryAsync(c => c.FID, c => c.FOrgNodeId);
+        var nodeIds = companyToNode.Values.Distinct().ToList();
+
+        // 组织节点 → 闭包最近区域公司(FKind=Region)祖先名（多级区域取最近）
+        var regionRows = await (
+            from cl in _dbContext.Set<SysOrgClosure>()
+            join o in _dbContext.Set<SysOrganization>() on cl.FAncestorId equals o.FID
+            where nodeIds.Contains(cl.FDescendantId) && o.FKind == (int)OrgKind.Region
+            select new { Node = cl.FDescendantId, cl.FDepth, o.FName }).ToListAsync();
+        var nodeToRegionName = regionRows
+            .GroupBy(x => x.Node)
+            .ToDictionary(g => g.Key, g => g.OrderBy(x => x.FDepth).First().FName);
+
+        // 区域名 → business_unit aux(须在本报表 units 集合内,否则父列缺失无意义)
+        var regionAuxByName = units
+            .GroupBy(u => u.FName)
+            .ToDictionary(g => g.Key, g => g.First().FID);
+
+        foreach (var ou in ous)
+        {
+            if (!companyToNode.TryGetValue(ou.FCompanyId, out var node)) continue;
+            if (!nodeToRegionName.TryGetValue(node, out var regionName)) continue;
+            if (regionAuxByName.TryGetValue(regionName, out var regionAuxId) && regionAuxId != ou.LegacyAuxId)
+                map[ou.LegacyAuxId] = regionAuxId;
+        }
+        return map;
+    }
+
+    /// <summary>
     /// 映射到经营单元
     /// </summary>
     private long? MapToUnit(DataPoint point, List<FinAmoebaMappingRule> rules)
@@ -2781,7 +2831,8 @@ public class AmoebaPLService
         return result;
     }
 
-    private AmoebaReportResponse BuildUnitViewResponse(List<DataPoint> dataPoints, List<FinAuxiliaryItem> units, AmoebaReportRequest request)
+    private AmoebaReportResponse BuildUnitViewResponse(List<DataPoint> dataPoints, List<FinAuxiliaryItem> units, AmoebaReportRequest request,
+        Dictionary<long, long?>? unitParentMap = null)
     {
         var response = new AmoebaReportResponse();
 
@@ -2791,6 +2842,8 @@ public class AmoebaPLService
         {
             targetUnits = units.Where(u => request.UnitIds.Contains(u.FID)).ToList();
         }
+        // 阶段3C：仅当父单元也在本次返回集内时才给 ParentId，避免 UnitIds 收窄后叶单元指向不在集内的悬空父
+        var targetIds = targetUnits.Select(u => u.FID).ToHashSet();
 
         response.Units = targetUnits.Select(unit =>
         {
@@ -2801,7 +2854,8 @@ public class AmoebaPLService
                 UnitId = unit.FID,
                 UnitCode = unit.FCode,
                 UnitName = unit.FName,
-                ParentId = null  // FinAuxiliaryItem 无父子关系
+                // 阶段3C：网点公司级经营单元上卷到区域公司(business_unit aux)；出港业务(方向)/太仓美申(区域自身)无父保持平铺
+                ParentId = unitParentMap != null && unitParentMap.TryGetValue(unit.FID, out var pid) && pid.HasValue && targetIds.Contains(pid.Value) ? pid : null
             };
 
             // 按方向汇总
@@ -4020,14 +4074,19 @@ public class AmoebaPLService
 
     #region 内部模型
 
+    // 以下投影类经 Database.SqlQueryRaw<T> 物化。EF Core 7+ 会把 SqlQuery 结果类型登记为模型内的无键实体，
+    // 因此其 decimal 属性会触发模型校验（未指定精度 → 默认精度静默截断告警）。这些类型只读取 SQL 结果、从不落库，
+    // 精度本身无运行时截断风险，[Precision] 仅为消除该告警并对齐 SUM 聚合口径（金额比单行更宽，取 18 位整体精度）。
     private class BillingAggRow
     {
         public string? SiteCode { get; set; }
         public string? BrandCode { get; set; }
         public string? BusinessObjectCode { get; set; }
         public int CalcStatus { get; set; }
+        [Precision(18, 2)]
         public decimal TotalAmount { get; set; }
         public int WaybillCount { get; set; }
+        [Precision(18, 3)]
         public decimal TotalWeight { get; set; }
     }
 
@@ -4036,6 +4095,7 @@ public class AmoebaPLService
         public string? ClientType { get; set; }
         public string? ClientId { get; set; }
         public string? ClientName { get; set; }
+        [Precision(18, 2)]
         public decimal Amount { get; set; }
     }
 

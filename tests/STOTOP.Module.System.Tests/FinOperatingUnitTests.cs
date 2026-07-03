@@ -53,6 +53,71 @@ public class FinOperatingUnitTests
     }
 
     [Fact]
+    public void 交叉引用桥_公司名去子_匹配businessUnit_aux_回填来源()
+    {
+        using var ctx = TestDbContextFactory.Create("ou_crosswalk");
+        AddCompany(ctx, 1, "城区子公司");
+        AddCompany(ctx, 2, "南郊子公司");   // 故意不建对应 aux → 应为 null
+        // business_unit aux：规范名 = 公司名去"子"(城区子公司→城区公司)
+        ctx.Set<FinAuxiliaryItem>().Add(new FinAuxiliaryItem { FID = 101, FTenantId = 1, FOrgId = 192, FAuxType = "business_unit", FCode = "BU-CQ", FName = "城区公司" });
+        ctx.Set<FinAuxiliaryItem>().Add(new FinAuxiliaryItem { FID = 106, FTenantId = 1, FOrgId = 192, FAuxType = "business_unit", FCode = "BU-CG", FName = "出港业务" }); // 方向:无公司→不被桥
+        ctx.SaveChanges();
+
+        FinOperatingUnitDeriver.SyncAllFromOutletCompanies(ctx);
+
+        var byCompany = ctx.Set<FinOperatingUnit>().IgnoreQueryFilters().ToDictionary(u => u.FCompanyId);
+        Assert.Equal("SYS网点公司", byCompany[1].FSourceType);
+        Assert.Equal(101L, byCompany[1].FSourceLegacyAuxId);   // 城区子公司→城区公司→BU-CQ(101)
+        Assert.Null(byCompany[2].FSourceLegacyAuxId);          // 南郊无对应 aux → null
+        // 桥只覆盖网点公司级,出港业务(方向) aux 不被任何经营单元引用
+        Assert.DoesNotContain(byCompany.Values, u => u.FSourceLegacyAuxId == 106L);
+
+        // 反向桥：被桥 aux 标记来源=经营单元；未桥 aux(出港业务) 保持不动
+        var auxById = ctx.Set<FinAuxiliaryItem>().IgnoreQueryFilters().ToDictionary(a => a.FID);
+        Assert.Equal("FIN经营单元", auxById[101].FSourceType);
+        Assert.Equal(byCompany[1].FID, auxById[101].FSourceId);
+        Assert.Null(auxById[106].FSourceType);
+    }
+
+    [Fact]
+    public void 交叉引用桥_同租户同规范名多aux_确定性取最小FID()
+    {
+        using var ctx = TestDbContextFactory.Create("ou_crosswalk_dup");
+        AddCompany(ctx, 1, "城区子公司");
+        // 同租户同名两条 business_unit aux(账套维度可重名,无唯一约束)——桥须确定性取最小 FID
+        ctx.Set<FinAuxiliaryItem>().Add(new FinAuxiliaryItem { FID = 300, FTenantId = 1, FOrgId = 192, FAccountSetId = 2, FAuxType = "business_unit", FCode = "BU-CQ2", FName = "城区公司" });
+        ctx.Set<FinAuxiliaryItem>().Add(new FinAuxiliaryItem { FID = 200, FTenantId = 1, FOrgId = 192, FAccountSetId = 1, FAuxType = "business_unit", FCode = "BU-CQ1", FName = "城区公司" });
+        ctx.SaveChanges();
+
+        FinOperatingUnitDeriver.SyncAllFromOutletCompanies(ctx);
+
+        var ou = ctx.Set<FinOperatingUnit>().IgnoreQueryFilters().Single(u => u.FCompanyId == 1);
+        Assert.Equal(200L, ou.FSourceLegacyAuxId);  // 取最小 FID(200)而非随机
+    }
+
+    [Fact]
+    public void 交叉引用桥_aux晚于首次派生_重跑补建()   // 复现 fresh-DB tier 顺序:business_unit aux(BasicData tier)晚于 OU 首次派生(Finance V17/V18)
+    {
+        using var ctx = TestDbContextFactory.Create("ou_late_aux");
+        AddCompany(ctx, 1, "城区子公司");
+        ctx.SaveChanges();
+
+        // ① 首次派生(模拟 Finance tier:此刻 business_unit aux 尚未播种)→ OU 建成但桥空(无害)
+        FinOperatingUnitDeriver.SyncAllFromOutletCompanies(ctx);
+        Assert.Null(ctx.Set<FinOperatingUnit>().IgnoreQueryFilters().Single(u => u.FCompanyId == 1).FSourceLegacyAuxId);
+
+        // ② aux 播种(模拟 BasicDataSeeder.SeedBUAuxiliary)
+        ctx.Set<FinAuxiliaryItem>().Add(new FinAuxiliaryItem { FID = 101, FTenantId = 1, FOrgId = 192, FAuxType = "business_unit", FCode = "BU-CQ", FName = "城区公司" });
+        ctx.SaveChanges();
+
+        // ③ 重跑派生(模拟 BasicData V1 内 SeedBUAuxiliary 之后的补建调用)→ 桥补齐(fresh-DB 建桥点)
+        FinOperatingUnitDeriver.SyncAllFromOutletCompanies(ctx);
+        var ou = ctx.Set<FinOperatingUnit>().IgnoreQueryFilters().Single(u => u.FCompanyId == 1);
+        Assert.Equal(101L, ou.FSourceLegacyAuxId);
+        Assert.Equal("FIN经营单元", ctx.Set<FinAuxiliaryItem>().IgnoreQueryFilters().Single(a => a.FID == 101).FSourceType);
+    }
+
+    [Fact]
     public void 公司停用_联动经营单元停用()
     {
         using var ctx = TestDbContextFactory.Create("ou_disable");

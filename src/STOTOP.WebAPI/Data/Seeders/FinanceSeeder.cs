@@ -48,8 +48,32 @@ public static class FinanceSeeder
             new(15, "阶段1全覆盖: Finance 账套传递族9表加 F租户ID 列(NOT NULL DEFAULT 0)+索引+经 F账套ID→FIN账套 传递回填 (2026-07-02)", MigrateV15),
             new(16, "阶段3A(M6): FIN账套 加 F网点公司ID(可空,→SYS网点公司)+F账套绑定模式(NOT NULL DEFAULT 1=按区域公司) (2026-07-03)", MigrateV16),
             new(17, "阶段3B(M6): 从 SYS网点公司 1:1 物化派生 FIN经营单元(禁手工,公司停用联动) (2026-07-03)", MigrateV17),
+            new(18, "阶段3C(M6): FIN经营单元 加 F来源类型/F来源业务单元ID 交叉引用列+索引; existing-DB 侧建桥(fresh-DB 因 aux 尚未播种,由 BasicData V1 补建) (2026-07-03)", MigrateV18),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>阶段3C(M6)·经营单元交叉引用桥(schema + existing-DB 建桥)：把遗留 business_unit 记账维度与 FIN经营单元 建桥，保存量凭证/映射/KSF 对 aux id 的引用不断链。
+    /// ① FIN经营单元 加 F来源类型/F来源业务单元ID(→FIN辅助核算项目.FID) 两列 + 索引(存量表新增列,声明式索引在生产 fail-soft,故显式建)。
+    /// ② 调 Deriver 建双向桥(公司名去'子'→规范名 匹配 business_unit aux；出港/太仓无网点公司故不桥；同时反标 aux 来源=经营单元)。
+    /// **fresh-DB 注意**：Finance tier 早于 BasicData(business_unit aux 播种处)——fresh 库此处 aux 尚不存在→②桥空(无害),由 BasicDataSeeder V1(SeedBUAuxiliary 之后)重跑 Deriver 补建。
+    /// 本步覆盖 **existing-DB 升级**(aux 早已在)一路;两处幂等。</summary>
+    private static void MigrateV18(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=N'FIN经营单元' AND COLUMN_NAME=N'F来源类型')
+            ALTER TABLE [FIN经营单元] ADD [F来源类型] nvarchar(20) NULL;");
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=N'FIN经营单元' AND COLUMN_NAME=N'F来源业务单元ID')
+            ALTER TABLE [FIN经营单元] ADD [F来源业务单元ID] bigint NULL;");
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name=N'IX_FIN经营单元_来源业务单元ID' AND object_id=OBJECT_ID(N'FIN经营单元'))
+            CREATE INDEX [IX_FIN经营单元_来源业务单元ID] ON [FIN经营单元]([F来源业务单元ID]);");
+
+        // 建双向桥(含反标 aux)——existing-DB 上 aux 已在故此处即建成;fresh-DB 上 aux 未播种故空,靠 BasicData V1 补。
+        FinOperatingUnitDeriver.SyncAllFromOutletCompanies(ctx);
     }
 
     /// <summary>阶段3B(M6)·经营单元派生：从 SYS网点公司 1:1 回填 FIN经营单元(表由 CreateMissingTables 建)。

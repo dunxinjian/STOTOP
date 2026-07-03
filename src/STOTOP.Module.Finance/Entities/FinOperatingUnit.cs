@@ -22,6 +22,16 @@ public class FinOperatingUnit : BaseEntity, ITenantScoped
     /// <summary>状态（公司停用联动停用）</summary>
     public int FStatus { get; set; } = 1;
 
+    /// <summary>来源类型（'SYS网点公司'：从网点公司派生；预留他源）</summary>
+    public string? FSourceType { get; set; }
+
+    /// <summary>
+    /// 遗留业务单元 aux 交叉引用（→ FIN辅助核算项目.FID，FAuxType='business_unit'）。阶段3C 建桥：
+    /// 报表/映射规则里的 business_unit aux id 经此归到经营单元(名/区域上卷取此)、且存量凭证/映射对 aux id 的引用不断链。
+    /// 只覆盖**网点公司级** aux(城区/南郊/浏河/沙溪)；出港业务(方向)、太仓美申(区域) 无对应经营单元故为 null。
+    /// </summary>
+    public long? FSourceLegacyAuxId { get; set; }
+
     /// <summary>并发令牌</summary>
     public byte[]? FRowVersion { get; set; }
 
