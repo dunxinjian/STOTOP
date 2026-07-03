@@ -22,6 +22,9 @@ public class FinAccountSetConfiguration : IEntityTypeConfiguration<FinAccountSet
         builder.Property(e => e.FStartMonth).HasColumnName("F起始月份").HasDefaultValue(0);
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID").HasDefaultValue(0L);
         builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);
+        // M6 账套双模
+        builder.Property(e => e.FCompanyId).HasColumnName("F网点公司ID");
+        builder.Property(e => e.FAccountSetBindMode).HasColumnName("F账套绑定模式").HasDefaultValue(1);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");
         

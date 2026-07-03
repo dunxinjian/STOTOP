@@ -45,8 +45,24 @@ public static class FinanceSeeder
             new(13, "阶段0多租户(Finance试点): 存量行 F租户ID 回填到 MDSTO 单租户(=根组织id) (2026-06-30)", MigrateV13),
             new(14, "阶段1补漏: FIN阿米巴手工数据(有FOrgId却漏标ITenantScoped) 加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户 (2026-07-01)", MigrateV14),
             new(15, "阶段1全覆盖: Finance 账套传递族9表加 F租户ID 列(NOT NULL DEFAULT 0)+索引+经 F账套ID→FIN账套 传递回填 (2026-07-02)", MigrateV15),
+            new(16, "阶段3A(M6): FIN账套 加 F网点公司ID(可空,→SYS网点公司)+F账套绑定模式(NOT NULL DEFAULT 1=按区域公司) (2026-07-03)", MigrateV16),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>阶段3A(M6)·账套双模：FIN账套 加 F网点公司ID(可空,模式2按公司时填)+F账套绑定模式(1按区域公司/2按网点公司)。
+    /// 存量账套(石家庄/太仓,均区域级)经 DEFAULT 1 得模式1、F网点公司ID 保持 NULL。幂等。</summary>
+    private static void MigrateV16(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=N'FIN账套' AND COLUMN_NAME=N'F网点公司ID')
+            ALTER TABLE [FIN账套] ADD [F网点公司ID] bigint NULL;");
+
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=N'FIN账套' AND COLUMN_NAME=N'F账套绑定模式')
+            ALTER TABLE [FIN账套] ADD [F账套绑定模式] int NOT NULL CONSTRAINT [DF_FIN账套_F账套绑定模式] DEFAULT 1;");
     }
 
     private static void MigrateV1(STOTOPDbContext ctx)

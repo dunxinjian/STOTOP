@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
 using STOTOP.Infrastructure.Data;
+using STOTOP.Module.Finance.Entities;
 using STOTOP.Module.Finance.Services.Interfaces;
 using STOTOP.Module.System.Services;
 
@@ -59,6 +60,16 @@ public class RequireAccountSetPermissionAttribute : Attribute, IAsyncActionFilte
             context.Result = new ObjectResult(
                 new { code = 400, message = "缺少有效的账套ID" }
             ) { StatusCode = 400 };
+            return;
+        }
+
+        // 3.5 账套∈当前租户校验（M6/§10，堵 X-AccountSet-Id IDOR）：
+        //     FIN账套 已 ITenantScoped，经全局硬墙按当前租户过滤——账套属他租户则查不到 → 403。
+        //     admin 已在上方放行(其查询在数据层仍受租户硬墙约束，见 M7"admin 保持租户内")。
+        var belongsToTenant = await db.Set<FinAccountSet>().AnyAsync(a => a.FID == accountSetId);
+        if (!belongsToTenant)
+        {
+            context.Result = new ObjectResult(new { code = 403, message = "账套不属于当前租户或不存在" }) { StatusCode = 403 };
             return;
         }
 
