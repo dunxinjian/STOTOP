@@ -585,6 +585,7 @@ import {
   auditVoucher as apiAuditVoucher,
   saveDraft as apiSaveDraft,
   getDrafts,
+  deleteVoucher,
   getNextVoucherNumber,
   getAccountTree,
   createAccount,
@@ -594,7 +595,7 @@ import {
   uploadAttachment,
   getAttachments,
   deleteAttachment,
-  getAttachmentDownloadUrl,
+  downloadAttachment as apiDownloadAttachment,
   getLatestExchangeRate,
   getAccountBalanceByYearMonth,
   completeVoucherRecord,
@@ -1155,9 +1156,9 @@ function focusNext(_event: Event, index: number, field: string) {
   }
 }
 
-// 保存凭证
-async function saveVoucher() {
-  if (!validateForm()) return
+// 保存凭证（返回是否成功，供“保存并新增”判断）
+async function saveVoucher(): Promise<boolean> {
+  if (!validateForm()) return false
   
   try {
     const data = prepareSubmitData()
@@ -1177,15 +1178,19 @@ async function saveVoucher() {
       if (form.value.id && pendingFiles.value.length > 0) {
         await uploadPendingFiles(form.value.id)
       }
+      return true
     }
+    return false
   } catch (error) {
     message.error('保存失败')
+    return false
   }
 }
 
 // 保存并新增
 async function saveAndNew() {
-  await saveVoucher()
+  const ok = await saveVoucher()
+  if (!ok) return
   clearForm()
   await fetchNextNumber()
 }
@@ -1229,11 +1234,11 @@ async function deleteDraft(draft: any) {
         onCancel() { reject() }
       })
     })
-    // 调用删除草稿API
+    await deleteVoucher(draft.id)
     draftList.value = draftList.value.filter(d => d.id !== draft.id)
     message.success('删除成功')
   } catch {
-    // 取消
+    // 取消或删除失败（del 拦截器已弹错误提示）
   }
 }
 
@@ -1311,18 +1316,18 @@ async function handleDelete() {
         onCancel() { reject() }
       })
     })
-    // 调用删除API
+    await deleteVoucher(form.value.id)
     message.success('删除成功')
     router.push('/finance/voucher/list')
   } catch {
-    // 取消
+    // 取消或删除失败（del 拦截器已弹错误提示）
   }
 }
 
 // 表单验证
 function validateForm(): boolean {
-  // 检查借贷平衡
-  if (totalDebit.value !== totalCredit.value) {
+  // 检查借贷平衡（浮点求和有精度误差，用容差比较到分）
+  if (Math.abs(totalDebit.value - totalCredit.value) >= 0.005) {
     message.error('借贷方金额不平衡')
     return false
   }
@@ -1827,12 +1832,8 @@ async function deleteAttachmentItem(id: number) {
   }
 }
 
-function downloadAttachment(id: number) {
-  const url = getAttachmentDownloadUrl(id)
-  const a = document.createElement('a')
-  a.href = url
-  a.target = '_blank'
-  a.click()
+async function downloadAttachment(id: number, fileName?: string) {
+  await apiDownloadAttachment(id, fileName)
 }
 
 function addInvoice() {

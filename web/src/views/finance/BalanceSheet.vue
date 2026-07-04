@@ -6,7 +6,7 @@
       </template>
       <template #right>
         <a-select v-model:value="filterForm.periodId" placeholder="选择期间" style="width: 180px"
-          :options="periodList.map(p => ({ label: p.label, value: p.id }))" />
+          :options="periodList.map(p => ({ label: p.label, value: p.id }))" @change="loadData" />
         <a-select v-model:value="unitType" style="width: 100px">
           <a-select-option value="yuan">单位：元</a-select-option>
           <a-select-option value="wan">单位：万元</a-select-option>
@@ -175,51 +175,11 @@ const sheetColumns = [
   { title: '期初余额', dataIndex: 'openingBalance', key: 'openingBalance', width: 140, align: 'right' as const },
 ]
 
-// 资产数据
-const assetData = ref([
-  {
-    id: '1', itemName: '流动资产：', level: 1, isTotal: false, endingBalance: 0, openingBalance: 0,
-    children: [
-      { id: '1-1', itemName: '货币资金', level: 2, endingBalance: 5000000, openingBalance: 4500000 },
-      { id: '1-2', itemName: '应收账款', level: 2, endingBalance: 8000000, openingBalance: 7500000 },
-      { id: '1-3', itemName: '存货', level: 2, endingBalance: 6000000, openingBalance: 5500000 }
-    ]
-  },
-  {
-    id: '2', itemName: '非流动资产：', level: 1, isTotal: false, endingBalance: 0, openingBalance: 0,
-    children: [
-      { id: '2-1', itemName: '固定资产', level: 2, endingBalance: 15000000, openingBalance: 16000000 },
-      { id: '2-2', itemName: '无形资产', level: 2, endingBalance: 3000000, openingBalance: 3200000 }
-    ]
-  },
-  { id: '3', itemName: '资产总计', level: 1, isTotal: true, endingBalance: 37000000, openingBalance: 36700000 }
-])
+// 资产数据（初始为空，等待 API 返回真实数据）
+const assetData = ref<any[]>([])
 
-// 负债数据
-const liabilityData = ref([
-  {
-    id: '1', itemName: '流动负债：', level: 1, isTotal: false, endingBalance: 0, openingBalance: 0,
-    children: [
-      { id: '1-1', itemName: '短期借款', level: 2, endingBalance: 3000000, openingBalance: 3500000 },
-      { id: '1-2', itemName: '应付账款', level: 2, endingBalance: 5000000, openingBalance: 4800000 },
-      { id: '1-3', itemName: '应交税费', level: 2, endingBalance: 800000, openingBalance: 750000 }
-    ]
-  },
-  {
-    id: '2', itemName: '非流动负债：', level: 1, isTotal: false, endingBalance: 0, openingBalance: 0,
-    children: [
-      { id: '2-1', itemName: '长期借款', level: 2, endingBalance: 5000000, openingBalance: 5500000 }
-    ]
-  },
-  {
-    id: '3', itemName: '所有者权益：', level: 1, isTotal: false, endingBalance: 0, openingBalance: 0,
-    children: [
-      { id: '3-1', itemName: '实收资本', level: 2, endingBalance: 10000000, openingBalance: 10000000 },
-      { id: '3-2', itemName: '未分配利润', level: 2, endingBalance: 13200000, openingBalance: 12150000 }
-    ]
-  },
-  { id: '4', itemName: '负债及所有者权益总计', level: 1, isTotal: true, endingBalance: 37000000, openingBalance: 36700000 }
-])
+// 负债数据（初始为空，等待 API 返回真实数据）
+const liabilityData = ref<any[]>([])
 
 // 金额格式化
 function formatAmount(val: number | undefined) {
@@ -249,11 +209,17 @@ async function loadData() {
       })
       const assets = res.filter((item: any) => item.category === '资产').map(i => mapItem(i))
       const liabilitiesAndEquity = res.filter((item: any) => item.category === '负债' || item.category === '权益').map(i => mapItem(i))
-      if (assets.length > 0) assetData.value = assets
-      if (liabilitiesAndEquity.length > 0) liabilityData.value = liabilitiesAndEquity
+      assetData.value = assets
+      liabilityData.value = liabilitiesAndEquity
+    } else {
+      assetData.value = []
+      liabilityData.value = []
     }
   } catch (error) {
     console.error('加载资产负债表数据失败', error)
+    assetData.value = []
+    liabilityData.value = []
+    message.error('加载资产负债表失败，请稍后重试')
   } finally {
     loading.value = false
   }

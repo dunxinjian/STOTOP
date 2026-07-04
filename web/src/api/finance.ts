@@ -1,5 +1,6 @@
 // 财务模块 API
 import { get, post, put, del } from './request'
+import { downloadBlob } from '@/utils/download'
 
 // 科目管理
 export function getAccountTree(category?: string, accountSetId?: number): Promise<any[]> {
@@ -548,8 +549,12 @@ export function deleteAttachment(id: number) {
   return del(`/finance/files/${id}`)
 }
 
-export function getAttachmentDownloadUrl(id: number): string {
-  return `/api/finance/files/${id}`
+// 下载附件：FileController 带 [Authorize]，裸 <a href> 无 Bearer 头必 401；
+// 经 axios 拉 blob（拦截器自动注入 Authorization）后触发浏览器下载。
+export function downloadAttachment(id: number, fileName?: string): Promise<void> {
+  return get<Blob>(`/finance/files/${id}`, undefined, { responseType: 'blob' }).then((blob) => {
+    downloadBlob(blob, fileName || `attachment_${id}`)
+  })
 }
 
 // ==================== 凭证模板 ====================
