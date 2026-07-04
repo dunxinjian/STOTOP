@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using STOTOP.Core.Models;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Services.Interfaces;
+using STOTOP.Module.System.Filters;
 
 namespace STOTOP.Module.Finance.Controllers;
 
@@ -50,6 +51,7 @@ public class ExchangeRateController : ControllerBase
 
     /// <summary>新增/更新汇率</summary>
     [HttpPost]
+    [RequirePermission(FinancePermissions.AccountManage)]
     public async Task<ApiResult<ExchangeRateDto>> SaveRate([FromBody] SaveExchangeRateRequest request)
     {
         try
@@ -70,11 +72,12 @@ public class ExchangeRateController : ControllerBase
 
     /// <summary>删除汇率</summary>
     [HttpDelete("{id}")]
-    public async Task<ApiResult<bool>> DeleteRate(long id)
+    [RequirePermission(FinancePermissions.AccountManage)]
+    public async Task<ApiResult<bool>> DeleteRate(long id, [FromQuery] long accountSetId)
     {
         try
         {
-            await _service.DeleteRateAsync(id);
+            await _service.DeleteRateAsync(id, accountSetId);
             return ApiResult<bool>.Success(true, "删除成功");
         }
         catch (InvalidOperationException ex)

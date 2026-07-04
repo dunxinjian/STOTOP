@@ -41,7 +41,7 @@ public class AccountServiceToggleStatusTests
         await db.SaveChangesAsync();
         var service = CreateService(db);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ToggleStatusAsync(1));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ToggleStatusAsync(1, 1));
         Assert.Contains("凭证", ex.Message);
         Assert.Equal(1, db.Set<FinAccount>().Single(a => a.FID == 1).FEnableStatus); // 仍启用
     }
@@ -54,7 +54,7 @@ public class AccountServiceToggleStatusTests
         await SeedAccountAsync(db, id: 2, parentId: 1, enableStatus: 1);
         var service = CreateService(db);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ToggleStatusAsync(1));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ToggleStatusAsync(1, 1));
         Assert.Contains("下级", ex.Message);
     }
 
@@ -67,7 +67,7 @@ public class AccountServiceToggleStatusTests
         await db.SaveChangesAsync();
         var service = CreateService(db);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ToggleStatusAsync(1));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ToggleStatusAsync(1, 1));
         Assert.Contains("余额", ex.Message);
     }
 
@@ -78,7 +78,7 @@ public class AccountServiceToggleStatusTests
         await SeedAccountAsync(db, id: 1);
         var service = CreateService(db);
 
-        await service.ToggleStatusAsync(1);
+        await service.ToggleStatusAsync(1, 1);
         Assert.Equal(0, db.Set<FinAccount>().Single(a => a.FID == 1).FEnableStatus); // 已停用
     }
 
@@ -91,7 +91,7 @@ public class AccountServiceToggleStatusTests
         await db.SaveChangesAsync();
         var service = CreateService(db);
 
-        await service.ToggleStatusAsync(1); // 启用不校验
+        await service.ToggleStatusAsync(1, 1); // 启用不校验
         Assert.Equal(1, db.Set<FinAccount>().Single(a => a.FID == 1).FEnableStatus); // 已启用
     }
 }

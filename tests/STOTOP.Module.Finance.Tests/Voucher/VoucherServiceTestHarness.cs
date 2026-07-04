@@ -67,7 +67,7 @@ public static class VoucherServiceTestHarness
     // 注：FinAccount 实现 IAccountSetScoped（无 FOrgId 字段，组织归属由账套间接管理），
     // 故 orgId 参数仅为保持各测试调用点签名一致而保留，不写入实体。
     public static FinAccount Account(long id, string code, string name, long accountSetId, long orgId)
-        => new() { FID = id, FCode = code, FName = name, FAccountSetId = accountSetId, FEnableStatus = 1 };
+        => new() { FID = id, FCode = code, FName = name, FAccountSetId = accountSetId, FEnableStatus = 1, FIsLeaf = 1 };
 
     public static FinAccountPeriod Period(long id, int year, int periodNo, long accountSetId, int isClosed = 0)
         => new()

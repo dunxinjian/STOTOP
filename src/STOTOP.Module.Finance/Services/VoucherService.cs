@@ -305,7 +305,7 @@ public class VoucherService : IVoucherService
         if (!enabledWords.Contains(request.VoucherWord))
             throw new InvalidOperationException($"凭证字只能是 {string.Join("/", enabledWords)}，当前值：\"{request.VoucherWord}\"");
 
-        await ValidateEntriesAsync(request.Entries, enforceAuxContract);
+        await ValidateEntriesAsync(request.Entries, accountSetId, enforceAuxContract);
 
         // 验证辅助核算JSON格式
         foreach (var entry in request.Entries)
@@ -440,7 +440,7 @@ public class VoucherService : IVoucherService
         }
 
         ValidateVoucher(request);
-        await ValidateEntriesAsync(request.Entries, enforceAuxContract);
+        await ValidateEntriesAsync(request.Entries, voucher.FAccountSetId, enforceAuxContract);
 
         // 验证辅助核算JSON格式
         foreach (var entry in request.Entries)
@@ -993,13 +993,20 @@ public class VoucherService : IVoucherService
             msg);
     }
 
-    private async Task ValidateEntriesAsync(List<CreateVoucherEntryRequest> entries, bool enforceAuxContract = false)
+    private async Task ValidateEntriesAsync(List<CreateVoucherEntryRequest> entries, long accountSetId, bool enforceAuxContract = false)
     {
         foreach (var entry in entries)
         {
             var account = await _accountRepository.GetByIdAsync(entry.AccountId);
             if (account == null)
                 throw new InvalidOperationException($"科目不存在：{entry.AccountId}");
+            // 科目账套归属校验：GetByIdAsync 走主键不受账套过滤，须复核归属，
+            // 防跨账套科目串入本账套凭证（F38）。accountSetId<=0（后台/历史调用）时不拦。
+            if (accountSetId > 0 && account.FAccountSetId != accountSetId)
+                throw new InvalidOperationException($"科目 {account.FCode} {account.FName} 不属于当前账套，不能录入凭证");
+            // 非末级科目不能直接记账（末级=FIsLeaf==1），防止在汇总科目上挂分录破坏科目层级汇总（F38）。
+            if (account.FIsLeaf != 1)
+                throw new InvalidOperationException($"科目 {account.FCode} {account.FName} 非末级科目，不能直接记账");
             if (account.FEnableStatus != 1)
                 throw new InvalidOperationException($"科目 {account.FCode} {account.FName} 已停用，不能录入凭证");
 

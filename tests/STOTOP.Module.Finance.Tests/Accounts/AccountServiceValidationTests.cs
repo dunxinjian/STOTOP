@@ -58,7 +58,7 @@ public class AccountServiceValidationTests
         await db.SaveChangesAsync();
         var service = CreateService(db);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateAsync(1, new UpdateAccountRequest { Name = "" }));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateAsync(1, new UpdateAccountRequest { Name = "" }, 1));
         Assert.Contains("名称", ex.Message);
     }
 }

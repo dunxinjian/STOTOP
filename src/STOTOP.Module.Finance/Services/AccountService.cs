@@ -200,10 +200,12 @@ public class AccountService : IAccountService
         return MapToDto(account);
     }
 
-    public async Task<AccountDto?> UpdateAsync(long id, UpdateAccountRequest request)
+    public async Task<AccountDto?> UpdateAsync(long id, UpdateAccountRequest request, long accountSetId)
     {
         var account = await LoadAccountAsync(id);
-        if (account == null) return null;
+        // 科目 id 全局唯一、LoadAccount 不按账套过滤；校验归属==请求账套，
+        // 不符按"不存在"返回，堵跨账套改科目（F35）。
+        if (account == null || account.FAccountSetId != accountSetId) return null;
 
         if (string.IsNullOrWhiteSpace(request.Name))
         {
@@ -241,10 +243,11 @@ public class AccountService : IAccountService
         return MapToDto(account);
     }
 
-    public async Task<bool> DeleteAsync(long id)
+    public async Task<bool> DeleteAsync(long id, long accountSetId)
     {
         var account = await LoadAccountAsync(id);
-        if (account == null) return false;
+        // 归属复核：不符按"不存在"处理，堵跨账套删科目（F35）。
+        if (account == null || account.FAccountSetId != accountSetId) return false;
 
         // 检查是否有凭证引用。凭证按组织隔离，但科目账套级共享，
         // 必须跨组织检查，否则其他组织的凭证引用会被漏检导致误删
@@ -266,7 +269,17 @@ public class AccountService : IAccountService
             throw new InvalidOperationException("该科目有下级科目，无法删除");
         }
 
-        // 清理该科目的余额记录（期初余额等），避免留下孤儿行
+        // 删前拦非零余额：科目挂着期初/期末余额时删除会把这些余额从试算合计中
+        // 静默抹掉，破坏借贷平衡；有非零余额一律拒删（F37）。
+        var hasNonZeroBalance = await _balanceRepository.Query()
+            .AnyAsync(b => b.FAccountId == id
+                && (b.FBeginDebit != 0 || b.FBeginCredit != 0 || b.FEndDebit != 0 || b.FEndCredit != 0));
+        if (hasNonZeroBalance)
+        {
+            throw new InvalidOperationException("该科目存在余额，无法删除");
+        }
+
+        // 清理该科目的余额记录（全零占位行等），避免留下孤儿行
         var balanceRows = await _balanceRepository.Query()
             .Where(b => b.FAccountId == id)
             .ToListAsync();
@@ -298,10 +311,11 @@ public class AccountService : IAccountService
         return true;
     }
 
-    public async Task<bool> ToggleStatusAsync(long id)
+    public async Task<bool> ToggleStatusAsync(long id, long accountSetId)
     {
         var account = await LoadAccountAsync(id);
-        if (account == null) return false;
+        // 归属复核：不符按"不存在"处理，堵跨账套改科目状态（F35）。
+        if (account == null || account.FAccountSetId != accountSetId) return false;
 
         // 停用时校验（启用无害，不校验）：被凭证引用/有启用下级/有余额则拒绝
         if (account.FEnableStatus == 1)

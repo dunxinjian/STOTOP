@@ -114,9 +114,9 @@ public class AccountController : ControllerBase
 
     [HttpPut("{id}")]
     [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
-    public async Task<ApiResult<AccountDto>> Update(long id, [FromBody] UpdateAccountRequest request)
+    public async Task<ApiResult<AccountDto>> Update(long id, [FromBody] UpdateAccountRequest request, [FromHeader(Name = "X-AccountSet-Id")] long accountSetId = 0)
     {
-        var result = await _accountService.UpdateAsync(id, request);
+        var result = await _accountService.UpdateAsync(id, request, accountSetId);
         if (result == null)
         {
             return ApiResult<AccountDto>.Fail("科目不存在");
@@ -126,11 +126,11 @@ public class AccountController : ControllerBase
 
     [HttpDelete("{id}")]
     [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
-    public async Task<ApiResult> Delete(long id)
+    public async Task<ApiResult> Delete(long id, [FromHeader(Name = "X-AccountSet-Id")] long accountSetId = 0)
     {
         try
         {
-            var result = await _accountService.DeleteAsync(id);
+            var result = await _accountService.DeleteAsync(id, accountSetId);
             if (!result)
             {
                 return ApiResult.Fail("科目不存在");
@@ -145,11 +145,11 @@ public class AccountController : ControllerBase
 
     [HttpPost("{id}/toggle-status")]
     [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
-    public async Task<ApiResult> ToggleStatus(long id)
+    public async Task<ApiResult> ToggleStatus(long id, [FromHeader(Name = "X-AccountSet-Id")] long accountSetId = 0)
     {
         try
         {
-            var result = await _accountService.ToggleStatusAsync(id);
+            var result = await _accountService.ToggleStatusAsync(id, accountSetId);
             if (!result)
             {
                 return ApiResult.Fail("科目不存在");
