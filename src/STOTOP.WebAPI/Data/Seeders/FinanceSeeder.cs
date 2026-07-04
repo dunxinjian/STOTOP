@@ -52,8 +52,36 @@ public static class FinanceSeeder
             new(19, "阶段3C 修: 撤销 V18 对 business_unit aux 的反向来源标记(F来源类型=FIN经营单元)——曾冻结这些经营单元 aux 的改名,桥改为 OU 单向 (2026-07-04)", MigrateV19),
             new(20, "账套规则P0: 建 FIN账套规则 表(一账套一行,制单审核分离/结转科目映射/启用凭证字,含 F租户ID 隔离键)+唯一账套索引+租户索引;只建空表不插行=零行为变更 (2026-07-04)", MigrateV20),
             new(21, "账套规则P0 配套修: 清理模板3明细旧快照残留行(FID 20431-20903)——baseline 表节已重导为 V11 产物(FID 700001+),upsert-only 对齐不删旧行,V11后用旧JSON对齐过的库会双份 (2026-07-04)", MigrateV21),
+            new(22, "阶段0收尾: FIN阿米巴手工数据.F损益项ID 放开为 NULL(对齐模型 long?—暂估行本就可空,库NOT NULL会拒插估算行) (2026-07-05)", MigrateV22),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>
+    /// 阶段0收尾·反向漂移收口：FIN阿米巴手工数据.F损益项ID 库列仍 NOT NULL，但模型为 long?(IsRequired(false)，
+    /// 暂估 estimate 行本就可空,见 FinAmoebaManualData 实体注释 + AmoebaPLService)——estimate 写入会被库 NOT NULL 拒插。
+    /// 放开 NOT NULL→NULL 永远数据安全(无行违反)。该列在唯一过滤索引 IX_FinAmoebaManualData_Unique 内，
+    /// 须"落索引→改列→建回"(与配置 HasIndex 定义一致：唯一/过滤 F数据类型='manual')。
+    /// 幂等：仅当列当前 NOT NULL 时执行。唯一性不受影响——manual 行(过滤集内)始终有值,null 只在被过滤掉的 estimate 行。
+    /// </summary>
+    private static void MigrateV22(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+        IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+                   WHERE TABLE_NAME = N'FIN阿米巴手工数据' AND COLUMN_NAME = N'F损益项ID' AND IS_NULLABLE = 'NO')
+        BEGIN
+            IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_FinAmoebaManualData_Unique'
+                       AND object_id = OBJECT_ID(N'FIN阿米巴手工数据'))
+                DROP INDEX [IX_FinAmoebaManualData_Unique] ON [FIN阿米巴手工数据];
+
+            ALTER TABLE [FIN阿米巴手工数据] ALTER COLUMN [F损益项ID] bigint NULL;
+
+            CREATE UNIQUE INDEX [IX_FinAmoebaManualData_Unique]
+                ON [FIN阿米巴手工数据] ([F模板ID], [F损益项ID], [F组织ID], [F期间])
+                WHERE [F数据类型] = 'manual';
+        END");
     }
 
     /// <summary>账套规则P0 配套修（规约审查 R1）·清理模板3明细旧快照残留：
