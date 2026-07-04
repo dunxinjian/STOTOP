@@ -30,4 +30,11 @@ public class AdminAuthorizationService : IAdminAuthorizationService
 
         return count > 0;
     }
+
+    public async Task<bool> IsPlatformAdminByUserIdAsync(STOTOPDbContext db, long userId)
+    {
+        // SYS用户 非 ITenantScoped（无租户过滤器）→ LINQ 直查安全；provider-agnostic 可 InMemory 测。
+        return await db.Set<STOTOP.Module.System.Entities.SysUser>()
+            .AnyAsync(u => u.FID == userId && u.FIsPlatformAdmin);
+    }
 }

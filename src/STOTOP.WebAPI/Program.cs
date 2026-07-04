@@ -634,6 +634,10 @@ app.UseAuthorization();
 // 组织上下文中间件 - 在认证授权之后注入当前组织信息
 app.UseMiddleware<OrgContextMiddleware>();
 
+// 欠费冻结白名单（阶段4B·D7）- 须在 OrgContextMiddleware 之后（CurrentTenantId 已就绪）。
+// 单客户(正式态)下恒放行=休眠能力；租户欠费冻结时按白名单拒业务写与批量导出。
+app.UseMiddleware<TenantFreezeMiddleware>();
+
 // Hangfire Dashboard
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {

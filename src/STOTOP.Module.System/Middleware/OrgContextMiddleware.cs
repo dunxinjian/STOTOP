@@ -20,6 +20,9 @@ public class OrgContextMiddleware
         "/api/auth/",
         "/api/system/org-context/my-organizations",
         "/api/system/org-context/switch",
+        // 平台层接口物理脱离租户/组织上下文（不解析 CurrentTenantId/CurrentOrgId）；
+        // 由 PlatformOnlyAttribute 校验平台超管并进入平台作用域跨租户读写（阶段4B）。
+        "/api/platform/",
         "/setup",
         "/health",
         "/swagger",

@@ -26,6 +26,7 @@ public class OrgMembershipTests
         public bool AdminResult;
         public bool IsAdmin(ClaimsPrincipal? user) => AdminResult;
         public STT.Task<bool> IsAdminByUserIdAsync(STOTOPDbContext db, long userId) => STT.Task.FromResult(AdminResult);
+        public STT.Task<bool> IsPlatformAdminByUserIdAsync(STOTOPDbContext db, long userId) => STT.Task.FromResult(false);
     }
 
     private sealed class FakeChangeLog : IChangeLogService

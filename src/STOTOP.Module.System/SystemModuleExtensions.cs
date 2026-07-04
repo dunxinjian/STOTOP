@@ -28,6 +28,9 @@ public static class SystemModuleExtensions
         services.AddScoped<IScopeGrantService, ScopeGrantService>();
         services.AddScoped<IDingTalkService, DingTalkService>();
 
+        // 平台层服务（阶段4B：PLT租户/套餐/订阅 跨租户管理，供 /api/platform/* 平台超管消费）
+        services.AddScoped<IPlatformService, PlatformService>();
+
         // 安全与会话管理服务
         services.AddScoped<SecurityConfigService>();
         services.AddScoped<SecurityAuditService>();
