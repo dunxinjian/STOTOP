@@ -33,12 +33,23 @@ public class IdpServiceTests
         public string CompareAndSerialize<T>(T o, T n, params string[] ex) => "";
     }
 
+    /// <summary>捕获重算时刻的租户上下文（供 AcceptInvite proper 修断言重算在被接受租户上下文进行）。</summary>
+    private sealed class CapturingScopeGrant : IScopeGrantService
+    {
+        private readonly Action _onRecompute;
+        public CapturingScopeGrant(Action onRecompute) => _onRecompute = onRecompute;
+        public STT.Task RecomputeScopeGrantsAsync(long userId, long tenantId) { _onRecompute(); return STT.Task.CompletedTask; }
+        public STT.Task<IReadOnlyCollection<long>> GetVisibleNodeIdsAsync(long userId, long tenantId, ScopeAction action) => throw new NotImplementedException();
+        public STT.Task AddManualGrantAsync(SysScopeGrant grant) => throw new NotImplementedException();
+    }
+
     private static IdpService MakeIdp(STOTOPDbContext ctx)
     {
         var orgContext = new OrgContextService(ctx, new HttpContextAccessor(), new FakeChangeLog(),
             NullLogger<OrgContextService>.Instance, new FakeAdminAuth(),
             new TestDbContextFactory.TestContextAccessor { CurrentTenantId = 1 }, new ScopeGrantService(ctx));
-        return new IdpService(ctx, orgContext, new ScopeGrantService(ctx));
+        return new IdpService(ctx, orgContext, new ScopeGrantService(ctx),
+            new TestDbContextFactory.TestContextAccessor { CurrentTenantId = 1 });
     }
 
     private static void AddOrg(STOTOPDbContext ctx, long id, string name)
@@ -163,5 +174,30 @@ public class IdpServiceTests
 
         // 已拒绝 → 不能直接接受
         await Assert.ThrowsAsync<InvalidOperationException>(() => idp.AcceptInviteAsync(601, 2));
+    }
+
+    [Fact]
+    public async STT.Task 接受邀请_在被接受租户上下文重算R8_之后复位() // 终审 PLAUSIBLE#4 proper 修
+    {
+        TenantTestModules.RegisterAll();
+        // 请求上下文=根租户 1；接受的邀请指向租户 2（多客户场景：被接受租户 ≠ 请求租户）。
+        var accessor = new TestDbContextFactory.TestContextAccessor { CurrentTenantId = 1 };
+        var options = new DbContextOptionsBuilder<STOTOPDbContext>()
+            .UseInMemoryDatabase($"idp_accept_ctx_{Guid.NewGuid():N}").Options;
+        using var ctx = new STOTOPDbContext(options, accessor);
+        ctx.Set<SysTenantMember>().Add(new SysTenantMember { FUserId = 800, FTenantId = 2, FInviteStatus = 1, FStatus = 1 });
+        await ctx.SaveChangesAsync();
+
+        long? capturedDuringRecompute = null;
+        var capturing = new CapturingScopeGrant(() => capturedDuringRecompute = accessor.CurrentTenantId);
+        var orgContext = new OrgContextService(ctx, new HttpContextAccessor(), new FakeChangeLog(),
+            NullLogger<OrgContextService>.Instance, new FakeAdminAuth(), accessor, capturing);
+        var idp = new IdpService(ctx, orgContext, capturing, accessor);
+
+        await idp.AcceptInviteAsync(800, 2);
+
+        Assert.Equal(2L, capturedDuringRecompute); // 重算发生在【被接受租户 2】上下文(修前会是请求根 1→SysScopeGrant 撞跨租户写硬墙被吞)
+        Assert.Equal(1L, accessor.CurrentTenantId); // finally 复位请求原上下文
+        Assert.Equal(2, ctx.Set<SysTenantMember>().Single(x => x.FUserId == 800 && x.FTenantId == 2).FInviteStatus); // 已接受
     }
 }

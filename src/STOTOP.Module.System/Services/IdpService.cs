@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.System.Dtos;
 using STOTOP.Module.System.Entities;
@@ -15,12 +16,14 @@ public class IdpService : IIdpService
     private readonly STOTOPDbContext _db;
     private readonly IOrgContextService _orgContext;
     private readonly IScopeGrantService _scopeGrant;
+    private readonly IOrgContextAccessor _orgAccessor;
 
-    public IdpService(STOTOPDbContext db, IOrgContextService orgContext, IScopeGrantService scopeGrant)
+    public IdpService(STOTOPDbContext db, IOrgContextService orgContext, IScopeGrantService scopeGrant, IOrgContextAccessor orgAccessor)
     {
         _db = db;
         _orgContext = orgContext;
         _scopeGrant = scopeGrant;
+        _orgAccessor = orgAccessor;
     }
 
     // ---- 外部企业 / 身份 ----
@@ -148,13 +151,15 @@ public class IdpService : IIdpService
         m.FUpdateTime = DateTime.Now;
         await _db.SaveChangesAsync();
 
-        // 接受后重算该用户在此租户的 R8 派生授权（新成员 → 可视范围就位）。best-effort。
-        // 【终审修·多客户】单客户下 tenantId==当前请求租户(根)，派生正常落库。多客户下若 tenantId≠当前请求租户，
-        // 派生写 SysScopeGrant(F租户ID=tenantId) 会撞跨租户写硬墙抛错——proper 修待 TenantResolver 多客户改造
-        // (届时接受后须切到【被接受租户】上下文再重算 R8)。此处至少剔除挂起的 SysScopeGrant，防污染共享 ChangeTracker
-        // 反噬后续 SaveChanges（照 M3 DetachPendingMembershipEntities 同款教训）。
+        // 接受后重算该用户在【被接受租户】的 R8 派生授权（新成员 → 可视范围就位）。best-effort。
+        // 【proper 修（终审 PLAUSIBLE#4）】重算写 SysScopeGrant(F租户ID=tenantId)，若在【当前请求租户】上下文下写、
+        // 而请求租户≠被接受租户（多客户），会撞跨租户写硬墙被吞、派生落空。故在重算期间把租户上下文临时切到
+        // 被接受租户 tenantId（try/finally 复位请求原上下文）——写入 FTenantId==CurrentTenantId 不再撞墙。
+        // 单客户下 tenantId==请求租户(根)，此切换为 no-op。仍保留 catch 剔除挂起 SysScopeGrant 防污染共享 ChangeTracker。
+        var prevTenant = _orgAccessor.CurrentTenantId;
         try
         {
+            _orgAccessor.CurrentTenantId = tenantId;
             await _scopeGrant.RecomputeScopeGrantsAsync(userId, tenantId);
         }
         catch
@@ -162,6 +167,10 @@ public class IdpService : IIdpService
             foreach (var e in _db.ChangeTracker.Entries<SysScopeGrant>()
                          .Where(x => x.State == EntityState.Added || x.State == EntityState.Modified).ToList())
                 e.State = EntityState.Detached;
+        }
+        finally
+        {
+            _orgAccessor.CurrentTenantId = prevTenant;
         }
     }
 
