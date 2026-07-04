@@ -85,8 +85,305 @@ public static class CardFlowSeeder
             new(61, "阶段1补漏: CF质量规则/CF自动插件_执行记录(有FOrgId却漏标ITenantScoped) 加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户 (2026-07-01)", MigrateV61),
             new(62, "阶段1全覆盖: STG 36 暂存表加 F租户ID 列(NOT NULL DEFAULT 0)+索引+回填根组织单租户(OBJECT_ID 存在性守卫) (2026-07-02)", MigrateV62),
             new(63, "阶段1收尾(裁定): CF编号序号(编号序列按租户隔离) 加 F租户ID 列+索引+回填根组织单租户 (2026-07-02)", MigrateV63),
+            new(64, "极兔总部交易明细导入: 建 STG极兔总部交易明细(含F租户ID) + 导入规则3140(excelInput,含网点→经营单元 transformRules) + 自动凭证骨架规则3141(ruleGroups待财务确认) + 流程2340/版本2341/首节点5140 + 租户戳 (2026-07-03)", MigrateV64),
+            new(65, "韵达总部交易明细导入: 建 STG韵达总部交易明细(列对齐真实22列+派生收支列+F租户ID) + 导入规则3150(excelInput,符号→收支拆分+网点→经营单元 transformRules) + 自动凭证规则3151(77组品牌版映射,凭证节点未接线待财务确认) + 流程2350/版本2351/首节点5150(仅接导入) + 租户戳 (2026-07-04)", MigrateV65),
+            new(66, "申通经营单元补齐(修缺陷1): STG申通总部交易明细 加 F归属网点编号列+网点编号→经营单元回填; 导入规则3130 加 网点→经营单元 transformRules; 自动凭证规则3131 164损益行加 business_unit(matchBy contains) — 与极兔/韵达口径统一 (2026-07-04)", MigrateV66),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // 极兔总部交易明细 导入链路 + 凭证规则骨架（V64）
+    //   数据源 Taicang/极兔系统交易明细（26 列/单列带符号金额/预付款流水号唯一）。
+    //   蓝本：申通派件 V23 三件套 + 申通总部交易明细 V54 建表；凭证蓝本=规则21。
+    //   本轮只落「导入链路 + 凭证骨架(ruleGroups 空)」；ruleGroups 待财务确认科目映射 Excel 后回填。
+    // ══════════════════════════════════════════════════════════════════════
+    private static void MigrateV64(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // ① 建表 STG极兔总部交易明细（STG 前缀 EF 不自动建，必须显式 CREATE；列对齐 StgJituHqTx + 插件标准列）
+        //    含 F租户ID（本表建于 V62 之后，V62 的 STG 加列循环不覆盖；对齐 ITenantScoped 硬墙）。
+        //    IsRequired 字符串列用 NOT NULL DEFAULT('')：插件把空值写 DBNull，SqlBulkCopy(KeepNulls off) 用 DEFAULT 回填
+        //    → 交易类型为空的资金类"提现"行(7 行)不致 NOT NULL 冲突；EF 读 '' 入非空字符串属性亦安全。
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = N'STG极兔总部交易明细')
+        CREATE TABLE [STG极兔总部交易明细] (
+            [FID] BIGINT IDENTITY(1,1) PRIMARY KEY,
+            [F批次ID] BIGINT NOT NULL,
+            [F原始行号] INT NULL,
+            [FOrgId] BIGINT NULL,
+            [F账套ID] BIGINT NULL,
+            [FDataScopeId] NVARCHAR(64) NULL,
+            [FSourceWorkItemId] BIGINT NULL,
+            [FIsRevoked] BIT NOT NULL DEFAULT 0,
+            [F处理状态] INT NOT NULL DEFAULT 0,
+            [F错误信息] NVARCHAR(MAX) NULL,
+            [F关联凭证ID] BIGINT NULL,
+            [F创建时间] DATETIME NOT NULL DEFAULT GETDATE(),
+            [F归属网点编号] NVARCHAR(50) NULL,
+            [F租户ID] BIGINT NOT NULL DEFAULT 0,
+            -- 业务字段（来自 rule 3140 columnMapping）
+            [F流水号] NVARCHAR(200) NOT NULL DEFAULT (''),
+            [F运单编号] NVARCHAR(200) NULL,
+            [F账户ID] NVARCHAR(100) NULL,
+            [F业务日期] DATETIME2 NULL,
+            [F所属网点] NVARCHAR(200) NULL,
+            [F网点编号] NVARCHAR(200) NULL,
+            [F网点名称] NVARCHAR(200) NOT NULL DEFAULT (''),
+            [F所属代理] NVARCHAR(200) NULL,
+            [F交易类型] NVARCHAR(200) NOT NULL DEFAULT (''),
+            [F转运中心] NVARCHAR(200) NULL,
+            [F结算中心] NVARCHAR(200) NULL,
+            [F结算对象] NVARCHAR(200) NULL,
+            [F费用主类] NVARCHAR(200) NOT NULL DEFAULT (''),
+            [F费用子类] NVARCHAR(200) NOT NULL DEFAULT (''),
+            [F发生金额] MONEY NULL,
+            [F本次余额] MONEY NULL,
+            [F预付时间] DATETIME2 NULL,
+            [F备注] NVARCHAR(500) NULL,
+            -- 标准字段（ExcelInputPlugin 写入）
+            [F其他列数据] NVARCHAR(MAX) NULL,
+            [F业务主键] NVARCHAR(500) NULL
+        );
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_STG极兔总部交易明细_F批次ID' AND object_id = OBJECT_ID(N'STG极兔总部交易明细'))
+        CREATE INDEX [IX_STG极兔总部交易明细_F批次ID] ON [STG极兔总部交易明细]([F批次ID]);
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_STG极兔总部交易明细_数据作用域' AND object_id = OBJECT_ID(N'STG极兔总部交易明细'))
+        CREATE INDEX [IX_STG极兔总部交易明细_数据作用域] ON [STG极兔总部交易明细]([FDataScopeId]) WHERE [FDataScopeId] IS NOT NULL;
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_STG极兔总部交易明细_租户ID' AND object_id = OBJECT_ID(N'STG极兔总部交易明细'))
+        CREATE INDEX [IX_STG极兔总部交易明细_租户ID] ON [STG极兔总部交易明细]([F租户ID]);
+        ");
+
+        // ② 导入规则 3140（excelInput）。注意字段命名口径（与插件实现一致）：
+        //    - decimalFields / crossBatchDedupFields 用【DB 列名】（插件按 dt.Columns/dr 匹配）；
+        //    - keyFields 用【Excel 表头名】（ComputeBusinessKey 读原始行）。
+        //    - transformRules：网点编号→经营单元核心名 写入 F归属网点编号（Jint JS，凭证 business_unit 用 matchBy:contains）；
+        //      为让 F归属网点编号 成为 DataTable 列，columnMapping 额外把 网点编号→F归属网点编号（transform 再覆盖其值）。
+        ExecInsertRule(ctx, 3140, "excelInput", 192,
+            "极兔总部交易明细导入规则",
+            @"{""targetTable"":""STG极兔总部交易明细"",""outputMode"":""stg"",""headerRow"":1,""dataStartRow"":2,""columnIdentifier"":""预付款流水号,费用主类型,费用子类型,发生金额,本次账户余额"",""fullColumnIdentifier"":""预付款流水号,运单编号,账户ID,交易类型,费用主类型,费用子类型,发生金额,上次账户余额,本次账户余额,业务发生日期,预付款产生时间,结算对象"",""columnMapping"":[{""excelColumn"":""预付款流水号"",""dbColumn"":""F流水号""},{""excelColumn"":""运单编号"",""dbColumn"":""F运单编号""},{""excelColumn"":""账户ID"",""dbColumn"":""F账户ID""},{""excelColumn"":""交易类型"",""dbColumn"":""F交易类型""},{""excelColumn"":""所属网点"",""dbColumn"":""F所属网点""},{""excelColumn"":""转运中心"",""dbColumn"":""F转运中心""},{""excelColumn"":""所属代理"",""dbColumn"":""F所属代理""},{""excelColumn"":""网点编号"",""dbColumn"":""F网点编号""},{""excelColumn"":""网点编号"",""dbColumn"":""F归属网点编号""},{""excelColumn"":""结算对象"",""dbColumn"":""F网点名称""},{""excelColumn"":""结算财务中心"",""dbColumn"":""F结算中心""},{""excelColumn"":""结算对象"",""dbColumn"":""F结算对象""},{""excelColumn"":""费用主类型"",""dbColumn"":""F费用主类""},{""excelColumn"":""费用子类型"",""dbColumn"":""F费用子类""},{""excelColumn"":""发生金额"",""dbColumn"":""F发生金额""},{""excelColumn"":""本次账户余额"",""dbColumn"":""F本次余额""},{""excelColumn"":""业务发生日期"",""dbColumn"":""F业务日期""},{""excelColumn"":""预付款产生时间"",""dbColumn"":""F预付时间""},{""excelColumn"":""备注"",""dbColumn"":""F备注""}],""decimalFields"":[""F发生金额"",""F本次余额""],""dateFields"":[""业务发生日期"",""预付款产生时间""],""keyFields"":[""预付款流水号""],""totalRowDetection"":{""enabled"":true,""containsKeywords"":[""合计"",""总计""],""emptyFields"":[]},""transformRules"":[{""targetColumn"":""F归属网点编号"",""expression"":""({'3512907':'南郊','3512894':'城区','3512906':'浏河'})[row['F网点编号']] || ''""}],""crossBatchDedupEnabled"":true,""crossBatchDedupFields"":[""F流水号""],""batchSplit"":{""enabled"":false}}",
+            "极兔总部交易明细Excel导入配置（预付款流水号唯一去重；网点→经营单元 transformRules；单列带符号金额）");
+
+        // ③ 自动凭证规则骨架 3141（rulesBased v2，ruleGroups 空——待财务确认科目映射 Excel 后批量回填）。
+        //    对手 220201(700125)+express_brand=JT；辅助四维 outlet/business_unit/express_brand/business_direction 在回填时配。
+        //    unmatchedAction=createDraft + 占位科目 700044(1901 待处理财产损溢)：骨架期全部落待补录草稿。
+        ExecInsertRule(ctx, 3141, "autoVoucher", 192,
+            "Tai极兔总部交易明细生成凭证规则",
+            @"{""mode"":""rulesBased"",""version"":2,""voucherWord"":""记"",""dateField"":""F业务日期"",""stagingTable"":""STG极兔总部交易明细"",""accountSetId"":2,""keyFields"":[""F网点编号"",""F业务日期"",""F费用子类""],""matchingLayers"":{""exactMatchField"":null,""categoryField"":""F费用子类"",""summaryField"":null},""unmatchedAction"":""createDraft"",""draftPlaceholderAccountId"":700044,""filterConditions"":[],""ruleGroups"":[]}",
+            "极兔总部交易明细自动凭证规则骨架（ruleGroups 待财务确认 Excel 后回填；本轮未接入流程节点）");
+
+        // ④ 流程三件套（CF卡片流程=2340 / CF流程版本=2341 / CF流程节点=5140）。本轮流程只接 excelInput 首节点。
+        ExecSql(ctx, @"
+        SET IDENTITY_INSERT [CF卡片流程] ON;
+        IF NOT EXISTS (SELECT 1 FROM [CF卡片流程] WHERE [FID] = 2340)
+        INSERT INTO [CF卡片流程] ([FID],[F乐观锁],[F创建人ID],[F创建时间],[F可发起角色JSON],[F描述],[F更新时间],[F标题模板],[F流程名称],[F流程组ID],[F流程编码],[F状态],[F组织ID],[F编号模板],[F触发配置JSON],[F账套ID],[F匹配规则],[F是否模板])
+        VALUES (2340, NULL, 1, GETDATE(), NULL, N'极兔总部交易明细导入：Excel导入 → STG极兔总部交易明细（凭证节点待财务确认后接入）', GETDATE(), NULL, N'极兔总部交易明细导入', NULL, N'PL_JT_HQ_TRANSACTION', N'published', 192, NULL, N'{""type"":""fileUpload""}', NULL, N'{""fileNamePattern"":""极兔*交易明细*""}', 0);
+        SET IDENTITY_INSERT [CF卡片流程] OFF;
+
+        SET IDENTITY_INSERT [CF流程版本] ON;
+        IF NOT EXISTS (SELECT 1 FROM [CF流程版本] WHERE [FID] = 2341)
+        INSERT INTO [CF流程版本] ([FID],[F创建人ID],[F创建时间],[F卡片SchemaJSON],[F发布时间],[F明细SchemaJSON],[F是否当前版本],[F流程定义ID],[F流程设置JSON],[F版本号],[F状态])
+        VALUES (2341, 1, GETDATE(), NULL, GETDATE(), NULL, 1, 2340, NULL, 1, N'published');
+        SET IDENTITY_INSERT [CF流程版本] OFF;
+
+        SET IDENTITY_INSERT [CF流程节点] ON;
+        IF NOT EXISTS (SELECT 1 FROM [CF流程节点] WHERE [FID] = 5140)
+        INSERT INTO [CF流程节点] ([FID], [F流程版本ID], [F排序号], [F节点名称], [F类型], [F处理粒度], [F审批模式], [F插件注册ID], [F插件规则ID])
+        VALUES (5140, 2341, 1, N'Excel导入解析', N'auto', N'batch', N'single', 1, 3140);
+        SET IDENTITY_INSERT [CF流程节点] OFF;
+        ");
+
+        // ⑤ 租户戳：CF卡片流程/CF自动插件_规则 是租户表(V59)，V60 回填只跑一次且早于本版本；本版本新插入的行须显式设根租户，
+        //    否则 F租户ID=0 在 fail-closed 硬墙下被隐藏（记忆 tenant-stage1-hardening）。CF流程版本/CF流程节点 非租户表，无需。
+        ExecSql(ctx, @"
+        DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+        IF @tenant IS NOT NULL
+        BEGIN
+            UPDATE [CF自动插件_规则] SET [F租户ID] = @tenant WHERE [FID] IN (3140, 3141) AND [F租户ID] = 0;
+            UPDATE [CF卡片流程] SET [F租户ID] = @tenant WHERE [FID] = 2340 AND [F租户ID] = 0;
+        END
+        ");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // 韵达总部交易明细 导入链路 + 凭证映射规则（V65）
+    //   数据源 Taicang/韵达系统交易明细（22 列 / 单列带符号金额 交易金额 / 交易凭证唯一 / sheet「网点交易记录」/ 两网点 992209城区·744706浏河）。
+    //   蓝本：极兔 V64 五步（建表→导入规则→凭证规则→流程三件套→租户戳）+ 申通新格式双列取数模型。
+    //   金额双列：导入 transformRules 从 交易金额 派生 F发生额收入(负→绝对值)/F发生额支出(正)，凭证规则按列取数、方向固定，规避单列带符号金额坑。
+    //   凭证规则 3151 已按账套2品牌版科目全量建成（77 组），但【凭证节点本轮不接入流程】——只跑导入链路；
+    //     财务逐条核对 Taicang/韵达交易-科目映射建议-待财务确认.xlsx 后回填/接线上线（引擎硬拒空 ruleGroups，故本轮规则非空但不触发）。
+    //   前置待办：网点 992209/744706 需登记为 outlet 辅助核算项、经营单元 城区/浏河 需登记为 business_unit 项，否则凭证 outlet/business_unit 维度落空（见建议 Excel 说明页）。
+    // ══════════════════════════════════════════════════════════════════════
+    private static void MigrateV65(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // ① 建表 STG韵达总部交易明细（STG 前缀 EF 不自动建，必须显式 CREATE；列对齐 StgYundaHqTx + 派生收支列 + 插件标准列 F原始行号/F其他列数据/F业务主键）。
+        //    含 F租户ID（本表建于 V62 之后，V62 的 STG 加列循环不覆盖；对齐 ITenantScoped 硬墙）。
+        //    IsRequired 字符串列用 NOT NULL DEFAULT('')：插件把空值写 DBNull，SqlBulkCopy(KeepNulls off) 用 DEFAULT 回填。
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = N'STG韵达总部交易明细')
+        CREATE TABLE [STG韵达总部交易明细] (
+            [FID] BIGINT IDENTITY(1,1) PRIMARY KEY,
+            [F批次ID] BIGINT NOT NULL,
+            [F原始行号] INT NULL,
+            [FOrgId] BIGINT NULL,
+            [F账套ID] BIGINT NULL,
+            [FDataScopeId] NVARCHAR(64) NULL,
+            [FSourceWorkItemId] BIGINT NULL,
+            [FIsRevoked] BIT NOT NULL DEFAULT 0,
+            [F处理状态] INT NOT NULL DEFAULT 0,
+            [F错误信息] NVARCHAR(MAX) NULL,
+            [F关联凭证ID] BIGINT NULL,
+            [F创建时间] DATETIME NOT NULL DEFAULT GETDATE(),
+            [F归属网点编号] NVARCHAR(50) NULL,
+            [F租户ID] BIGINT NOT NULL DEFAULT 0,
+            -- 业务字段（来自 rule 3150 columnMapping，对齐真实 22 列）
+            [F所属公司] NVARCHAR(200) NOT NULL DEFAULT (''),
+            [F公司编码] NVARCHAR(50) NOT NULL DEFAULT (''),
+            [F网点业务类型] NVARCHAR(100) NULL,
+            [F所属业务类型] NVARCHAR(100) NULL,
+            [F交易凭证] NVARCHAR(200) NOT NULL DEFAULT (''),
+            [F交易类型] NVARCHAR(100) NULL,
+            [F期初金额] DECIMAL(18,2) NOT NULL DEFAULT ((0)),
+            [F交易金额] DECIMAL(18,2) NOT NULL DEFAULT ((0)),
+            [F期末余额] DECIMAL(18,2) NOT NULL DEFAULT ((0)),
+            [F交易来源] NVARCHAR(50) NULL,
+            [F交易日期] DATETIME2 NULL,
+            [F业务时间] NVARCHAR(50) NULL,
+            [F到账时间] NVARCHAR(50) NULL,
+            [F收费公司] NVARCHAR(200) NOT NULL DEFAULT (''),
+            [F收费公司编码] NVARCHAR(50) NOT NULL DEFAULT (''),
+            [F费用大类] NVARCHAR(200) NULL,
+            [F收费项目] NVARCHAR(200) NULL,
+            [F收费项目编码] NVARCHAR(50) NULL,
+            [F三级科目] NVARCHAR(200) NULL,
+            [F三级科目编码] NVARCHAR(50) NULL,
+            [F数据来源] NVARCHAR(200) NULL,
+            [F备注] NVARCHAR(1000) NULL,
+            -- 派生列（导入 transformRules 写入；凭证规则按列取数）
+            [F发生额收入] DECIMAL(18,2) NOT NULL DEFAULT ((0)),
+            [F发生额支出] DECIMAL(18,2) NOT NULL DEFAULT ((0)),
+            -- 标准字段（ExcelInputPlugin 写入）
+            [F其他列数据] NVARCHAR(MAX) NULL,
+            [F业务主键] NVARCHAR(500) NULL
+        );
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_STG韵达总部交易明细_F批次ID' AND object_id = OBJECT_ID(N'STG韵达总部交易明细'))
+        CREATE INDEX [IX_STG韵达总部交易明细_F批次ID] ON [STG韵达总部交易明细]([F批次ID]);
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_STG韵达总部交易明细_数据作用域' AND object_id = OBJECT_ID(N'STG韵达总部交易明细'))
+        CREATE INDEX [IX_STG韵达总部交易明细_数据作用域] ON [STG韵达总部交易明细]([FDataScopeId]) WHERE [FDataScopeId] IS NOT NULL;
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_STG韵达总部交易明细_租户ID' AND object_id = OBJECT_ID(N'STG韵达总部交易明细'))
+        CREATE INDEX [IX_STG韵达总部交易明细_租户ID] ON [STG韵达总部交易明细]([F租户ID]);
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_STG韵达总部交易明细_批次凭证' AND object_id = OBJECT_ID(N'STG韵达总部交易明细'))
+        CREATE INDEX [IX_STG韵达总部交易明细_批次凭证] ON [STG韵达总部交易明细]([F批次ID],[F交易凭证]);
+        ");
+
+        // ② 导入规则 3150（excelInput）。配置见 Resources/yunda-hqtx-rule3150.json。
+        //    命名口径：decimalFields/crossBatchDedupFields 用【DB 列名】；keyFields/columnMapping.excelColumn/dateFields 用【Excel 表头原文】。
+        //    transformRules：符号→F发生额收入/F发生额支出 双列拆分（映射 交易金额 到该两列使其成为 DataTable 列，transform 再覆盖）；
+        //      F公司编码→经营单元核心名(城区/浏河) 写入 F归属网点编号（凭证 business_unit 用 matchBy:contains）。
+        ExecInsertRule(ctx, 3150, "excelInput", 192,
+            "韵达总部交易明细导入规则",
+            ReadSeedResource("yunda-hqtx-rule3150.json"),
+            "韵达总部交易明细Excel导入(交易凭证唯一去重;符号→收支双列;网点→经营单元 transformRules)");
+
+        // ③ 自动凭证规则 3151（rulesBased v2，77 组品牌版映射，账套2）。配置见 Resources/yunda-hqtx-rule3151.json。
+        //    对手腿 220201 总部应付(700125)+express_brand=YD；损益行四维辅助(outlet/express_brand/business_direction/business_unit)；
+        //    往来类挂 其他应收(122104/122102)/其他应付(224101)；资金类(282-x)未建组走 createDraft 占位(700044)。
+        //    ★凭证节点本轮不接入流程（见 ④），故此规则为「成品待接线」，导入链路不触发。
+        ExecInsertRule(ctx, 3151, "AutoVoucher", 192,
+            "Tai韵达总部交易明细生成凭证规则",
+            ReadSeedResource("yunda-hqtx-rule3151.json"),
+            "韵达总部交易明细自动凭证(77组品牌版映射,accountSet2,凭证节点待财务确认后接线)");
+
+        // ④ 流程三件套（CF卡片流程=2350 / CF流程版本=2351 / CF流程节点=5150）。本轮流程只接 excelInput 首节点，凭证节点待财务确认后接。
+        ExecSql(ctx, @"
+        SET IDENTITY_INSERT [CF卡片流程] ON;
+        IF NOT EXISTS (SELECT 1 FROM [CF卡片流程] WHERE [FID] = 2350)
+        INSERT INTO [CF卡片流程] ([FID],[F乐观锁],[F创建人ID],[F创建时间],[F可发起角色JSON],[F描述],[F更新时间],[F标题模板],[F流程名称],[F流程组ID],[F流程编码],[F状态],[F组织ID],[F编号模板],[F触发配置JSON],[F账套ID],[F匹配规则],[F是否模板])
+        VALUES (2350, NULL, 1, GETDATE(), NULL, N'韵达总部交易明细导入：Excel导入 → STG韵达总部交易明细（凭证节点待财务确认后接入）', GETDATE(), NULL, N'韵达总部交易明细导入', NULL, N'PL_YD_HQ_TRANSACTION', N'published', 192, NULL, N'{""type"":""fileUpload""}', NULL, N'{""fileNamePattern"":""韵达*交易明细*""}', 0);
+        SET IDENTITY_INSERT [CF卡片流程] OFF;
+
+        SET IDENTITY_INSERT [CF流程版本] ON;
+        IF NOT EXISTS (SELECT 1 FROM [CF流程版本] WHERE [FID] = 2351)
+        INSERT INTO [CF流程版本] ([FID],[F创建人ID],[F创建时间],[F卡片SchemaJSON],[F发布时间],[F明细SchemaJSON],[F是否当前版本],[F流程定义ID],[F流程设置JSON],[F版本号],[F状态])
+        VALUES (2351, 1, GETDATE(), NULL, GETDATE(), NULL, 1, 2350, NULL, 1, N'published');
+        SET IDENTITY_INSERT [CF流程版本] OFF;
+
+        SET IDENTITY_INSERT [CF流程节点] ON;
+        IF NOT EXISTS (SELECT 1 FROM [CF流程节点] WHERE [FID] = 5150)
+        INSERT INTO [CF流程节点] ([FID], [F流程版本ID], [F排序号], [F节点名称], [F类型], [F处理粒度], [F审批模式], [F插件注册ID], [F插件规则ID], [F节点键])
+        VALUES (5150, 2351, 1, N'Excel导入解析', N'auto', N'batch', N'single', 1, 3150, N'stage_2351_1_5150');
+        SET IDENTITY_INSERT [CF流程节点] OFF;
+        ");
+
+        // ⑤ 租户戳：CF卡片流程/CF自动插件_规则 是租户表(V59)，V60 回填只跑一次且早于本版本；本版本新插入的行须显式设根租户，
+        //    否则 F租户ID=0 在 fail-closed 硬墙下被隐藏（记忆 tenant-stage1-hardening）。CF流程版本/CF流程节点 非租户表，无需。
+        ExecSql(ctx, @"
+        DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+        IF @tenant IS NOT NULL
+        BEGIN
+            UPDATE [CF自动插件_规则] SET [F租户ID] = @tenant WHERE [FID] IN (3150, 3151) AND [F租户ID] = 0;
+            UPDATE [CF卡片流程] SET [F租户ID] = @tenant WHERE [FID] = 2350 AND [F租户ID] = 0;
+        END
+        ");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // 申通经营单元补齐（V66·修缺陷1）
+    //   问题：申通总部交易明细自动凭证(规则3131,164组)此前只打 outlet/express_brand/business_direction，
+    //   不打 business_unit(经营单元)。凭证落库后经营单元归属只能靠运行时 FinAmoebaMappingRule(voucher 型)兜底，
+    //   缺配即在阿米巴报表落"未分类"，无法上卷到经营单元/区域。极兔(V64)/韵达(V65)已改为「导入期网点→经营单元、
+    //   凭证 business_unit matchBy:contains」，唯申通停在旧口径——此版把申通拉齐。
+    //   映射(设计doc §账套2 outlet 快照 / org192)：320288→城区 / 320319→沙溪 / 321426→浏河 / 321992→南郊。
+    // ══════════════════════════════════════════════════════════════════════
+    private static void MigrateV66(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // ① STG 加 F归属网点编号 列（V54 建表时无此列；对齐极兔/韵达 STG，供导入 transformRules 落经营单元核心名）。
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'STG申通总部交易明细') AND name = N'F归属网点编号')
+            ALTER TABLE [STG申通总部交易明细] ADD [F归属网点编号] NVARCHAR(50) NULL;
+        ");
+
+        // ② 回填存量行（与导入 transformRules 同口径），使旧批次重跑自动凭证也带经营单元；仅补空值。
+        ExecSql(ctx, @"
+        UPDATE [STG申通总部交易明细]
+        SET [F归属网点编号] = CASE [F网点编号]
+            WHEN N'320288' THEN N'城区'
+            WHEN N'320319' THEN N'沙溪'
+            WHEN N'321426' THEN N'浏河'
+            WHEN N'321992' THEN N'南郊'
+            ELSE N'' END
+        WHERE [F归属网点编号] IS NULL AND [F网点编号] IS NOT NULL;
+        ");
+
+        // ③ 覆盖导入规则 3130(加 网点→经营单元 transformRules) + 自动凭证规则 3131(164 损益行加 business_unit matchBy:contains)
+        //    配置为含经营单元的新资源。存量库 V55/56 已插旧配置、此处覆盖；fresh 库 V55/56 直接读新资源、本步幂等覆盖同值。
+        ExecUpdateRuleConfig(ctx, 3130, ReadSeedResource("shentong-hqtx-v2-rule3130.json"));
+        ExecUpdateRuleConfig(ctx, 3131, ReadSeedResource("shentong-hqtx-v2-rule3131.json"));
+    }
+
+    /// <summary>幂等覆盖一条 CF自动插件_规则 的配置 JSON（走 SqlParameter，避免大 JSON 的 SQL/C# 双重转义）。规则不存在则不动。</summary>
+    private static void ExecUpdateRuleConfig(STOTOPDbContext ctx, long fid, string configJson)
+    {
+        var conn = ctx.Database.GetDbConnection();
+        if (conn.State != ConnectionState.Open) conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = ctx.Database.CurrentTransaction?.GetDbTransaction();
+        cmd.CommandTimeout = MigrationRunner.GetConfig().CommandTimeoutSeconds;
+        cmd.CommandText = @"UPDATE [CF自动插件_规则] SET [F规则配置JSON] = @cfg WHERE [FID] = @fid;";
+        void P(string n, object v) { var p = cmd.CreateParameter(); p.ParameterName = n; p.Value = v; cmd.Parameters.Add(p); }
+        P("@fid", fid); P("@cfg", configJson);
+        cmd.ExecuteNonQuery();
     }
 
     // ══════════════════════════════════════════════════════════════════════
