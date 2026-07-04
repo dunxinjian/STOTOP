@@ -188,7 +188,8 @@ router.afterEach((to) => {
   // 跳过登录页等非业务页面
   if (to.path === '/login' || to.path === '/404' || to.path === '/setup') return
 
-  // 导航链路Tab管理：所有导航均追加新Tab（不重置），最多保留3个
+  // 导航链路Tab管理：所有导航均追加新Tab（不重置）。内存软上限见 navChain.CHAIN_MAX（超出按 LRU 淘汰）；
+  // 顶栏实际可见几个由 TopBarNavChain 按宽度自适应，放不下的收进 “»N” 下拉。
   // 工作台（/workhub/*：发起、待办）由顶栏固定页签承载，不进多页签链
   if (!to.path.startsWith('/workhub')) {
     import('@/stores/navChain').then(({ useNavChainStore, consumeNavSource }) => {

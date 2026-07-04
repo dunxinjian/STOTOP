@@ -163,6 +163,7 @@ onBeforeUnmount(() => {
 }
 
 .tab-bar__chain {
+  flex: 1;        // 撑满固定页签右侧的剩余空间：既用满顶栏，也让 nav-chain 测到稳定的真·可用宽度
   min-width: 0;
 }
 
