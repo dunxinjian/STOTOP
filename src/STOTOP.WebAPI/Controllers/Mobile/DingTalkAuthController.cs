@@ -130,20 +130,28 @@ public class DingTalkAuthController : ControllerBase
             }
             catch (Exception ex) { _logger.LogWarning(ex, "钉钉登录 IdP 身份登记失败(best-effort)"); }
 
-            // M8·R4·免登多租户消歧：用户属多个已接受租户且无主租户 → 428 让前端选租户（禁隐式选租户）。
-            var tenantResolution = await _idp.ResolveLoginTenantAsync(systemUser.Id);
-            if (tenantResolution.MustSelect)
-            {
-                return Ok(new { code = 428, message = "请选择租户", data = new { tenants = tenantResolution.Tenants } });
-            }
-
             // 3. 生成 JWT + RefreshToken
+            // 【终审修】租户走 X-Tenant-Context 请求头、不入 JWT，故消歧 428 也必须先发 token——否则 428 无 token
+            // 会把用户锁死（唯一选租户端点 switch-tenant 需 [Authorize]，无 token 无法调用，用户永远登不进）。
             var token = GenerateJwtToken(systemUser);
             var refreshToken = GenerateRefreshToken();
 
             // 4. 存储 refreshToken（关联到用户）
             // TODO: 保存 refreshToken 到数据库或缓存（含过期时间 7 天）
             await SaveRefreshToken(systemUser.Id, refreshToken);
+
+            // M8·R4·免登多租户消歧：用户属多个已接受租户且无主租户 → 428 附 token + 候选租户；
+            // 前端持 token 选租户后，带 X-Tenant-Context 头继续（禁隐式选租户）。
+            var tenantResolution = await _idp.ResolveLoginTenantAsync(systemUser.Id);
+            if (tenantResolution.MustSelect)
+            {
+                return Ok(new
+                {
+                    code = 428,
+                    message = "请选择租户",
+                    data = new { token, refreshToken, mustSelectTenant = true, tenants = tenantResolution.Tenants }
+                });
+            }
 
             return Ok(new
             {

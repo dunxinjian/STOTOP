@@ -37,11 +37,12 @@ public class TodoDispatchLogTests
 
         var first = await svc.TryBeginCallbackAsync("T20", "completed");
         Assert.Equal(20L, first.TodoItemId);
-        Assert.False(first.AlreadyProcessed);       // 首次处理
+        Assert.False(first.AlreadyProcessed);       // 首次处理（幂等标记仅暂存,未提交）
+        await ctx.SaveChangesAsync();               // 模拟调用方在更新待办后【一次】提交 标记+待办状态（原子）
 
         var replay = await svc.TryBeginCallbackAsync("T20", "completed");
         Assert.Equal(20L, replay.TodoItemId);
-        Assert.True(replay.AlreadyProcessed);        // 同事件重放 → 幂等跳过
+        Assert.True(replay.AlreadyProcessed);        // 同事件重放（已提交标记）→ 幂等跳过
 
         var otherEvent = await svc.TryBeginCallbackAsync("T20", "deleted");
         Assert.Equal(20L, otherEvent.TodoItemId);

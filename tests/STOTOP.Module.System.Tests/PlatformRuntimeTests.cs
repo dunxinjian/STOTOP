@@ -113,6 +113,9 @@ public class PlatformRuntimeTests
         Assert.Equal(402, await RunFreeze(7001, PltTenantStatus.Frozen, "/api/crm/customer", "POST"));   // 业务写
         Assert.Equal(402, await RunFreeze(7002, PltTenantStatus.Frozen, "/api/finance/report/export", "GET")); // 批量导出
         Assert.Equal(200, await RunFreeze(7003, PltTenantStatus.Frozen, "/api/finance/voucher/list", "GET")); // 结账类只读放行
+        // 终审修：org-context 成员写不再整前缀豁免 → 冻结时被拒；切换/我的组织等导航只读仍放行。
+        Assert.Equal(402, await RunFreeze(7008, PltTenantStatus.Frozen, "/api/system/org-context/user-organizations", "POST"));
+        Assert.Equal(200, await RunFreeze(7009, PltTenantStatus.Frozen, "/api/system/org-context/switch", "POST"));
     }
 
     [Fact]

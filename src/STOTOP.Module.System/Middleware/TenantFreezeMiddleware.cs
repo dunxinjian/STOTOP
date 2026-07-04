@@ -24,11 +24,17 @@ public class TenantFreezeMiddleware
 {
     private readonly RequestDelegate _next;
 
-    // 冻结态无关的路径：登录/平台(续费·解冻)/健康检查/文档/实时/切换。
+    // 冻结态无关的路径：登录/平台(续费·解冻)/健康检查/文档/实时。
+    // 【终审修】org-context 只豁免【读/切换】具体路径,不整前缀豁免——否则 org-context 下的成员写端点
+    // (POST/PUT/DELETE user-organizations) 会绕过冻结门。切换/我的组织/我的租户/当前上下文 是导航只读须放行;
+    // "switch" 前缀经 StartsWith 同时覆盖 switch-tenant。
     private static readonly string[] SkipPaths =
     {
         "/api/auth/", "/api/platform/", "/setup", "/health", "/swagger", "/hubs/",
-        "/api/system/org-context/",
+        "/api/system/org-context/my-organizations",
+        "/api/system/org-context/my-tenants",
+        "/api/system/org-context/switch",
+        "/api/system/org-context/current",
     };
 
     // 冻结时即便 GET 也禁：批量导出/下载/全量拉数（按路径子串启发式识别）。

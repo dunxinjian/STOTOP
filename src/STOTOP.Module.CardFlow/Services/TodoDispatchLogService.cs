@@ -47,10 +47,12 @@ public class TodoDispatchLogService : ITodoDispatchLogService
         if (log == null) return (null, false);                       // 无分发记录 → 调用方 legacy 匹配 + 告警
         if (log.FLastCallbackEvent == eventType) return (log.FTodoItemId, true); // 同事件重放 → 幂等跳过
 
+        // 【原子性·终审修】只【暂存】幂等标记、不在此单独 SaveChanges——本服务与调用方共用同一 scoped DbContext，
+        // 由调用方在更新待办状态后【一次】SaveChanges 把 标记+待办状态 同事务提交。
+        // 从而：待办更新失败 → 标记随之回滚 → 重投会重新处理（避免"标记先落库、效果失败 → 永久丢事件"）。
         log.FLastCallbackEvent = eventType;
         log.FLastCallbackAt = DateTime.Now;
         log.FUpdateTime = DateTime.Now;
-        await _db.SaveChangesAsync();
         return (log.FTodoItemId, false);
     }
 }
