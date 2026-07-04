@@ -822,7 +822,8 @@ public class JournalService
         var priorEntries = await (from e in _entryRepository.Query()
                                   join v in _voucherRepository.Query() on e.FVoucherId equals v.FID
                                   where v.FAccountSetId == accountSetId
-                                        && v.FStatus == (int)VoucherStatus.Audited
+                                        // 含已锁定(结账后 FStatus=3)：否则任一期间结账后，期初余额丢失全部历史累计而塌陷
+                                        && (v.FStatus == (int)VoucherStatus.Audited || v.FStatus == (int)VoucherStatus.Locked)
                                         && v.FDate < startDate
                                         && targetAccountIds.Contains(e.FAccountId)
                                   select e).ToListAsync();

@@ -2225,7 +2225,9 @@ public class AmoebaPLService
     {
         var outlets = scope?.Outlets?.Where(s => !string.IsNullOrEmpty(s)).Distinct().ToList();
 
-        var sql = @"SELECT ISNULL(SUM([F基础派费收费件量]), 0) AS [Value]
+        // CAST 到 BIGINT：F基础派费收费件量 是 int 列，SUM(int) 返回 int，直接用 SqlQueryRaw<long>
+        // 物化会抛 InvalidCastException（SqlClient 不隐式加宽 int→long）；且大批量求和 int 会溢出。
+        var sql = @"SELECT ISNULL(SUM(CAST([F基础派费收费件量] AS BIGINT)), 0) AS [Value]
                     FROM [STG申通派件日明细]
                     WHERE [F结算日期] >= {0} AND [F结算日期] < {1}
                         AND [FOrgId] = {2} AND [FIsRevoked] = 0";

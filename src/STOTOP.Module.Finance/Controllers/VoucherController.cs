@@ -161,7 +161,8 @@ public class VoucherController : ControllerBase
     [RequireAccountSetPermission(AccountSetPermissions.VoucherView)]
     public async Task<ApiResult<List<VoucherListDto>>> GetDrafts([FromQuery] long accountSetId = 0)
     {
-        var result = await _voucherService.GetDraftsAsync(accountSetId);
+        // 与 SaveDraft 一致优先取 X-AccountSet-Id 头：否则前端不带 query 时草稿存入头账套、此处按 0 查 → 草稿箱恒空。
+        var result = await _voucherService.GetDraftsAsync(ResolveAccountSetId(accountSetId));
         return ApiResult<List<VoucherListDto>>.Success(result);
     }
 

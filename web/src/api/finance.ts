@@ -1579,16 +1579,16 @@ export function deleteAccountMapping(id: string): Promise<any> {
 
 // 辅助映射
 export function getAuxiliaryMappings(schemeId: string): Promise<any[]> {
-  return get('/finance/migration/auxiliary-mappings', { schemeId })
+  return get('/finance/migration/aux-mappings', { schemeId })
 }
 export function createAuxiliaryMappings(data: any): Promise<any> {
-  return post('/finance/migration/auxiliary-mappings', data)
+  return post('/finance/migration/aux-mappings', data)
 }
 export function updateAuxiliaryMapping(id: string, data: any): Promise<any> {
-  return put(`/finance/migration/auxiliary-mappings/${id}`, data)
+  return put(`/finance/migration/aux-mappings/${id}`, data)
 }
 export function deleteAuxiliaryMapping(id: string): Promise<any> {
-  return del(`/finance/migration/auxiliary-mappings/${id}`)
+  return del(`/finance/migration/aux-mappings/${id}`)
 }
 
 // 资产映射

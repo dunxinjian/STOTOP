@@ -7,6 +7,7 @@ using STOTOP.Core.Interfaces;
 using STOTOP.Core.Models;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Infrastructure.Events;
+using STOTOP.Module.Finance.Constants;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Entities;
 using STOTOP.Module.Finance.Events;
@@ -561,6 +562,16 @@ public class VoucherService : IVoucherService
         var voucher = await GetOwnedVoucherAsync(id);
         if (voucher == null) return false;
 
+        // 状态机校验：仅待审核(1)可审核。否则草稿(0)可越过提交直审、作废(-1)被复活、锁定(3)绕过反结账解锁。
+        if (voucher.FStatus != (int)VoucherStatus.Pending)
+            throw new InvalidOperationException(voucher.FStatus switch
+            {
+                (int)VoucherStatus.Audited => "凭证已审核，无需重复审核",
+                (int)VoucherStatus.Locked => "凭证所在期间已结账锁定，请先反结账",
+                (int)VoucherStatus.Voided => "凭证已作废，不可审核",
+                _ => "仅待审核凭证可审核"
+            });
+
         // P0-1 制单审核分离（账套规则开关，默认关=不校验）：制单人不可审核本人凭证
         var rule = await _accountSetRuleService.GetByAccountSetAsync(voucher.FAccountSetId);
         if (rule?.FRequireAuditSeparation == true && voucher.FCreator == auditor)
@@ -581,6 +592,12 @@ public class VoucherService : IVoucherService
     {
         var voucher = await GetOwnedVoucherAsync(id);
         if (voucher == null) return false;
+
+        // 状态机校验：仅已审核(2)可反审核。锁定(3)须先反结账；草稿/待审核/作废无从反审核。
+        if (voucher.FStatus == (int)VoucherStatus.Locked)
+            throw new InvalidOperationException("凭证所在期间已结账锁定，请先反结账后再操作");
+        if (voucher.FStatus != (int)VoucherStatus.Audited)
+            throw new InvalidOperationException("仅已审核凭证可反审核");
 
         voucher.FStatus = 1; // 待审核
         voucher.FAuditor = null;
@@ -902,7 +919,8 @@ public class VoucherService : IVoucherService
             var voucher = await GetOwnedVoucherAsync(id);
             if (voucher == null) continue;
 
-            if (voucher.FStatus == 2)
+            // 仅待审核(1)可审核；已审核(2)/草稿(0)/作废(-1)/锁定(3) 一律跳过（与单张 AuditAsync 状态机一致）
+            if (voucher.FStatus != 1)
             {
                 skipCount++;
                 continue;
@@ -933,7 +951,7 @@ public class VoucherService : IVoucherService
             successCount++;
         }
 
-        var message = $"成功审核 {successCount} 张，跳过 {skipCount} 张（已审核）";
+        var message = $"成功审核 {successCount} 张，跳过 {skipCount} 张（非待审核）";
         if (selfAuditSkipCount > 0)
             message += $"，{selfAuditSkipCount} 张（制单人不可自审）";
         return ApiResult<object>.Success(

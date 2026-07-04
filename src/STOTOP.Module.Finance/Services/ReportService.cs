@@ -123,7 +123,7 @@ public class ReportService : IReportService
         var entries = await (from e in _voucherEntryRepository.Query()
                              join v in _voucherRepository.Query().Where(v => v.FAccountSetId == accountSetId) on e.FVoucherId equals v.FID
                              join p in _periodRepository.Query().Where(p => p.FAccountSetId == accountSetId) on v.FPeriodId equals p.FID
-                             where v.FStatus == 2 && p.FYear == year && p.FPeriodNo <= month
+                             where (v.FStatus == 2 || v.FStatus == 3) && p.FYear == year && p.FPeriodNo <= month
                              select new { e, p.FPeriodNo }).ToListAsync();
 
         var result = new List<AccountBalanceDto>();
@@ -386,13 +386,13 @@ public class ReportService : IReportService
         // 获取本期已过账凭证分录
         var currentEntries = await (from e in _voucherEntryRepository.Query()
                                      join v in _voucherRepository.Query().Where(v => v.FAccountSetId == accountSetId) on e.FVoucherId equals v.FID
-                                     where v.FStatus == 2 && v.FDate >= currentStartDate && v.FDate <= currentEndDate
+                                     where (v.FStatus == 2 || v.FStatus == 3) && v.FSource != VoucherSource.SystemClosing && v.FDate >= currentStartDate && v.FDate <= currentEndDate
                                      select e).ToListAsync();
 
         // 获取本年累计已过账凭证分录
         var yearEntries = await (from e in _voucherEntryRepository.Query()
                                  join v in _voucherRepository.Query().Where(v => v.FAccountSetId == accountSetId) on e.FVoucherId equals v.FID
-                                 where v.FStatus == 2 && v.FDate >= yearStartDate && v.FDate <= yearEndDate
+                                 where (v.FStatus == 2 || v.FStatus == 3) && v.FSource != VoucherSource.SystemClosing && v.FDate >= yearStartDate && v.FDate <= yearEndDate
                                  select e).ToListAsync();
 
         // 使用与小企业报表相同的实时计算逻辑
@@ -911,13 +911,13 @@ public class ReportService : IReportService
         // 获取本期已过账凭证分录
         var currentEntries = await (from e in _voucherEntryRepository.Query()
                                      join v in _voucherRepository.Query().Where(v => v.FAccountSetId == accountSetId) on e.FVoucherId equals v.FID
-                                     where v.FStatus == 2 && v.FDate >= currentStartDate && v.FDate <= currentEndDate
+                                     where (v.FStatus == 2 || v.FStatus == 3) && v.FSource != VoucherSource.SystemClosing && v.FDate >= currentStartDate && v.FDate <= currentEndDate
                                      select e).ToListAsync();
         
         // 获取本年累计已过账凭证分录
         var yearEntries = await (from e in _voucherEntryRepository.Query()
                                  join v in _voucherRepository.Query().Where(v => v.FAccountSetId == accountSetId) on e.FVoucherId equals v.FID
-                                 where v.FStatus == 2 && v.FDate >= yearStartDate && v.FDate <= yearEndDate
+                                 where (v.FStatus == 2 || v.FStatus == 3) && v.FSource != VoucherSource.SystemClosing && v.FDate >= yearStartDate && v.FDate <= yearEndDate
                                  select e).ToListAsync();
         
         // 计算各科目金额
@@ -1228,9 +1228,15 @@ public class ReportService : IReportService
         var currentPeriod = await _periodRepository.GetByIdAsync(periodId);
         if (currentPeriod == null) return false;
 
-        var prevPeriod = await _periodRepository.Query()
-            .Where(p => p.FYear == currentPeriod.FYear && p.FPeriodNo == currentPeriod.FPeriodNo - 1 && p.FAccountSetId == accountSetId)
-            .FirstOrDefaultAsync();
+        // 上期跨年回退：1月(FPeriodNo==1)的上期是上一年12月，否则同年上一期。
+        // 否则1月重算取不到上期 → 期初全部按0覆盖，抹掉年结转来的期初余额（现金/应收/权益等历年累计）。
+        var prevPeriod = currentPeriod.FPeriodNo > 1
+            ? await _periodRepository.Query()
+                .Where(p => p.FYear == currentPeriod.FYear && p.FPeriodNo == currentPeriod.FPeriodNo - 1 && p.FAccountSetId == accountSetId)
+                .FirstOrDefaultAsync()
+            : await _periodRepository.Query()
+                .Where(p => p.FYear == currentPeriod.FYear - 1 && p.FPeriodNo == 12 && p.FAccountSetId == accountSetId)
+                .FirstOrDefaultAsync();
 
         var prevBalances = prevPeriod != null 
             ? await _balanceRepository.Query().Where(b => b.FPeriodId == prevPeriod.FID && b.FAccountSetId == accountSetId).ToListAsync()
@@ -1239,7 +1245,8 @@ public class ReportService : IReportService
         // 从凭证分录汇总本期发生额
         var entries = await (from e in _voucherEntryRepository.Query()
                              join v in _voucherRepository.Query().Where(v => v.FAccountSetId == accountSetId) on e.FVoucherId equals v.FID
-                             where v.FPeriodId == periodId && v.FStatus == 2
+                             // 含已锁定(结账后 FStatus=3)：否则结账后重算把已入账凭证当空集，本期发生额清零、余额被销毁
+                             where v.FPeriodId == periodId && (v.FStatus == 2 || v.FStatus == 3)
                              select e).ToListAsync();
 
         foreach (var account in accounts.Where(a => a.FIsLeaf == 1))
@@ -1463,7 +1470,7 @@ public class ReportService : IReportService
         var allEntries = await (from e in _voucherEntryRepository.Query()
                                  join v in _voucherRepository.Query().Where(v => v.FAccountSetId == accountSetId) on e.FVoucherId equals v.FID
                                  join p in _periodRepository.Query().Where(p => p.FAccountSetId == accountSetId) on v.FPeriodId equals p.FID
-                                 where e.FAccountId == accountId && v.FStatus == 2 && p.FYear == year && p.FPeriodNo <= periodNo
+                                 where e.FAccountId == accountId && (v.FStatus == 2 || v.FStatus == 3) && p.FYear == year && p.FPeriodNo <= periodNo
                                  orderby p.FPeriodNo, v.FDate, e.FID
                                  select new
                                  {
@@ -1580,7 +1587,7 @@ public class ReportService : IReportService
 
         var entries = await (from e in _voucherEntryRepository.Query()
                              join v in _voucherRepository.Query().Where(v => v.FAccountSetId == accountSetId) on e.FVoucherId equals v.FID
-                             where v.FStatus == 2 && v.FDate >= startDate && v.FDate <= endDate
+                             where (v.FStatus == 2 || v.FStatus == 3) && v.FDate >= startDate && v.FDate <= endDate
                                    && matchedAccountIds.Contains(e.FAccountId)
                              orderby v.FDate, v.FVoucherNo
                              select new DrillDownItemDto
@@ -1624,7 +1631,7 @@ public class ReportService : IReportService
 
             var entries = await (from e in _voucherEntryRepository.Query()
                                  join v in _voucherRepository.Query().Where(v => v.FAccountSetId == accountSetId) on e.FVoucherId equals v.FID
-                                 where v.FStatus == 2 && v.FDate >= startDate && v.FDate <= endDate
+                                 where (v.FStatus == 2 || v.FStatus == 3) && v.FSource != VoucherSource.SystemClosing && v.FDate >= startDate && v.FDate <= endDate
                                  select e).ToListAsync();
 
             var amounts = CalculateAccountAmounts(entries, accounts);
@@ -1661,7 +1668,7 @@ public class ReportService : IReportService
 
         var entries = await (from e in _voucherEntryRepository.Query()
                              join v in _voucherRepository.Query().Where(v => v.FAccountSetId == accountSetId) on e.FVoucherId equals v.FID
-                             where v.FStatus == 2 && v.FDate >= startDate && v.FDate <= endDate
+                             where (v.FStatus == 2 || v.FStatus == 3) && v.FSource != VoucherSource.SystemClosing && v.FDate >= startDate && v.FDate <= endDate
                              select e).ToListAsync();
 
         var amounts = CalculateAccountAmounts(entries, accounts);
@@ -1696,7 +1703,7 @@ public class ReportService : IReportService
 
         var entries = await (from e in _voucherEntryRepository.Query()
                              join v in _voucherRepository.Query().Where(v => v.FAccountSetId == accountSetId) on e.FVoucherId equals v.FID
-                             where v.FStatus == 2 && v.FDate >= startDate && v.FDate <= endDate
+                             where (v.FStatus == 2 || v.FStatus == 3) && v.FSource != VoucherSource.SystemClosing && v.FDate >= startDate && v.FDate <= endDate
                              select e).ToListAsync();
 
         var amounts = CalculateAccountAmounts(entries, accounts);
@@ -1744,7 +1751,7 @@ public class ReportService : IReportService
             var end = start.AddMonths(1).AddDays(-1);
             var entries = await (from e in _voucherEntryRepository.Query()
                                  join v in _voucherRepository.Query().Where(v => v.FAccountSetId == accountSetId) on e.FVoucherId equals v.FID
-                                 where v.FStatus == 2 && v.FDate >= start && v.FDate <= end
+                                 where (v.FStatus == 2 || v.FStatus == 3) && v.FSource != VoucherSource.SystemClosing && v.FDate >= start && v.FDate <= end
                                  select e).ToListAsync();
             return CalculateAccountAmounts(entries, accounts);
         }
