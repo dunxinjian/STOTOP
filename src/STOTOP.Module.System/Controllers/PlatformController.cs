@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using STOTOP.Core.Models;
 using STOTOP.Module.System.Dtos;
+using STOTOP.Module.System.Entities;
 using STOTOP.Module.System.Filters;
 using STOTOP.Module.System.Services.Interfaces;
 
@@ -18,8 +19,13 @@ namespace STOTOP.Module.System.Controllers;
 public class PlatformController : ControllerBase
 {
     private readonly IPlatformService _platform;
+    private readonly IIdpService _idp;
 
-    public PlatformController(IPlatformService platform) => _platform = platform;
+    public PlatformController(IPlatformService platform, IIdpService idp)
+    {
+        _platform = platform;
+        _idp = idp;
+    }
 
     // ---- 租户 ----
 
@@ -72,4 +78,22 @@ public class PlatformController : ControllerBase
     [HttpPost("subscriptions")]
     public async Task<ApiResult<long>> CreateSubscription([FromBody] CreateSubscriptionRequest request)
         => ApiResult<long>.Success(await _platform.CreateSubscriptionAsync(request));
+
+    // ---- 外部身份企业（M8·平台）：本控制器已在平台作用域，IDP企业租户映射(ITenantScoped) 写入可显式落 FTenantId ----
+
+    [HttpGet("idp/corps")]
+    public async Task<ApiResult<List<IdpExternalCorpDto>>> GetExternalCorps()
+        => ApiResult<List<IdpExternalCorpDto>>.Success(await _idp.GetExternalCorpsAsync());
+
+    [HttpPost("idp/corps")]
+    public async Task<ApiResult<long>> EnsureExternalCorp([FromBody] SaveExternalCorpRequest request)
+        => ApiResult<long>.Success(await _idp.EnsureExternalCorpAsync((IdpProvider)request.Provider, request.CorpId, request.Name, request.AccessConfig));
+
+    /// <summary>企业↔租户绑定（N:N；一 corp 服务多租户 / 一租户接多 corp）。</summary>
+    [HttpPost("idp/link-tenant")]
+    public async Task<ApiResult<bool>> LinkCorpToTenant([FromBody] LinkCorpTenantRequest request)
+    {
+        await _idp.LinkCorpToTenantAsync(request.CorpId, request.TenantId);
+        return ApiResult<bool>.Success(true);
+    }
 }

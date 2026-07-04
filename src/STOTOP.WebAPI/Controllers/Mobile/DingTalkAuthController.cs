@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.System.Entities;
+using STOTOP.Module.System.Services.Interfaces;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -29,6 +30,7 @@ public class DingTalkAuthController : ControllerBase
     private readonly STOTOPDbContext _context;
     private readonly IMemoryCache _cache;
     private readonly IWebHostEnvironment _env;
+    private readonly IIdpService _idp;
 
     public DingTalkAuthController(
         IConfiguration config,
@@ -36,7 +38,8 @@ public class DingTalkAuthController : ControllerBase
         ILogger<DingTalkAuthController> logger,
         STOTOPDbContext context,
         IMemoryCache cache,
-        IWebHostEnvironment env)
+        IWebHostEnvironment env,
+        IIdpService idp)
     {
         _config = config;
         _httpClientFactory = httpClientFactory;
@@ -44,6 +47,7 @@ public class DingTalkAuthController : ControllerBase
         _context = context;
         _cache = cache;
         _env = env;
+        _idp = idp;
     }
 
     /// <summary>
@@ -112,6 +116,25 @@ public class DingTalkAuthController : ControllerBase
             if (systemUser == null)
             {
                 return Ok(new { code = 403, message = "该钉钉用户未绑定系统账号" });
+            }
+
+            // M8(阶段4D)·加性：登记外部身份到 IDP用户身份（前向规范存储；best-effort，绝不阻断登录）。
+            try
+            {
+                var loginCorpId = _config["DingTalk:CorpId"] ?? "";
+                if (!string.IsNullOrEmpty(loginCorpId))
+                {
+                    await _idp.EnsureExternalCorpAsync(IdpProvider.DingTalk, loginCorpId, "钉钉企业");
+                    await _idp.UpsertUserIdentityAsync(systemUser.Id, loginCorpId, dingUser.UserId, dingUser.UnionId);
+                }
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "钉钉登录 IdP 身份登记失败(best-effort)"); }
+
+            // M8·R4·免登多租户消歧：用户属多个已接受租户且无主租户 → 428 让前端选租户（禁隐式选租户）。
+            var tenantResolution = await _idp.ResolveLoginTenantAsync(systemUser.Id);
+            if (tenantResolution.MustSelect)
+            {
+                return Ok(new { code = 428, message = "请选择租户", data = new { tenants = tenantResolution.Tenants } });
             }
 
             // 3. 生成 JWT + RefreshToken
