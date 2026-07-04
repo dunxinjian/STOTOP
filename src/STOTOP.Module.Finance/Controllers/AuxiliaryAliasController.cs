@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using STOTOP.Core.Models;
 using STOTOP.Module.Finance.Dtos;
+using STOTOP.Module.Finance.Filters;
 using STOTOP.Module.Finance.Services;
 
 namespace STOTOP.Module.Finance.Controllers;
@@ -19,18 +20,22 @@ public class AuxiliaryAliasController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ApiResult<List<AuxiliaryAliasDto>>> GetAll([FromQuery] string? auxType)
+    [RequireAccountSetPermission(AccountSetPermissions.AuxiliaryView)]
+    public async Task<ApiResult<List<AuxiliaryAliasDto>>> GetAll([FromQuery] string? auxType,
+        [FromHeader(Name = "X-AccountSet-Id")] long accountSetId = 0)
     {
-        var result = await _aliasService.GetAllAsync(auxType);
+        var result = await _aliasService.GetAllAsync(auxType, accountSetId);
         return ApiResult<List<AuxiliaryAliasDto>>.Success(result);
     }
 
     [HttpPost]
-    public async Task<ApiResult<AuxiliaryAliasDto>> Create([FromBody] AuxiliaryAliasDto dto)
+    [RequireAccountSetPermission(AccountSetPermissions.AuxiliaryEdit)]
+    public async Task<ApiResult<AuxiliaryAliasDto>> Create([FromBody] AuxiliaryAliasDto dto,
+        [FromHeader(Name = "X-AccountSet-Id")] long accountSetId = 0)
     {
         try
         {
-            var result = await _aliasService.CreateAsync(dto);
+            var result = await _aliasService.CreateAsync(dto, accountSetId);
             return ApiResult<AuxiliaryAliasDto>.Success(result!, "创建成功");
         }
         catch (Exception ex)
@@ -40,11 +45,13 @@ public class AuxiliaryAliasController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    public async Task<ApiResult<AuxiliaryAliasDto>> Update(Guid id, [FromBody] AuxiliaryAliasDto dto)
+    [RequireAccountSetPermission(AccountSetPermissions.AuxiliaryEdit)]
+    public async Task<ApiResult<AuxiliaryAliasDto>> Update(Guid id, [FromBody] AuxiliaryAliasDto dto,
+        [FromHeader(Name = "X-AccountSet-Id")] long accountSetId = 0)
     {
         try
         {
-            var result = await _aliasService.UpdateAsync(id, dto);
+            var result = await _aliasService.UpdateAsync(id, dto, accountSetId);
             if (result == null)
             {
                 return ApiResult<AuxiliaryAliasDto>.Fail("记录不存在");
@@ -58,11 +65,13 @@ public class AuxiliaryAliasController : ControllerBase
     }
 
     [HttpDelete("{id}")]
-    public async Task<ApiResult> Delete(Guid id)
+    [RequireAccountSetPermission(AccountSetPermissions.AuxiliaryEdit)]
+    public async Task<ApiResult> Delete(Guid id,
+        [FromHeader(Name = "X-AccountSet-Id")] long accountSetId = 0)
     {
         try
         {
-            var result = await _aliasService.DeleteAsync(id);
+            var result = await _aliasService.DeleteAsync(id, accountSetId);
             if (!result)
             {
                 return ApiResult.Fail("记录不存在");
