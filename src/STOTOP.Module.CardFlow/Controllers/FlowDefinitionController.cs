@@ -69,6 +69,20 @@ public class FlowDefinitionController : ControllerBase
         }
     }
 
+    [HttpDelete("{id}")]
+    public async Task<ApiResult> Delete(long id)
+    {
+        try
+        {
+            await _service.DeleteAsync(id, GetUserId());
+            return ApiResult.Ok("删除成功");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ApiResult.Fail(ex.Message);
+        }
+    }
+
     [HttpPost("{id}/publish")]
     public async Task<ApiResult> Publish(long id)
     {
@@ -164,12 +178,25 @@ public class FlowDefinitionController : ControllerBase
     }
 
     [HttpGet("{id}/draft-version")]
-    public async Task<ApiResult<FlowVersionDetailDto>> GetDraftVersion(long id)
+    public async Task<ApiResult<FlowVersionDetailDto?>> GetDraftVersion(long id)
     {
+        // 无草稿且无已发布版本（新建后从未保存过）属正常场景，返回 Success(null) 避免前端弹错
         var result = await _service.GetDraftVersionAsync(id);
-        if (result == null)
-            return ApiResult<FlowVersionDetailDto>.Fail("暂无草稿版本");
-        return ApiResult<FlowVersionDetailDto>.Success(result);
+        return ApiResult<FlowVersionDetailDto?>.Success(result);
+    }
+
+    [HttpDelete("{id}/draft-version")]
+    public async Task<ApiResult> DiscardDraftVersion(long id)
+    {
+        try
+        {
+            await _service.DiscardDraftVersionAsync(id, GetUserId());
+            return ApiResult.Ok("草稿已放弃");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ApiResult.Fail(ex.Message);
+        }
     }
 
     [HttpPost("{id}/draft-version/preview-path")]

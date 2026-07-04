@@ -60,8 +60,19 @@ public class FlowDefinitionQueryRequest
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
     public string? Status { get; set; }
+
+    /// <summary>多状态筛选，逗号分隔（如 "draft,published"）；与 Status 并存时取并集语义由本字段覆盖</summary>
+    public string? Statuses { get; set; }
+
     public long? OrgId { get; set; }
     public string? Keyword { get; set; }
+    public long? FlowGroupId { get; set; }
+
+    /// <summary>排序字段白名单：flowName / createdTime / lastPublishedTime，缺省按创建时间倒序</summary>
+    public string? SortField { get; set; }
+
+    /// <summary>asc / desc（缺省 desc）</summary>
+    public string? SortOrder { get; set; }
 }
 
 public class CreateFlowDefinitionRequest
@@ -73,6 +84,7 @@ public class CreateFlowDefinitionRequest
     public string? TitleTemplate { get; set; }
     public string? AllowedRolesJson { get; set; }
     public long? FlowGroupId { get; set; }
+    public string? MatchPattern { get; set; }
     public long OrgId { get; set; }
 }
 
@@ -84,6 +96,7 @@ public class UpdateFlowDefinitionRequest
     public string? TitleTemplate { get; set; }
     public string? AllowedRolesJson { get; set; }
     public long? FlowGroupId { get; set; }
+    public string? MatchPattern { get; set; }
 }
 
 public class SaveDraftVersionRequest

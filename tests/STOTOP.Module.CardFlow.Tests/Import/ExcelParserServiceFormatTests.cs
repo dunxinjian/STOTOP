@@ -1,4 +1,5 @@
 using STOTOP.Module.CardFlow.Services.Import;
+using STOTOP.Module.CardFlow.Tests.TestInfra;
 using Xunit;
 
 namespace STOTOP.Module.CardFlow.Tests.Import;
@@ -13,12 +14,16 @@ using Task = global::System.Threading.Tasks.Task;
 public class ExcelParserServiceFormatTests
 {
     // 内容实为 xlsx（PK\x03\x04 头），但扩展名是 .xls
-    private const string MisnamedXlsxAsXls =
-        @"E:\STOTOP_Fable\Taicang\网点质控数据\申通网点\申通数据明细\b20606c963a5471eaf1e443c1aa42564抖音照片质检.xls";
+    private const string MisnamedXlsxAsXlsRel =
+        @"网点质控数据\申通网点\申通数据明细\b20606c963a5471eaf1e443c1aa42564抖音照片质检.xls";
+    private static readonly string MisnamedXlsxAsXls =
+        Path.Combine(SampleFileFactAttribute.ResolveSampleDir(), MisnamedXlsxAsXlsRel);
 
     // 内容实为 OLE2/BIFF（D0CF 头）的真 .xls 文件
-    private const string RealXls =
-        @"E:\STOTOP_Fable\Taicang\网点质控数据\申通网点\申通数据明细\excel (未到件).xls";
+    private const string RealXlsRel =
+        @"网点质控数据\申通网点\申通数据明细\excel (未到件).xls";
+    private static readonly string RealXls =
+        Path.Combine(SampleFileFactAttribute.ResolveSampleDir(), RealXlsRel);
 
     private static async Task<List<string>> ReadHeadersViaParseAsync(string path, string declaredFileName)
     {
@@ -30,7 +35,7 @@ public class ExcelParserServiceFormatTests
         return headers;
     }
 
-    [Fact]
+    [SampleFileFact(MisnamedXlsxAsXlsRel)]
     public async Task ParseAsync_ContentIsXlsxButExtensionIsXls_ReadsHeaders()
     {
         var headers = await ReadHeadersViaParseAsync(MisnamedXlsxAsXls, "x.xls");
@@ -38,7 +43,7 @@ public class ExcelParserServiceFormatTests
         Assert.Contains("是否质检合格", headers);
     }
 
-    [Fact]
+    [SampleFileFact(RealXlsRel)]
     public async Task ParseAsync_ContentIsXlsButExtensionIsXlsx_ReadsHeaders()
     {
         // 反向场景：真 OLE2 .xls 内容，却被声明为 .xlsx。

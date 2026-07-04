@@ -379,6 +379,8 @@ public class BatchDeletePreCheck
     public bool HasClosedPeriod { get; set; }
     public int AffectedVoucherCount { get; set; }
     public int AffectedRowCount { get; set; }
+    /// <summary>在途卡片数（draft/active/returned，撤销时被级联取消，仅知情提示不阻止）</summary>
+    public int ActiveCardCount { get; set; }
     public string? BlockReason { get; set; }
 }
 

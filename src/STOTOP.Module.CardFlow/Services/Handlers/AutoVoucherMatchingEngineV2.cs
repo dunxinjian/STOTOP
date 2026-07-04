@@ -472,6 +472,8 @@ public class AutoVoucherMatchingEngineV2
         }
     }
 
+    // 条件求值收敛（阶段3g 2026-07-04）：本实现因生产凭证链（D2 决策 AutoVoucher 简化后置）暂保留独立；
+    // 新增算子/规则能力请优先评估复用 ConditionRuleEvaluator，避免第四套语义。
     /// <summary>
     /// 评估单条筛选条件
     /// </summary>

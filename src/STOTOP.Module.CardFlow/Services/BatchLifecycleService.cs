@@ -1,12 +1,11 @@
 using System.Text.Json;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Core.Interfaces;
+using STOTOP.Module.CardFlow.AutoPlugin;
 using STOTOP.Module.CardFlow.Entities;
-using STOTOP.Module.CardFlow.Hubs;
 
 namespace STOTOP.Module.CardFlow.Services;
 
@@ -29,14 +28,20 @@ public interface IBatchLifecycleService
     /// <summary>聚合刷新批次状态（卡片状态变更后调用）</summary>
     Task RefreshBatchStatusAsync(long batchId);
 
-    /// <summary>撤销批次：级联取消未完成卡片 + 凭证红冲 + 批次软删除</summary>
+    /// <summary>撤销批次：委托 BatchRevokeHandler 无工单权威路径（级联取消 + 批次软删除 + 撤销日志/事件 + 版本推送）</summary>
     Task RevokeBatchAsync(long batchId, long operatorId);
+
+    /// <summary>撤销级联段：取消未完成卡片（含凭证红冲/编排回调）+ 行明细置 5(已撤销)。供权威撤销路径 BatchRevokeHandler 调用</summary>
+    Task CascadeCancelBatchArtifactsAsync(long batchId);
 
     /// <summary>查询批次进度（按节点名称分组）</summary>
     Task<BatchProgressDto> GetBatchProgressAsync(long batchId);
 
     /// <summary>原子性批次状态转换：SaveChanges + SignalR 推送</summary>
     Task TransitionBatchStatusAsync(CfBatch batch, int newStatus, string? message = null);
+
+    /// <summary>递增批次变更版本号（SEQ_BatchChange 全局单调），返回新版本号。供撤销/恢复权威路径推送用</summary>
+    Task<long> BumpChangeVersionAsync(CfBatch batch);
 }
 
 /// <summary>
@@ -47,7 +52,7 @@ public class BatchLifecycleService : IBatchLifecycleService
     private readonly STOTOPDbContext _db;
     private readonly IServiceProvider _serviceProvider;
     private readonly OrchestrationEngineService _orchestrationEngine;
-    private readonly IHubContext<CardFlowHub> _hubContext;
+    private readonly IProgressNotifier _progressNotifier;
     private readonly ILogger<BatchLifecycleService> _logger;
 
     // 卡片终态集合
@@ -68,13 +73,13 @@ public class BatchLifecycleService : IBatchLifecycleService
         STOTOPDbContext db,
         IServiceProvider serviceProvider,
         OrchestrationEngineService orchestrationEngine,
-        IHubContext<CardFlowHub> hubContext,
+        IProgressNotifier progressNotifier,
         ILogger<BatchLifecycleService> logger)
     {
         _db = db;
         _serviceProvider = serviceProvider;
         _orchestrationEngine = orchestrationEngine;
-        _hubContext = hubContext;
+        _progressNotifier = progressNotifier;
         _logger = logger;
     }
 
@@ -84,11 +89,13 @@ public class BatchLifecycleService : IBatchLifecycleService
         batch.FUpdatedTime = DateTime.Now;
         if (message != null) batch.FErrorMessage = message;
         await _db.SaveChangesAsync();
-        // 推送失败不影响状态变更
+        // 原推 CardFlowHub org_{orgId} 组为死链（Hub 无加组入口、前端不连），改经 ProgressHub import-{batchId} 组；
+        // 递增变更版本号使前端版本保护放行、batch-sync 对账可见。推送失败不影响状态变更
+        var version = await BumpChangeVersionAsync(batch);
         try
         {
-            await _hubContext.Clients.Group($"org_{batch.FOrgId}")
-                .SendAsync("BatchStatusChanged", new { batchId = batch.FID, status = newStatus });
+            await _progressNotifier.NotifyBatchStatusChangedAsync(
+                batch.FID, newStatus, message ?? StatusText(newStatus), null, version);
         }
         catch (Exception ex)
         {
@@ -156,11 +163,12 @@ public class BatchLifecycleService : IBatchLifecycleService
         _logger.LogDebug("批次 {BatchId} 聚合完成: status={Status}, success={Success}, failed={Failed}",
             batchId, batch.FStatus, completed, errored);
 
-        // SignalR 推送批次状态变更
+        // SignalR 推送批次状态变更（同 TransitionBatchStatusAsync：经 ProgressHub import-{batchId} 组 + 版本号）
+        var version = await BumpChangeVersionAsync(batch);
         try
         {
-            await _hubContext.Clients.Group($"org_{batch.FOrgId}")
-                .SendAsync("BatchStatusChanged", new { batchId = batch.FID, status = batch.FStatus });
+            await _progressNotifier.NotifyBatchStatusChangedAsync(
+                batch.FID, batch.FStatus, StatusText(batch.FStatus), null, version);
         }
         catch (Exception ex)
         {
@@ -176,16 +184,18 @@ public class BatchLifecycleService : IBatchLifecycleService
 
     public async Task RevokeBatchAsync(long batchId, long operatorId)
     {
-        var batch = await _db.Set<CfBatch>().FirstOrDefaultAsync(x => x.FID == batchId)
-            ?? throw new InvalidOperationException($"批次 {batchId} 不存在");
+        // 撤销权威路径收敛在 BatchRevokeHandler（WorkItem/撤销日志/事件 + 本服务的级联段）。
+        // handler 构造注入本服务，这里须经 IServiceProvider 懒解析避免构造环。
+        var handler = _serviceProvider.GetRequiredService<BatchRevokeHandler>();
+        await handler.RevokeBatchAsync(batchId, operatorId, force: false);
+    }
 
-        if (batch.FIsRevoked)
-            throw new InvalidOperationException($"批次 {batchId} 已撤销，不能重复撤销");
-        if (batch.FStatus == 0)
-            throw new InvalidOperationException($"批次 {batchId} 正在解析中，不能撤销");
-
-        // 1. 级联取消所有未完成卡片（含凭证红冲）
+    public async Task CascadeCancelBatchArtifactsAsync(long batchId)
+    {
+        // 1. 级联取消所有未完成卡片（含凭证红冲）。
+        // 全局默认 NoTracking，改状态须 AsTracking 才能落库
         var cards = await _db.Set<CfCard>()
+            .AsTracking()
             .Where(c => c.FBatchId == batchId)
             .ToListAsync();
 
@@ -205,6 +215,7 @@ public class BatchLifecycleService : IBatchLifecycleService
 
         // 2. 级联更新所有 CfBatchRow 状态为 5(已撤销)，排除状态 4(已忽略)
         var rows = await _db.Set<CfBatchRow>()
+            .AsTracking()
             .Where(r => r.FBatchId == batchId && r.FStatus != 4)
             .ToListAsync();
         foreach (var r in rows)
@@ -213,15 +224,9 @@ public class BatchLifecycleService : IBatchLifecycleService
             r.FUpdatedTime = DateTime.Now;
         }
 
-        // 3. 标记批次软删除
-        batch.FIsRevoked = true;
-        batch.FRevokedTime = DateTime.Now;
-        batch.FRevokedById = operatorId;
-        batch.FUpdatedTime = DateTime.Now;
-
         await _db.SaveChangesAsync();
-        _logger.LogInformation("批次 {BatchId} 已被用户 {OperatorId} 撤销，级联取消 {CardCount} 张卡片 / {RowCount} 行明细",
-            batchId, operatorId, cards.Count, rows.Count);
+        _logger.LogInformation("批次 {BatchId} 撤销级联完成：卡片 {CardCount} 张 / 行明细 {RowCount} 行",
+            batchId, cards.Count, rows.Count);
     }
 
     public async Task<BatchProgressDto> GetBatchProgressAsync(long batchId)
@@ -276,6 +281,45 @@ public class BatchLifecycleService : IBatchLifecycleService
             IsRevoked = batch.FIsRevoked
         };
     }
+
+    /// <summary>
+    /// 递增批次变更版本号（SEQ_BatchChange 全局单调，与 CfImportController 同一序列）。
+    /// 前端 applyUpdate 按版本号丢弃过时消息，且 batch-sync 对账按 FChangeVersion 水位取增量，
+    /// 不递增则推送被前端版本保护静默丢弃。失败（如 InMemory 测试库无 SEQUENCE）返回 0，前端靠轮询恢复。
+    /// </summary>
+    public async Task<long> BumpChangeVersionAsync(CfBatch batch)
+    {
+        try
+        {
+            var versions = await _db.Database
+                .SqlQueryRaw<long>(
+                    "UPDATE [CF批次] SET [F变更版本号] = NEXT VALUE FOR dbo.SEQ_BatchChange OUTPUT INSERTED.[F变更版本号] WHERE [FID] = {0}",
+                    batch.FID)
+                .ToListAsync();
+            batch.FChangeVersion = versions.FirstOrDefault();
+            return batch.FChangeVersion;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "获取 SEQ_BatchChange 版本号失败, BatchId={BatchId}", batch.FID);
+            return 0;
+        }
+    }
+
+    /// <summary>CfBatch 状态码 → 中文状态文案（推送 statusText，前端终态时作摘要/错误信息展示）</summary>
+    private static string StatusText(int status) => status switch
+    {
+        CfBatchStatus.Parsing => "解析中",
+        CfBatchStatus.Staged => "已暂存",
+        CfBatchStatus.QualityChecking => "质检中",
+        CfBatchStatus.CardCreated => "已创建卡片",
+        CfBatchStatus.Processing => "处理中",
+        CfBatchStatus.Completed => "已完成",
+        CfBatchStatus.Failed => "失败",
+        CfBatchStatus.PartiallyCompleted => "部分完成",
+        CfBatchStatus.Revoked => "已撤销",
+        _ => $"状态{status}"
+    };
 
     /// <summary>
     /// 批次进入完成状态时通知编排引擎（如该批次由编排实例驱动产生）。

@@ -1,38 +1,13 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using STOTOP.Module.CardFlow.Dtos;
+using STOTOP.Module.CardFlow.Models.Schema;
 using STOTOP.Module.CardFlow.Services.Interfaces;
 
 namespace STOTOP.Module.CardFlow.Services;
 
 public class CardSchemaService : ICardSchemaService
 {
-    private static readonly JsonSerializerOptions SchemaJsonOptions = new() { PropertyNameCaseInsensitive = true };
-
-    private static List<SchemaFieldDefinition> ReadFields(string schemaJson)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(schemaJson);
-            var root = document.RootElement;
-            if (root.ValueKind == JsonValueKind.Array)
-            {
-                return JsonSerializer.Deserialize<List<SchemaFieldDefinition>>(schemaJson, SchemaJsonOptions) ?? new();
-            }
-            if (root.ValueKind == JsonValueKind.Object
-                && root.TryGetProperty("fields", out var fieldsProp)
-                && fieldsProp.ValueKind == JsonValueKind.Array)
-            {
-                return JsonSerializer.Deserialize<List<SchemaFieldDefinition>>(fieldsProp.GetRawText(), SchemaJsonOptions) ?? new();
-            }
-        }
-        catch (JsonException)
-        {
-            // 无法解析 → 视为无字段，best-effort 不阻断提交
-        }
-        return new List<SchemaFieldDefinition>();
-    }
-
     public ValidationResult ValidateCardData(string schemaJson, string dataJson)
     {
         var errors = new List<string>();
@@ -40,7 +15,7 @@ public class CardSchemaService : ICardSchemaService
         if (string.IsNullOrWhiteSpace(schemaJson))
             return new ValidationResult(true, errors);
 
-        var fields = ReadFields(schemaJson);
+        var fields = CardSchemaReader.ReadFields(schemaJson);
 
         if (fields.Count == 0)
             return new ValidationResult(true, errors);

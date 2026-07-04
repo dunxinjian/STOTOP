@@ -39,7 +39,6 @@ public static class CardFlowModuleExtensions
         services.AddScoped<IAuditSnapshotPolicyService, AuditSnapshotPolicyService>();
         services.AddScoped<ICardFlowPathPreviewService, CardFlowPathPreviewService>();
         services.AddScoped<ICardFlowSourceContextVerifier, CardFlowSourceContextVerifier>();
-        services.AddScoped<IConditionEvaluator, ConditionEvaluator>();
         services.AddScoped<IApprovalModeHandler, ApprovalModeHandler>();
         services.AddScoped<IStageConfigParser, StageConfigParser>();
         services.AddScoped<ICardPresentationResolver, CardPresentationResolver>();
@@ -152,22 +151,16 @@ public static class CardFlowModuleExtensions
         // 派发规则服务
         services.AddScoped<DispatchRuleService>();
 
-        // 分类处理器 Handler
+        // 分类处理器 Handler：具体类注册供 Plugin 薄壳注入；接口注册供派发规则接口按 HandlerType 枚举。
+        // VoucherMigrationHandler 有意不注册接口（原工厂未收录，收录会改变 handler-types 接口输出）。
         services.AddTransient<AlertNotifyHandler>();
         services.AddTransient<InfoRecordHandler>();
         services.AddTransient<WorkTaskHandler>();
         services.AddTransient<AutoVoucherHandler>();
-
-        // Handler 工厂
-        services.AddSingleton<ClassificationHandlerFactory>(_ =>
-        {
-            var factory = new ClassificationHandlerFactory();
-            factory.Register<AlertNotifyHandler>("AlertNotify");
-            factory.Register<InfoRecordHandler>("InfoRecord");
-            factory.Register<WorkTaskHandler>("WorkTask");
-            factory.Register<AutoVoucherHandler>("AutoVoucher");
-            return factory;
-        });
+        services.AddTransient<IClassificationHandler, AlertNotifyHandler>();
+        services.AddTransient<IClassificationHandler, InfoRecordHandler>();
+        services.AddTransient<IClassificationHandler, WorkTaskHandler>();
+        services.AddTransient<IClassificationHandler, AutoVoucherHandler>();
 
         // 凭证生成记录服务
         services.AddScoped<VoucherGenerationService>();

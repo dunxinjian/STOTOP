@@ -1,4 +1,5 @@
 using STOTOP.Module.CardFlow.Dtos;
+using STOTOP.Module.CardFlow.Services;
 
 namespace STOTOP.Module.CardFlow.AutoPlugin;
 
@@ -56,6 +57,15 @@ public interface IProgressNotifier
 
     /// <summary>AutoPlugin 数据处理进度推送（用于循环内行级进度，内置节流）</summary>
     Task NotifyAutoPluginDataProgressAsync(long batchId, string pluginName, int processedCount, int totalCount, string? detail = null);
+
+    /// <summary>批次管道启动：推送预创建插件快照列表（事件 BatchPipelineStarted → import-{batchId} 组）</summary>
+    Task NotifyBatchPipelineStartedAsync(long batchId, IEnumerable<PluginSnapshot> plugins);
+
+    /// <summary>批次插件状态变更（事件 PluginStatusChanged → import-{batchId} 组）</summary>
+    Task NotifyPluginStatusChangedAsync(long batchId, int pluginIndex, string pluginName, string status, string? error = null);
+
+    /// <summary>批次行级进度（事件 BatchProgressUpdate → import-{batchId} 组）</summary>
+    Task NotifyBatchProgressUpdateAsync(long batchId, int processedRows, int totalRows);
 }
 
 /// <summary>AutoPlugin 步骤定义</summary>

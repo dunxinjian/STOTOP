@@ -37,6 +37,7 @@ public class CfImportController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly BatchRevokeHandler _batchRevokeHandler;
     private readonly ExcelParserService _excelParser;
+    private readonly IBatchLifecycleService _batchLifecycle;
 
     public CfImportController(
         IBatchTriggerService batchTriggerService,
@@ -47,7 +48,8 @@ public class CfImportController : ControllerBase
         IProgressNotifier progressNotifier,
         IConfiguration configuration,
         BatchRevokeHandler batchRevokeHandler,
-        ExcelParserService excelParser)
+        ExcelParserService excelParser,
+        IBatchLifecycleService batchLifecycle)
     {
         _batchTriggerService = batchTriggerService;
         _dispatchService = dispatchService;
@@ -58,6 +60,7 @@ public class CfImportController : ControllerBase
         _configuration = configuration;
         _batchRevokeHandler = batchRevokeHandler;
         _excelParser = excelParser;
+        _batchLifecycle = batchLifecycle;
     }
 
     #region 文件上传
@@ -151,6 +154,36 @@ public class CfImportController : ControllerBase
         catch (Exception ex)
         {
             return ApiResult<List<BatchTriggerResultDto>>.Fail($"上传失败：{ex.Message}", 500);
+        }
+    }
+
+    /// <summary>
+    /// 从上传文件提取指定表头行的列名（文件类型/Excel 导入规则配置用，不落盘、不创建批次）。
+    /// 绝对路由：前端 extractColumnsFromExcel 调 POST /api/cardflow/file-types/extract-columns，
+    /// 不在本控制器的 import 前缀下。
+    /// </summary>
+    [HttpPost("/api/cardflow/file-types/extract-columns")]
+    [RequirePermission(CardFlowPermissions.ImportUpload)]
+    public async Task<ApiResult<List<string>>> ExtractColumns(IFormFile file, [FromQuery] int headerRow = 1)
+    {
+        if (file == null || file.Length == 0)
+            return ApiResult<List<string>>.Fail("请上传文件");
+        if (headerRow < 1)
+            headerRow = 1;
+
+        try
+        {
+            // NPOI 需要可 Seek 的流，先整体拷入内存（该场景仅取表头，文件为用户配置样例，体量小）
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms);
+            ms.Position = 0;
+            var columns = _excelParser.ReadHeaders(ms, file.FileName, headerRow);
+            return ApiResult<List<string>>.Success(columns);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "提取Excel列名失败: FileName={FileName}, HeaderRow={HeaderRow}", file.FileName, headerRow);
+            return ApiResult<List<string>>.Fail($"文件解析失败：{ex.Message}");
         }
     }
 
@@ -1039,7 +1072,6 @@ public class CfImportController : ControllerBase
 
     /// <summary>
     /// 恢复已撤销的批次
-    /// TODO: Pipeline废除 - BatchRevokeHandler 仍操作 DcImportBatch，待 Task 7 一并改造
     /// </summary>
     [HttpPost("batches/{id:long}/restore")]
     [RequirePermission(CardFlowPermissions.ImportProcess)]
@@ -1061,28 +1093,8 @@ public class CfImportController : ControllerBase
 
             var operatorId = GetCurrentUserId();
 
-            batch.FIsRevoked = false;
-            batch.FRevokedTime = null;
-            batch.FRevokedById = null;
-            batch.FStatus = CfBatchStatus.Staged; // 恢复后回到已暂存状态
-            batch.FUpdatedTime = DateTime.Now;
-            await _context.SaveChangesAsync();
-
-            // 版本号递增
-            try
-            {
-                var versions = await _context.Database
-                    .SqlQueryRaw<long>(
-                        "UPDATE [CF批次] SET [F变更版本号] = NEXT VALUE FOR dbo.SEQ_BatchChange OUTPUT INSERTED.[F变更版本号] WHERE [FID] = {0}",
-                        batch.FID)
-                    .ToListAsync();
-                batch.FChangeVersion = versions.FirstOrDefault();
-                await _context.SaveChangesAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "版本号递增失败: BatchId={BatchId}, OrgId={OrgId}", batch.FID, currentOrgId);
-            }
+            // 委托无工单权威路径（清撤销标记 + FStatus=Staged + 撤销日志 + 版本推送）
+            await _batchRevokeHandler.RestoreBatchAsync(id, operatorId);
 
             return Ok(ApiResult.Ok("恢复成功"));
         }
@@ -1095,7 +1107,6 @@ public class CfImportController : ControllerBase
 
     /// <summary>
     /// 批次删除预检查
-    /// TODO: Pipeline废除 - BatchRevokeHandler.PreCheckAsync 仍操作 DcImportBatch，待改造
     /// </summary>
     [HttpGet("batches/{id:long}/pre-delete-check")]
     [RequirePermission(CardFlowPermissions.ImportProcess)]
@@ -1103,23 +1114,16 @@ public class CfImportController : ControllerBase
     {
         try
         {
+            // org 校验（handler.PreCheckAsync 保持 org-agnostic，越权由此处拦截）
             var currentOrgId = (long)(HttpContext.Items["CurrentOrgId"] ?? 0L);
             var batch = await _context.Set<CfBatch>().AsNoTracking().FirstOrDefaultAsync(b => b.FID == id && b.FOrgId == currentOrgId);
             if (batch == null)
                 return ApiResult<BatchDeletePreCheck>.Fail("批次不存在", 404);
 
-            var result2 = new BatchDeletePreCheck { CanDelete = true };
+            // 委托权威预检（含在途卡片数/凭证审核/已结账期间阻断/暂存表行数）
+            var result = await _batchRevokeHandler.PreCheckAsync(id);
 
-            // 注：不再阻止 Processing 状态的撤销操作
-            // 撤销(软删除)是安全的，pipeline 会自行检测已撤销状态并停止
-
-            if (batch.FIsRevoked)
-                return ApiResult<BatchDeletePreCheck>.Success(result2); // 已撤销批次可以彻底删除
-
-            // 检查关联凭证
-            await CheckBatchVouchersAsync(id, result2);
-
-            return ApiResult<BatchDeletePreCheck>.Success(result2);
+            return ApiResult<BatchDeletePreCheck>.Success(result);
         }
         catch (Exception ex)
         {
@@ -1731,115 +1735,11 @@ public class CfImportController : ControllerBase
         };
     }
 
-    /// <summary>软删除 CfBatch（标记撤销）</summary>
+    /// <summary>软删除 CfBatch（标记撤销）——委托无工单权威路径 BatchRevokeHandler。
+    /// 调用点(DeleteBatch/BatchRevoke)已在委托前做 FOrgId==currentOrgId 校验，handler 保持 org-agnostic</summary>
     private async Task RevokeCfBatchAsync(long batchId, long operatorId)
     {
-        var batch = await _context.Set<CfBatch>()
-            .AsTracking()
-            .FirstOrDefaultAsync(b => b.FID == batchId)
-            ?? throw new InvalidOperationException($"批次 {batchId} 不存在");
-
-        // 注：不再阻止 Processing 状态的撤销（软删除安全，pipeline 会自行检测已撤销状态并停止）
-
-        if (batch.FIsRevoked)
-        {
-            _logger.LogInformation("批次 {BatchId} 已处于撤销状态，重复撤销请求被忽略", batchId);
-            return;
-        }
-
-        batch.FIsRevoked = true;
-        batch.FRevokedTime = DateTime.Now;
-        batch.FRevokedById = operatorId;
-        batch.FStatus = CfBatchStatus.Revoked;
-        batch.FUpdatedTime = DateTime.Now;
-        await _context.SaveChangesAsync();
-
-        // 版本号递增
-        try
-        {
-            var versions = await _context.Database
-                .SqlQueryRaw<long>(
-                    "UPDATE [CF批次] SET [F变更版本号] = NEXT VALUE FOR dbo.SEQ_BatchChange OUTPUT INSERTED.[F变更版本号] WHERE [FID] = {0}",
-                    batchId)
-                .ToListAsync();
-            batch.FChangeVersion = versions.FirstOrDefault();
-            await _context.SaveChangesAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "版本号递增失败: BatchId={BatchId}", batchId);
-        }
-
-        // 推送状态变更
-        try
-        {
-            await _progressNotifier.NotifyBatchStatusChangedAsync(batchId, CfBatchStatus.Revoked, "Revoked");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "推送状态变更失败: BatchId={BatchId}", batchId);
-        }
-    }
-
-    /// <summary>检查批次关联凭证状态</summary>
-    private async Task CheckBatchVouchersAsync(long batchId, BatchDeletePreCheck result)
-    {
-        var encryptionKey = _configuration.GetValue<string>("Security:EncryptionKey");
-        var connectionString = DbConnectionsHelper.GetSystemConnectionString(encryptionKey);
-        if (string.IsNullOrEmpty(connectionString)) return;
-
-        try
-        {
-            using var connection = new SqlConnection(connectionString);
-            await connection.OpenAsync();
-
-            // 从 CF凭证记录 和 FIN凭证 查询关联凭证（DC凭证生成记录 已替换为 CF凭证记录）
-            var scopeId = batchId.ToString();
-            int voucherCount = 0;
-            // 3a. 从 CF凭证记录 查询批次关联的凭证生成记录
-            using (var cmd = new SqlCommand(
-                "SELECT ISNULL(SUM([F生成凭证数]), 0) FROM [CF凭证记录] WHERE [F批次ID] = @batchId",
-                connection))
-            {
-                cmd.Parameters.AddWithValue("@batchId", batchId);
-                cmd.CommandTimeout = 60;
-                voucherCount = Math.Max(voucherCount, (int)(await cmd.ExecuteScalarAsync() ?? 0));
-            }
-
-            // 3b. 从 FIN凭证 按 F数据作用域ID 查询实际凭证数
-            using (var cmd = new SqlCommand(
-                "SELECT COUNT(*) FROM [FIN凭证] WHERE [F数据作用域ID] = @scopeId",
-                connection))
-            {
-                cmd.Parameters.AddWithValue("@scopeId", scopeId);
-                cmd.CommandTimeout = 60;
-                voucherCount = Math.Max(voucherCount, (int)(await cmd.ExecuteScalarAsync() ?? 0));
-            }
-
-            result.AffectedVoucherCount = voucherCount;
-
-            if (voucherCount > 0)
-            {
-                int auditedCount;
-                using (var cmd = new SqlCommand(
-                    "SELECT COUNT(*) FROM [FIN凭证] WHERE [F数据作用域ID] = @scopeId AND [F状态] = 2",
-                    connection))
-                {
-                    cmd.Parameters.AddWithValue("@scopeId", scopeId);
-                    cmd.CommandTimeout = 60;
-                    auditedCount = (int)(await cmd.ExecuteScalarAsync() ?? 0);
-                }
-
-                if (auditedCount > 0)
-                {
-                    result.HasAuditedVouchers = true;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "检查批次 {BatchId} 关联凭证失败", batchId);
-        }
+        await _batchRevokeHandler.RevokeBatchAsync(batchId, operatorId, force: false);
     }
 
     /// <summary>级联清理子批次的 STG 数据</summary>

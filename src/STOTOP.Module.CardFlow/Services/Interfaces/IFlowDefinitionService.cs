@@ -9,6 +9,7 @@ public interface IFlowDefinitionService
     Task<FlowDefinitionDto?> GetByIdAsync(long id);
     Task<FlowDefinitionDto> CreateAsync(CreateFlowDefinitionRequest request, long operatorId);
     Task<FlowDefinitionDto> UpdateAsync(long id, UpdateFlowDefinitionRequest request, long operatorId);
+    Task DeleteAsync(long id, long operatorId);
     Task PublishAsync(long id, long operatorId);
     Task ArchiveAsync(long id, long operatorId);
     Task DisableAsync(long id, long operatorId);
@@ -17,6 +18,7 @@ public interface IFlowDefinitionService
     Task<FlowVersionDetailDto?> GetVersionDetailAsync(long definitionId, long versionId);
     Task<FlowVersionDetailDto> SaveDraftVersionAsync(long definitionId, SaveDraftVersionRequest request, long operatorId);
     Task<FlowVersionDetailDto?> GetDraftVersionAsync(long definitionId);
+    Task DiscardDraftVersionAsync(long definitionId, long operatorId);
     Task<FlowDefinitionDto> CloneFlowDefinitionAsync(long sourceDefinitionId, CloneFlowDefinitionRequest request, long operatorId);
     Task<List<FlowDefinitionDto>> GetTemplatesAsync();
     Task<FlowDefinitionDto> SaveAsTemplateAsync(long sourceDefinitionId, long operatorId);
