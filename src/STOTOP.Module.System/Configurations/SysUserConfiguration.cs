@@ -19,6 +19,7 @@ public class SysUserConfiguration : IEntityTypeConfiguration<SysUser>
         builder.Property(e => e.FPasswordHash).HasColumnName("F密码哈希").HasMaxLength(256).IsRequired();
         builder.Property(e => e.FAvatar).HasColumnName("F头像").HasMaxLength(500);
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasDefaultValue(1);
+        builder.Property(e => e.FIsPlatformAdmin).HasColumnName("F是否平台超管").HasDefaultValue(false);
         builder.Property(e => e.FDingTalkUserId).HasColumnName("F钉钉用户ID").HasMaxLength(100);
         builder.Property(e => e.FDingTalkBindStatus).HasColumnName("F钉钉绑定状态").HasDefaultValue(0);
         builder.Property(e => e.FDingTalkUserName).HasColumnName("F钉钉用户名").HasMaxLength(100);

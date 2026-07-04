@@ -12,6 +12,9 @@ public class SysUser : BaseEntity
     public string FPasswordHash { get; set; } = string.Empty;
     public string? FAvatar { get; set; }
     public int FStatus { get; set; } = 1;
+    /// <summary>是否平台超管（多租户阶段4）。替代散落的 account=="admin" 硬旁路作为平台层身份标记；
+    /// 平台接口(/api/platform/*)据此授权（阶段4B 接入），不参与租户内 admin 判定。</summary>
+    public bool FIsPlatformAdmin { get; set; }
     public string? FDingTalkUserId { get; set; }
     public int FDingTalkBindStatus { get; set; }
     public string? FDingTalkUserName { get; set; }

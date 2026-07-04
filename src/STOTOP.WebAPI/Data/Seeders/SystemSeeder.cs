@@ -25,8 +25,36 @@ public static class SystemSeeder
             new(10, "阶段2B(M3): 从 SYS用户组织 回填 SYS租户成员 + SYS任职(增量双写地基) (2026-07-02)", MigrateV10),
             new(11, "阶段2C(M5): 从 FKind=网点公司 组织节点回填 SYS网点公司(1:1) (2026-07-02)", MigrateV11),
             new(12, "阶段2D(R8): 从任职(可放大)物化范围根回填 SYS数据范围授权(派生 Read,集团级归一) (2026-07-03)", MigrateV12),
+            new(13, "阶段4A(平台层): SYS用户 加 F是否平台超管(回填 admin=1) + 回填 PLT租户单客户行(IDENTITY_INSERT FID=根组织id,保 F租户ID 不变) (2026-07-04)", MigrateV13),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>阶段4A·平台层地基：① SYS用户 加 F是否平台超管 列(bit NOT NULL DEFAULT 0)并回填 admin=1；
+    /// ② 回填 PLT租户 单客户行——以 IDENTITY_INSERT 令 <c>FID=组织树根节点 FID</c>，使全表存量 F租户ID(=根组织id) 与 PLT租户.FID 一致，
+    /// TenantResolver 改读 PLT租户 后返回值不变。
+    /// PLT租户/套餐/订阅 表本身由 CreateMissingTables 建(新 EF 表,种子前已建),本步只加列+回填。
+    /// 列定义与模型(SysUserConfiguration F是否平台超管 bit DEFAULT 0)一致,避免 dev(SchemaAutoSync)/prod 漂移。幂等(NOT EXISTS/WHERE)。</summary>
+    private static void MigrateV13(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // ① SYS用户 平台超管标记 + 回填 admin
+        AddColumnIfMissing(ctx, "SYS用户", "F是否平台超管", "bit NOT NULL CONSTRAINT [DF_SYS用户_F是否平台超管] DEFAULT 0");
+        SeederHelper.ExecuteRawSql(ctx, @"
+        UPDATE [SYS用户] SET [F是否平台超管] = 1 WHERE [F账号] = N'admin' AND [F是否平台超管] = 0;");
+
+        // ② PLT租户 单客户回填：FID=根组织id（IDENTITY_INSERT），编号/名称取根组织，状态=正式(2)
+        SeederHelper.ExecuteRawSql(ctx, @"
+        DECLARE @root bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+        IF @root IS NOT NULL AND NOT EXISTS (SELECT 1 FROM [PLT租户])
+        BEGIN
+            SET IDENTITY_INSERT [PLT租户] ON;
+            INSERT INTO [PLT租户] ([FID],[F名称],[F编号],[F根组织ID],[F账套绑定模式],[F默认待办渠道],[F状态],[F开通时间],[F创建时间],[F更新时间])
+            SELECT @root, o.[F名称], o.[F编码], @root, 1, 1, 2, GETDATE(), GETDATE(), GETDATE()
+            FROM [SYS组织架构] o WHERE o.[FID] = @root;
+            SET IDENTITY_INSERT [PLT租户] OFF;
+        END");
     }
 
     /// <summary>阶段2D·回填：从每用户当前可放大任职的物化范围根(2A)算派生 Read 授权;集团级归一(有集团级则删其非集团派生)。
