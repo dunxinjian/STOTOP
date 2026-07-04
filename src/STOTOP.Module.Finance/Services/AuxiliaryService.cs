@@ -516,16 +516,43 @@ public class AuxiliaryService : IAuxiliaryService
             await _typeRepository.AddAsync(auxType);
         }
 
+        // 归属过滤：镜像 GetAvailableDepartmentsAsync——仅允许账套关联组织(accountSetOrgId)子树下的部门(OrgType.FCode=="DEPT")，
+        // 防止按任意 orgId 拉他组织/非部门节点入账。账套未关联组织则整体拒绝(fail-closed)。
+        var (deptOk, deptOrgId, deptErr) = await GetAccountSetOrgIdAsync(request.AccountSetId);
+        if (!deptOk || deptOrgId <= 0)
+            throw new InvalidOperationException(deptErr ?? "账套未关联组织");
+        var allOrgsForScope = await _dbContext.Set<SysOrganization>()
+            .Include(o => o.OrgType)
+            .Where(o => o.FStatus == 1)
+            .ToListAsync();
+        var allowedDeptIds = new HashSet<long>();
+        {
+            var lookup = allOrgsForScope.ToLookup(o => o.FParentId);
+            var queue = new Queue<long>();
+            queue.Enqueue(deptOrgId);
+            while (queue.Count > 0)
+            {
+                var parentId = queue.Dequeue();
+                foreach (var child in lookup[parentId])
+                {
+                    if (child.FID != deptOrgId && child.OrgType != null && child.OrgType.FCode == "DEPT")
+                        allowedDeptIds.Add(child.FID);
+                    queue.Enqueue(child.FID);
+                }
+            }
+        }
+
         foreach (var orgId in request.OrgIds)
         {
+            if (!allowedDeptIds.Contains(orgId)) continue; // 越权/非部门节点：静默跳过
+
             // 检查是否已存在
             var exists = await _itemRepository.Query()
                 .AnyAsync(i => i.FOrgId == currentOrgId && i.FAccountSetId == request.AccountSetId
                     && i.FSourceType == "SYS组织架构" && i.FSourceId == orgId);
             if (exists) continue;
 
-            var org = await _dbContext.Set<SysOrganization>().FindAsync(orgId);
-            if (org == null) continue;
+            var org = allOrgsForScope.First(o => o.FID == orgId);
 
             var item = new FinAuxiliaryItem
             {
@@ -568,8 +595,24 @@ public class AuxiliaryService : IAuxiliaryService
             await _typeRepository.AddAsync(auxType);
         }
 
+        // 归属过滤：镜像 GetAvailableEmployeesAsync——仅允许在账套关联组织(accountSetOrgId)及其直接下级组织有在职任职的用户，
+        // 防止按任意 userId 拉他组织员工入账。账套未关联组织则退回当前组织(与 available 版一致)。
+        var (empOk, empOrgId, _) = await GetAccountSetOrgIdAsync(request.AccountSetId);
+        List<long> scopeOrgIds = (empOk && empOrgId > 0)
+            ? await _dbContext.Set<SysOrganization>()
+                .Where(o => o.FParentId == empOrgId || o.FID == empOrgId)
+                .Select(o => o.FID).ToListAsync()
+            : new List<long> { currentOrgId };
+        var allowedUserIds = await _dbContext.Set<SysUserOrganization>()
+            .Where(uo => scopeOrgIds.Contains(uo.FOrgId) && uo.FStatus == 1)
+            .Select(uo => uo.FUserId)
+            .ToListAsync();
+        var allowedUserSet = new HashSet<long>(allowedUserIds);
+
         foreach (var userId in request.UserIds)
         {
+            if (!allowedUserSet.Contains(userId)) continue; // 越权：静默跳过
+
             // 检查是否已存在
             var exists = await _itemRepository.Query()
                 .AnyAsync(i => i.FOrgId == currentOrgId && i.FAccountSetId == request.AccountSetId
@@ -704,6 +747,11 @@ public class AuxiliaryService : IAuxiliaryService
         var currentOrgId = GetCurrentOrgId();
         var result = new List<AuxiliaryItemDto>();
 
+        // 归属组织：镜像 GetAvailableCustomersAsync 按账套关联组织过滤，防按任意 customerId 拉他组织客户入账（F53）。
+        var (custOk, custOrgId, custErr) = await GetAccountSetOrgIdAsync(request.AccountSetId);
+        if (!custOk || custOrgId <= 0)
+            throw new InvalidOperationException(custErr ?? "账套未关联组织");
+
         // 确保"customer"辅助核算类型存在
         var auxType = await _typeRepository.Query()
             .FirstOrDefaultAsync(t => t.FName == "customer");
@@ -728,8 +776,8 @@ public class AuxiliaryService : IAuxiliaryService
             if (exists) continue;
 
             var customer = await _dbContext.Database.SqlQueryRaw<RawCustomerDto>(
-                "SELECT FID AS [Id], [F编号] AS [CustomerCode], [F简称] AS [Name], [F全称] AS [FullName], [F联系人] AS [Contact], [F电话] AS [Phone] FROM [CRM客户] WHERE FID = {0}",
-                customerId).FirstOrDefaultAsync();
+                "SELECT FID AS [Id], [F编号] AS [CustomerCode], [F简称] AS [Name], [F全称] AS [FullName], [F联系人] AS [Contact], [F电话] AS [Phone] FROM [CRM客户] WHERE FID = {0} AND [F组织ID] = {1}",
+                customerId, custOrgId).FirstOrDefaultAsync();
             if (customer == null || string.IsNullOrEmpty(customer.CustomerCode)) continue;
 
             var item = new FinAuxiliaryItem
@@ -927,9 +975,10 @@ public class AuxiliaryService : IAuxiliaryService
                     && i.FSourceType == "EXP快递网点" && i.FCode == code);
             if (exists) continue;
 
+            // 归属过滤：镜像 GetAvailableNetworkPointsAsync 的 [F组织ID]=当前组织，防止按任意编号拉他组织网点入账。
             var networkPoint = await _dbContext.Database.SqlQueryRaw<RawNetworkPointDto>(
-                "SELECT [F编号] AS [Code], [F网点简称] AS [ShortName], [F地址] AS [Address], [F负责人] AS [Manager], [F联系电话] AS [Phone] FROM [EXP快递网点] WHERE [F编号] = {0}",
-                code).FirstOrDefaultAsync();
+                "SELECT [F编号] AS [Code], [F网点简称] AS [ShortName], [F地址] AS [Address], [F负责人] AS [Manager], [F联系电话] AS [Phone] FROM [EXP快递网点] WHERE [F编号] = {0} AND [F组织ID] = {1}",
+                code, currentOrgId).FirstOrDefaultAsync();
             if (networkPoint == null) continue;
 
             var item = new FinAuxiliaryItem

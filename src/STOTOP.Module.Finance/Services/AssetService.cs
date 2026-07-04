@@ -4,6 +4,7 @@ using NPOI.HSSF.UserModel;
 using NPOI.SS.UserModel;
 using NPOI.XSSF.UserModel;
 using STOTOP.Core.Interfaces;
+using STOTOP.Infrastructure.Data;
 using STOTOP.Module.Finance.Constants;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Entities;
@@ -20,6 +21,7 @@ public class AssetService : IAssetService
     private readonly IRepository<FinVoucherEntry> _voucherEntryRepository;
     private readonly IRepository<FinAccountPeriod> _periodRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly STOTOPDbContext _context;
 
     public AssetService(
         IRepository<FinAssetCategory> categoryRepository,
@@ -28,7 +30,8 @@ public class AssetService : IAssetService
         IRepository<FinVoucher> voucherRepository,
         IRepository<FinVoucherEntry> voucherEntryRepository,
         IRepository<FinAccountPeriod> periodRepository,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        STOTOPDbContext context)
     {
         _categoryRepository = categoryRepository;
         _cardRepository = cardRepository;
@@ -37,6 +40,7 @@ public class AssetService : IAssetService
         _voucherEntryRepository = voucherEntryRepository;
         _periodRepository = periodRepository;
         _httpContextAccessor = httpContextAccessor;
+        _context = context;
     }
 
     private long GetCurrentOrgId()
@@ -640,103 +644,12 @@ public class AssetService : IAssetService
 
     #region Depreciation
 
-    public async Task<DepreciationResultDto> CalculateDepreciationAsync(long periodId, string creator)
-    {
-        var cards = await _cardRepository.Query()
-            .Where(c => c.FStatus == 1 && c.FStartDepreciationDate != null)
-            .ToListAsync();
-
-        var categories = await _categoryRepository.Query().ToListAsync();
-        
-        decimal totalDepreciation = 0;
-        int depreciatedCount = 0;
-
-        foreach (var card in cards)
-        {
-            var category = categories.FirstOrDefault(c => c.FID == card.FCategoryId);
-            if (category == null) continue;
-
-            decimal monthlyDepreciation = CalculateMonthlyDepreciation(card, category);
-
-            if (monthlyDepreciation > 0)
-            {
-                card.FAccumulatedDepreciation += monthlyDepreciation;
-                card.FNetValue = card.FOriginalValue - card.FAccumulatedDepreciation;
-                card.FUpdatedTime = DateTime.Now;
-                await _cardRepository.UpdateAsync(card);
-
-                totalDepreciation += monthlyDepreciation;
-                depreciatedCount++;
-            }
-        }
-
-        // 生成折旧凭证
-        long? voucherId = null;
-        if (totalDepreciation > 0)
-        {
-            var voucher = new FinVoucher
-            {
-                FVoucherWord = VoucherWord.Ji,
-                FVoucherNo = await GetNextVoucherNoAsync(periodId),
-                FDate = DateTime.Now,
-                FPeriodId = periodId,
-                FAttachmentCount = 0,
-                FCreator = creator,
-                FStatus = 1,
-                FSource = "折旧计提",
-                FRemark = $"计提折旧，共{depreciatedCount}项资产",
-                FCreatedTime = DateTime.Now,
-                FUpdatedTime = DateTime.Now
-            };
-            await _voucherRepository.AddAsync(voucher);
-            voucherId = voucher.FID;
-
-            // 借：管理费用-折旧费
-            var expenseEntry = new FinVoucherEntry
-            {
-                FVoucherId = voucher.FID,
-                FLineNo = 1,
-                FSummary = "计提折旧",
-                FAccountId = 0,
-                FAccountCode = "560205",
-                FAccountName = "管理费用-折旧费",
-                FDebitAmount = totalDepreciation,
-                FCreditAmount = 0,
-                FCreatedTime = DateTime.Now,
-                FUpdatedTime = DateTime.Now
-            };
-            await _voucherEntryRepository.AddAsync(expenseEntry);
-
-            // 贷：累计折旧
-            var depreciationEntry = new FinVoucherEntry
-            {
-                FVoucherId = voucher.FID,
-                FLineNo = 2,
-                FSummary = "计提折旧",
-                FAccountId = 0,
-                FAccountCode = "1602",
-                FAccountName = "累计折旧",
-                FDebitAmount = 0,
-                FCreditAmount = totalDepreciation,
-                FCreatedTime = DateTime.Now,
-                FUpdatedTime = DateTime.Now
-            };
-            await _voucherEntryRepository.AddAsync(depreciationEntry);
-        }
-
-        return new DepreciationResultDto
-        {
-            DepreciatedCount = depreciatedCount,
-            TotalDepreciationAmount = totalDepreciation,
-            VoucherId = voucherId
-        };
-    }
-
     public async Task<DepreciationPreviewDto> CalculateDepreciationPreviewAsync(long periodId, long accountSetId)
     {
         var currentOrgId = GetCurrentOrgId();
         var cards = await _cardRepository.Query()
-            .Where(c => c.FStatus == 1 && c.FStartDepreciationDate != null && c.FOrgId == currentOrgId)
+            .Where(c => c.FStatus == 1 && c.FStartDepreciationDate != null
+                && c.FOrgId == currentOrgId && c.FAccountSetId == accountSetId)
             .ToListAsync();
 
         var categories = await _categoryRepository.Query().ToListAsync();
@@ -790,12 +703,29 @@ public class AssetService : IAssetService
 
         // 获取期间信息
         var period = await _periodRepository.GetByIdAsync(periodId);
+        if (period == null)
+            throw new InvalidOperationException($"账期 {periodId} 不存在");
+        if (period.FAccountSetId != accountSetId)
+            throw new InvalidOperationException("账期与账套不匹配，无法计提折旧");
+        VoucherPostingRules.EnsureOpenForPosting(period);
+
+        // 幂等防重：同一账套同一期间已有折旧凭证则拒绝重复计提
+        var alreadyPosted = await _voucherRepository.Query()
+            .AnyAsync(v => v.FPeriodId == periodId
+                && v.FAccountSetId == accountSetId
+                && v.FSource == "资产折旧"
+                && v.FStatus != -1);
+        if (alreadyPosted)
+            throw new InvalidOperationException($"该账期已生成折旧凭证，不能重复计提；如需重算请先作废原折旧凭证");
+
+        await using var tx = _context.Database.IsRelational() ? await _context.Database.BeginTransactionAsync() : null;
 
         // 更新资产卡片
         foreach (var detail in preview.Details)
         {
             var card = await _cardRepository.GetByIdAsync(detail.AssetId);
             if (card == null) continue;
+            if (card.FOrgId != GetCurrentOrgId() || card.FAccountSetId != accountSetId) continue;
 
             card.FAccumulatedDepreciation += detail.MonthlyDepreciation;
             card.FNetValue = card.FOriginalValue - card.FAccumulatedDepreciation;
@@ -869,6 +799,8 @@ public class AssetService : IAssetService
 
         await _voucherRepository.AddAsync(voucher);
 
+        if (tx != null) await tx.CommitAsync();
+
         return new DepreciationResultDto
         {
             DepreciatedCount = preview.AssetCount,
@@ -934,14 +866,6 @@ public class AssetService : IAssetService
             monthlyDepreciation = maxDepreciation;
 
         return Math.Round(monthlyDepreciation, 2);
-    }
-
-    private async Task<int> GetNextVoucherNoAsync(long periodId)
-    {
-        var maxNo = await _voucherRepository.Query()
-            .Where(v => v.FPeriodId == periodId && v.FVoucherWord == VoucherWord.Ji)
-            .MaxAsync(v => (int?)v.FVoucherNo) ?? 0;
-        return maxNo + 1;
     }
 
     #endregion

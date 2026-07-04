@@ -666,7 +666,9 @@ public class ReportService : IReportService
         result.Add(new BalanceSheetDto { ItemName = "非流动资产：", RowIndex = 9, Category = "资产" });
         result.Add(CreateBalanceSheetItem("固定资产原价", 10, "8", balances, accounts, new[] { "1601" }));
         result.Add(CreateBalanceSheetItem("减：累计折旧", 11, "9", balances, accounts, new[] { "1602" }));
-        result.Add(CreateBalanceSheetItem("固定资产账面价值", 12, "10", balances, accounts, new[] { "1601" }, new[] { "1602" }));
+        // 账面价值 = 原价 - 累计折旧。CreateBalanceSheetItem 取 Σ(FEndDebit-FEndCredit)，1602 累计折旧(贷方)本身即负值，
+        // 应把 1602 放入「相加」科目组而非 minusCodes(相减)——否则 原价-(负折旧)=原价+|折旧| 虚增 2 倍。
+        result.Add(CreateBalanceSheetItem("固定资产账面价值", 12, "10", balances, accounts, new[] { "1601", "1602" }));
         result.Add(CreateBalanceSheetItem("无形资产", 13, "11", balances, accounts, new[] { "1701" }));
         result.Add(new BalanceSheetDto { ItemName = "非流动资产合计", RowIndex = 14, LineNo = "12", Category = "资产" });
         result.Add(new BalanceSheetDto { ItemName = "资产总计", RowIndex = 15, LineNo = "13", Category = "资产" });

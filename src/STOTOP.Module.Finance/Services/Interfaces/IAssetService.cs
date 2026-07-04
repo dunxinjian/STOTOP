@@ -22,8 +22,8 @@ public interface IAssetService
     Task<AssetImportResult> ImportFromXiaofanAsync(Stream stream, string fileName, long accountSetId);
     Task<AssetImportResult> ImportCategoriesFromXiaofanAsync(Stream stream, string fileName, long accountSetId);
     
-    // 计提折旧
-    Task<DepreciationResultDto> CalculateDepreciationAsync(long periodId, string creator);
+    // 计提折旧（旧 CalculateDepreciationAsync 已废弃删除：跨账套全量选卡/凭证 FAccountSetId=0/FAccountId=0/非事务，
+    // 由 preview + GenerateDepreciationVouchersAsync 取代）
     Task<DepreciationPreviewDto> CalculateDepreciationPreviewAsync(long periodId, long accountSetId);
     Task<DepreciationResultDto> GenerateDepreciationVouchersAsync(long periodId, long accountSetId);
 }

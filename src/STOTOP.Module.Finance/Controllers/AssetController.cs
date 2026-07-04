@@ -201,14 +201,6 @@ public class AssetController : ControllerBase
 
     #region Depreciation
 
-    [HttpPost("depreciation/{periodId}")]
-    public async Task<ApiResult<DepreciationResultDto>> CalculateDepreciation(long periodId)
-    {
-        var creator = User.FindFirst(ClaimTypes.Name)?.Value ?? "system";
-        var result = await _assetService.CalculateDepreciationAsync(periodId, creator);
-        return ApiResult<DepreciationResultDto>.Success(result, $"成功计提{result.DepreciatedCount}项资产折旧");
-    }
-
     [HttpPost("calculate-depreciation")]
     public async Task<ApiResult<DepreciationPreviewDto>> CalculateDepreciationPreview([FromQuery] long periodId, [FromQuery] long accountSetId = 0)
     {
