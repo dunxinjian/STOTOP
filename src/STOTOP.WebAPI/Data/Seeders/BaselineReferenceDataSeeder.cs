@@ -122,16 +122,29 @@ public static class BaselineReferenceDataSeeder
         var identityInsert = columns.Any(column => column.IsIdentity);
         Console.WriteLine($"  [BaselineReferenceDataSeeder] {table.Name}: {table.Rows.Count} rows");
 
+        // 除主键外的唯一业务键（如 FIN科目模板_明细 的 IX(模板ID,编码)）。
+        // 供 UpsertRow 在"按主键找不到但业务键已存在"时跳过插入，防 FID 漂移撞唯一索引（2601）。
+        // 这是通用兜底：即便某表快照与库 FID 体系再次漂移，也跳过而非崩溃启动。
+        var businessKeys = GetBusinessUniqueKeys(ctx, table.Name, keyColumn.Name);
+
         if (identityInsert)
         {
             ExecuteNonQuery(ctx, $"SET IDENTITY_INSERT [dbo].[{EscapeIdentifier(table.Name)}] ON");
         }
 
+        var inserted = 0;
+        var updated = 0;
+        var skipped = 0;
         try
         {
             foreach (var row in table.Rows)
             {
-                UpsertRow(ctx, table.Name, columns, keyColumn, row);
+                switch (UpsertRow(ctx, table.Name, columns, keyColumn, businessKeys, row))
+                {
+                    case UpsertOutcome.Inserted: inserted++; break;
+                    case UpsertOutcome.Updated: updated++; break;
+                    case UpsertOutcome.Skipped: skipped++; break;
+                }
             }
         }
         finally
@@ -141,13 +154,71 @@ public static class BaselineReferenceDataSeeder
                 ExecuteNonQuery(ctx, $"SET IDENTITY_INSERT [dbo].[{EscapeIdentifier(table.Name)}] OFF");
             }
         }
+
+        if (skipped > 0)
+        {
+            Console.WriteLine(
+                $"    ↳ [{table.Name}] 插入 {inserted} / 更新 {updated} / 跳过 {skipped}" +
+                $"（业务唯一键已存在但主键漂移，保留库中现有行，快照不覆盖）");
+        }
     }
 
-    private static void UpsertRow(
+    private enum UpsertOutcome
+    {
+        Inserted,
+        Updated,
+        Skipped
+    }
+
+    /// <summary>
+    /// 读取表上除主键外的唯一键（唯一索引 / 唯一约束），返回每个键的列名有序列表。
+    /// 用于在主键漂移场景下按业务键判重，避免快照 INSERT 撞唯一索引。
+    /// 仅由单列且等于主键列的"退化唯一键"被剔除（与主键判定重复）。
+    /// </summary>
+    private static List<List<string>> GetBusinessUniqueKeys(STOTOPDbContext ctx, string tableName, string primaryKeyColumn)
+    {
+        const string sql = """
+            SELECT i.name AS IndexName, c.name AS ColumnName
+            FROM sys.indexes i
+            JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+            JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+            WHERE i.object_id = OBJECT_ID(@fullName)
+              AND i.is_unique = 1
+              AND i.is_primary_key = 0
+              AND ic.is_included_column = 0
+            ORDER BY i.name, ic.key_ordinal
+            """;
+
+        var byIndex = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        using var command = CreateCommand(ctx, sql);
+        AddParameter(command, "@fullName", $"dbo.{tableName}");
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                var indexName = reader.GetString(0);
+                var columnName = reader.GetString(1);
+                if (!byIndex.TryGetValue(indexName, out var cols))
+                {
+                    cols = [];
+                    byIndex[indexName] = cols;
+                }
+
+                cols.Add(columnName);
+            }
+        }
+
+        return byIndex.Values
+            .Where(cols => !(cols.Count == 1 && string.Equals(cols[0], primaryKeyColumn, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+    }
+
+    private static UpsertOutcome UpsertRow(
         STOTOPDbContext ctx,
         string tableName,
         IReadOnlyList<BaselineColumnSnapshot> columns,
         BaselineColumnSnapshot keyColumn,
+        IReadOnlyList<List<string>> businessKeys,
         IReadOnlyDictionary<string, object?> row)
     {
         var writableColumns = columns
@@ -163,6 +234,16 @@ public static class BaselineReferenceDataSeeder
             .Where(column => !string.Equals(column.Name, keyColumn.Name, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
+        var writableNames = new HashSet<string>(writableColumns.Select(c => c.Name), StringComparer.OrdinalIgnoreCase);
+
+        // 仅保留本行写入列完整覆盖、且不等于主键判定的业务唯一键。
+        // 快照主键(FID)在库与现网间漂移时，用业务唯一键判重，防止 INSERT 撞唯一索引。
+        var applicableKeys = businessKeys
+            .Where(key => key.Count > 0
+                && key.All(col => writableNames.Contains(col))
+                && !(key.Count == 1 && string.Equals(key[0], keyColumn.Name, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
         var escapedTable = EscapeIdentifier(tableName);
         var escapedKey = EscapeIdentifier(keyColumn.Name);
         var updateSql = updateColumns.Count == 0
@@ -175,17 +256,62 @@ public static class BaselineReferenceDataSeeder
         var insertColumnSql = string.Join(", ", writableColumns.Select(column => $"[{EscapeIdentifier(column.Name)}]"));
         var insertValueSql = string.Join(", ", writableColumns.Select((_, index) => $"@i{index}"));
 
-        var sql = $"""
-            IF EXISTS (SELECT 1 FROM [dbo].[{escapedTable}] WHERE [{escapedKey}] = @p_key)
-            BEGIN
-            {updateSql}
-            END
-            ELSE
-            BEGIN
-                INSERT INTO [dbo].[{escapedTable}] ({insertColumnSql})
-                VALUES ({insertValueSql});
-            END
-            """;
+        // 业务唯一键冲突谓词：任一唯一键的全部列都与本行匹配即视为已存在。
+        var businessKeyParams = new List<(string Name, object? Value)>();
+        var keyPredicates = new List<string>();
+        var paramIndex = 0;
+        foreach (var key in applicableKeys)
+        {
+            var terms = new List<string>();
+            foreach (var col in key)
+            {
+                var column = writableColumns.First(c => string.Equals(c.Name, col, StringComparison.OrdinalIgnoreCase));
+                var name = $"@bk{paramIndex++}";
+                terms.Add($"[{EscapeIdentifier(col)}] = {name}");
+                businessKeyParams.Add((name, ConvertRowValue(GetRowValue(row, col), column.DataType)));
+            }
+
+            keyPredicates.Add($"({string.Join(" AND ", terms)})");
+        }
+
+        // 分支返回码：2=更新（主键命中）/ 0=跳过（业务键已存在但主键漂移）/ 1=插入
+        string sql;
+        if (keyPredicates.Count == 0)
+        {
+            sql = $"""
+                IF EXISTS (SELECT 1 FROM [dbo].[{escapedTable}] WHERE [{escapedKey}] = @p_key)
+                BEGIN
+                {updateSql}
+                SELECT 2;
+                END
+                ELSE
+                BEGIN
+                    INSERT INTO [dbo].[{escapedTable}] ({insertColumnSql})
+                    VALUES ({insertValueSql});
+                    SELECT 1;
+                END
+                """;
+        }
+        else
+        {
+            sql = $"""
+                IF EXISTS (SELECT 1 FROM [dbo].[{escapedTable}] WHERE [{escapedKey}] = @p_key)
+                BEGIN
+                {updateSql}
+                SELECT 2;
+                END
+                ELSE IF EXISTS (SELECT 1 FROM [dbo].[{escapedTable}] WHERE {string.Join(" OR ", keyPredicates)})
+                BEGIN
+                    SELECT 0;
+                END
+                ELSE
+                BEGIN
+                    INSERT INTO [dbo].[{escapedTable}] ({insertColumnSql})
+                    VALUES ({insertValueSql});
+                    SELECT 1;
+                END
+                """;
+        }
 
         using var command = CreateCommand(ctx, sql);
         var keyValue = ConvertRowValue(GetRowValue(row, keyColumn.Name), keyColumn.DataType);
@@ -201,9 +327,20 @@ public static class BaselineReferenceDataSeeder
             AddParameter(command, $"@i{i}", ConvertRowValue(GetRowValue(row, writableColumns[i].Name), writableColumns[i].DataType));
         }
 
+        foreach (var (name, value) in businessKeyParams)
+        {
+            AddParameter(command, name, value);
+        }
+
+        // 业务键守卫拦不住的残余冲突（如快照 FID 撞到库中不同业务键行的主键）仍包装为中文诊断。
         try
         {
-            command.ExecuteNonQuery();
+            return Convert.ToInt32(command.ExecuteScalar()) switch
+            {
+                2 => UpsertOutcome.Updated,
+                0 => UpsertOutcome.Skipped,
+                _ => UpsertOutcome.Inserted
+            };
         }
         catch (SqlException ex) when (ex.Number is 2601 or 2627)
         {
