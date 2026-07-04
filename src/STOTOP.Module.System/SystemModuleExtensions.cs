@@ -34,6 +34,9 @@ public static class SystemModuleExtensions
         // 外部身份服务（阶段4D·M8：IDP 外部企业/用户身份/免登多租户消歧/成员邀请）
         services.AddScoped<IIdpService, IdpService>();
 
+        // 租户默认待办渠道解析（阶段4E·D3：闭合 4A 的 PLT租户.FDefaultTodoChannel，供 CardFlow 派发消费）
+        services.AddScoped<STOTOP.Core.Services.ITenantTodoChannelResolver, TenantTodoChannelResolver>();
+
         // 安全与会话管理服务
         services.AddScoped<SecurityConfigService>();
         services.AddScoped<SecurityAuditService>();

@@ -12,17 +12,33 @@ public class NotificationDispatcher : INotificationDispatcher
     private readonly STOTOPDbContext _dbContext;
     private readonly ILogger<NotificationDispatcher> _logger;
     private readonly ITodoDispatchLogService _dispatchLog;
+    private readonly STOTOP.Core.Services.ITenantTodoChannelResolver _channelResolver;
 
     public NotificationDispatcher(
         IEnumerable<INotificationChannel> channels,
         STOTOPDbContext dbContext,
         ILogger<NotificationDispatcher> logger,
-        ITodoDispatchLogService dispatchLog)
+        ITodoDispatchLogService dispatchLog,
+        STOTOP.Core.Services.ITenantTodoChannelResolver channelResolver)
     {
         _channels = channels;
         _dbContext = dbContext;
         _logger = logger;
         _dispatchLog = dispatchLog;
+        _channelResolver = channelResolver;
+    }
+
+    /// <summary>阶段4E·D3：按租户默认待办渠道(PLT租户.FDefaultTodoChannel)选注册渠道；解析不到/未注册则回退按待办自带渠道。</summary>
+    private async Task<INotificationChannel?> ResolveChannelAsync(CfTodoItem todo)
+    {
+        var tenantChannels = await _channelResolver.ResolveChannelNamesAsync(todo.FTenantId);
+        var channel = tenantChannels
+            .Select(n => _channels.FirstOrDefault(c => c.ChannelName.Equals(n, StringComparison.OrdinalIgnoreCase)))
+            .FirstOrDefault(c => c != null);
+        // 回退：租户渠道解析不到或对应渠道未注册(如企微桩) → 用待办自带渠道
+        if (channel == null && !string.IsNullOrWhiteSpace(todo.FPushChannel))
+            channel = _channels.FirstOrDefault(c => c.ChannelName.Equals(todo.FPushChannel, StringComparison.OrdinalIgnoreCase));
+        return channel;
     }
 
     public async Task DispatchCreateTodoAsync(long todoItemId)
@@ -30,22 +46,18 @@ public class NotificationDispatcher : INotificationDispatcher
         var todo = await _dbContext.Set<CfTodoItem>().FirstOrDefaultAsync(t => t.FID == todoItemId);
         if (todo == null) return;
 
-        var channelName = todo.FPushChannel;
-        if (string.IsNullOrWhiteSpace(channelName))
-        {
-            todo.FPushStatus = "skipped";
-            await _dbContext.SaveChangesAsync();
-            return;
-        }
-
-        var channel = _channels.FirstOrDefault(c => c.ChannelName.Equals(channelName, StringComparison.OrdinalIgnoreCase));
+        var channel = await ResolveChannelAsync(todo);
         if (channel == null)
         {
-            _logger.LogWarning("推送渠道 {Channel} 未注册，TodoItemId={Id}", channelName, todoItemId);
-            todo.FPushStatus = "failed";
+            // 无可用渠道：待办本就未指定渠道=skipped；否则=指定渠道未注册=failed。
+            var noChannel = string.IsNullOrWhiteSpace(todo.FPushChannel);
+            if (!noChannel)
+                _logger.LogWarning("推送渠道 {Channel} 未注册，TodoItemId={Id}", todo.FPushChannel, todoItemId);
+            todo.FPushStatus = noChannel ? "skipped" : "failed";
             await _dbContext.SaveChangesAsync();
             return;
         }
+        var channelName = channel.ChannelName;
 
         try
         {
@@ -62,6 +74,7 @@ public class NotificationDispatcher : INotificationDispatcher
 
             var externalId = await channel.CreateTodoAsync(payload);
             todo.FExternalTodoId = externalId;
+            todo.FPushChannel = channelName;   // 记实际使用渠道(可能取自租户默认),供完成/删除用同一渠道
             todo.FPushStatus = "success";
             await _dbContext.SaveChangesAsync();
 

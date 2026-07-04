@@ -104,6 +104,24 @@ public class PlatformRuntimeTests
         Assert.False(await admin.IsPlatformAdminByUserIdAsync(ctx, 999)); // 不存在
     }
 
+    // ---- 租户默认待办渠道解析(4E·D3) ----
+
+    [Fact]
+    public async STT.Task 租户待办渠道解析_按FDefaultTodoChannel映射_无租户回退空()
+    {
+        using var ctx = TestDbContextFactory.Create("chan");
+        ctx.Set<PltTenant>().Add(new PltTenant { FID = 8001, FName = "甲", FCode = "CH-A", FRootOrgId = 8001, FDefaultTodoChannel = 1 });
+        ctx.Set<PltTenant>().Add(new PltTenant { FID = 8002, FName = "乙", FCode = "CH-B", FRootOrgId = 8002, FDefaultTodoChannel = 2 });
+        ctx.Set<PltTenant>().Add(new PltTenant { FID = 8003, FName = "丙", FCode = "CH-C", FRootOrgId = 8003, FDefaultTodoChannel = 3 });
+        await ctx.SaveChangesAsync();
+        var r = new TenantTodoChannelResolver(ctx);
+
+        Assert.Equal(new[] { "dingtalk" }, await r.ResolveChannelNamesAsync(8001));
+        Assert.Equal(new[] { "wecom" }, await r.ResolveChannelNamesAsync(8002));
+        Assert.Equal(new[] { "dingtalk", "wecom" }, await r.ResolveChannelNamesAsync(8003)); // 双推
+        Assert.Empty(await r.ResolveChannelNamesAsync(9999)); // 无该租户 → 空，调用方回退按待办自带渠道
+    }
+
     // ---- 欠费冻结中间件(D7) ----
 
     [Fact]
