@@ -188,6 +188,13 @@ public class AccountPeriodService : IAccountPeriodService
         if (unauditedCount > 0)
             return (false, $"该期间有{unauditedCount}张待审核凭证，请先审核");
 
+        // 从余额重算 → 结转凭证生成 → 期初结转 → 锁定 → 标记结账 全程一个显式事务：
+        // 中途任一步异常须整体回滚，否则会留半截结账（如结转凭证已生成但期间未标记、或期初已结转但凭证未锁定）。
+        // Repository.Add/Update 内部各自 SaveChangesAsync，被此外层事务统一提交/回滚；
+        // RecalculateBalanceAsync 无嵌套事务，纳入范围安全。
+        using var _closeTx = _context.Database.IsRelational() ? await _context.Database.BeginTransactionAsync() : null;
+        try
+        {
         // 先基于当前已审凭证重算期末余额，再做试算平衡校验。
         // 否则 GenerateTrialBalanceAsync 读取的是尚未重算（可能为空或为上次结账的旧值）的科目余额表，
         // 空表会得到 借0==贷0 的"假平衡"，使这道强制校验形同虚设。
@@ -197,6 +204,7 @@ public class AccountPeriodService : IAccountPeriodService
         var trialBalance = await _trialBalanceService.GenerateTrialBalanceAsync(periodId, accountSetId);
         if (!trialBalance.IsBalanced)
         {
+            if (_closeTx != null) await _closeTx.RollbackAsync();
             return (false, $"试算不平衡，借方合计 {trialBalance.TotalDebit}，贷方合计 {trialBalance.TotalCredit}，差额 {Math.Abs(trialBalance.TotalDebit - trialBalance.TotalCredit)}");
         }
 
@@ -205,7 +213,10 @@ public class AccountPeriodService : IAccountPeriodService
         var profitAccount = await _accountRepository.Query()
             .FirstOrDefaultAsync(a => a.FCode == profitCode && a.FAccountSetId == accountSetId);
         if (profitAccount == null)
+        {
+            if (_closeTx != null) await _closeTx.RollbackAsync();
             return (false, $"未找到{profitCode}(本年利润)科目，无法结账");
+        }
 
         // 3. 查询所有损益类末级科目，汇总本期发生额并生成结转凭证
         var profitAndLossAccounts = await _accountRepository.Query()
@@ -460,7 +471,15 @@ public class AccountPeriodService : IAccountPeriodService
         // 结账后预计算报表缓存
         await _reportService.RecalculateBalanceAsync(periodId, accountSetId);
 
-        // 发布账期关闭事件
+        if (_closeTx != null) await _closeTx.CommitAsync();
+        }
+        catch
+        {
+            if (_closeTx != null) await _closeTx.RollbackAsync();
+            throw;
+        }
+
+        // 发布账期关闭事件（事务已提交，事件发布失败不回滚已结账结果）
         try
         {
             await _eventDispatcher.PublishAsync(new AccountPeriodClosedEvent
@@ -498,6 +517,10 @@ public class AccountPeriodService : IAccountPeriodService
         if (nextPeriod != null && nextPeriod.FIsClosed == 1)
             return (false, "请先反结账下一期间");
 
+        // 删除结转凭证 → 解锁凭证 → 清结账标志 全程一个显式事务，中途异常整体回滚，避免半截反结账。
+        using var _reopenTx = _context.Database.IsRelational() ? await _context.Database.BeginTransactionAsync() : null;
+        try
+        {
         // 删除系统结转凭证
         var closingVouchers = await _voucherRepository.Query()
             .Where(v => v.FPeriodId == periodId && v.FAccountSetId == accountSetId && v.FSource == "system:closing")
@@ -533,6 +556,14 @@ public class AccountPeriodService : IAccountPeriodService
             accountSetId, "反结账", "反结账",
             $"反结账 {period.FYear}年{period.FPeriodNo}月期间",
             periodId, $"{period.FYear}-{period.FPeriodNo:D2}");
+
+        if (_reopenTx != null) await _reopenTx.CommitAsync();
+        }
+        catch
+        {
+            if (_reopenTx != null) await _reopenTx.RollbackAsync();
+            throw;
+        }
 
         return (true, "反结账成功");
     }

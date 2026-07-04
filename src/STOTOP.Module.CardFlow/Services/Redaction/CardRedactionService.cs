@@ -8,8 +8,6 @@ namespace STOTOP.Module.CardFlow.Services.Redaction;
 
 public sealed class CardRedactionService : ICardRedactionService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
-
     public CardRedactionResult Redact(CardRedactionRequest request)
     {
         var fields = ReadFields(request.CardSchemaJson);
@@ -137,46 +135,10 @@ public sealed class CardRedactionService : ICardRedactionService
         _ => 1
     };
 
-    private static string NormalizeAccess(string? access) => access?.Trim().ToLowerInvariant() switch
-    {
-        "hidden" => "hidden",
-        "masked" => "masked",
-        "editable" => "editable",
-        "required" => "editable",
-        "readonly" => "readonly",
-        // 未知/拼错/null/空 一律按最严处理（fail-closed），不得默认成明文可见
-        _ => "masked"
-    };
+    private static string NormalizeAccess(string? access) => StageAccessLevels.Normalize(access);
 
     private static List<CardFieldDefinitionV2> ReadFields(string? schemaJson)
-    {
-        if (string.IsNullOrWhiteSpace(schemaJson))
-        {
-            return new List<CardFieldDefinitionV2>();
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(schemaJson);
-            var root = document.RootElement;
-            if (root.ValueKind == JsonValueKind.Array)
-            {
-                return JsonSerializer.Deserialize<List<CardFieldDefinitionV2>>(schemaJson, JsonOptions) ?? new();
-            }
-
-            if (root.ValueKind == JsonValueKind.Object)
-            {
-                var schema = JsonSerializer.Deserialize<CardSchemaV2>(schemaJson, JsonOptions);
-                return schema?.Fields ?? new List<CardFieldDefinitionV2>();
-            }
-        }
-        catch (JsonException)
-        {
-            // ignore，返回空
-        }
-
-        return new List<CardFieldDefinitionV2>();
-    }
+        => CardSchemaReader.ReadFields(schemaJson);
 
     private static Dictionary<string, ResolvedAccess> ComputeDetailAccess(
         string? detailSchemaJson,
@@ -230,58 +192,13 @@ public sealed class CardRedactionService : ICardRedactionService
         return result;
     }
 
-    // 明细 schema 三形态：顶层数组 / {fields:[]} → 单 default 表；{tables:[...]}（CardDetailSchemaV2）→ 多表
+    // 明细 schema 三形态统一走 CardSchemaReader.ReadDetailTables；本服务按 (tableKey, columns) 元组消费
     private static List<(string TableKey, List<CardFieldDefinitionV2> Columns)> ReadDetailTables(string? detailSchemaJson)
-    {
-        var tables = new List<(string, List<CardFieldDefinitionV2>)>();
-        if (string.IsNullOrWhiteSpace(detailSchemaJson))
-        {
-            return tables;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(detailSchemaJson);
-            var root = document.RootElement;
-
-            if (root.ValueKind == JsonValueKind.Array)
-            {
-                tables.Add(("default", JsonSerializer.Deserialize<List<CardFieldDefinitionV2>>(detailSchemaJson, JsonOptions) ?? new()));
-                return tables;
-            }
-
-            if (root.ValueKind == JsonValueKind.Object)
-            {
-                if (root.TryGetProperty("tables", out var t) && t.ValueKind == JsonValueKind.Array)
-                {
-                    var schema = JsonSerializer.Deserialize<CardDetailSchemaV2>(detailSchemaJson, JsonOptions);
-                    if (schema?.Tables != null)
-                    {
-                        foreach (var tbl in schema.Tables)
-                        {
-                            var key = string.IsNullOrWhiteSpace(tbl.DetailTableKey) ? "default" : tbl.DetailTableKey;
-                            tables.Add((key, tbl.Columns ?? new List<CardFieldDefinitionV2>()));
-                        }
-                    }
-
-                    return tables;
-                }
-
-                if (root.TryGetProperty("fields", out var f) && f.ValueKind == JsonValueKind.Array)
-                {
-                    var schema = JsonSerializer.Deserialize<CardSchemaV2>(detailSchemaJson, JsonOptions);
-                    tables.Add(("default", schema?.Fields ?? new List<CardFieldDefinitionV2>()));
-                    return tables;
-                }
-            }
-        }
-        catch (JsonException)
-        {
-            // 解析失败 → 无表 → 明细全部 fail-closed
-        }
-
-        return tables;
-    }
+        => CardSchemaReader.ReadDetailTables(detailSchemaJson)
+            .Select(table => (
+                string.IsNullOrWhiteSpace(table.DetailTableKey) ? "default" : table.DetailTableKey,
+                table.Columns ?? new List<CardFieldDefinitionV2>()))
+            .ToList();
 
     private static string ApplyAllowlist(string? dataJson, Dictionary<string, ResolvedAccess> access)
     {

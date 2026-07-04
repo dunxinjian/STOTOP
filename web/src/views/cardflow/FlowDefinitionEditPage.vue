@@ -67,7 +67,8 @@ import { useAutoSave } from '@/composables/useAutoSave'
 import {
   defaultCardHeaderConfig,
   parseCardSchemaPayload,
-  parseDetailSchemaFields,
+  parseDetailSchema,
+  type DetailTableSchema,
 } from '@/utils/cardflowSchema'
 import StatusTag from '@/components/StatusTag.vue'
 import BaseCard from '@/components/BaseCard.vue'
@@ -85,6 +86,8 @@ interface BasicInfo {
   flowGroupId: number | undefined
   allowedRoles: string[]
   status: string
+  /** 导入文件名匹配通配符（如 *韵达*），保存时包装为 matchPattern JSON 的 fileNamePattern */
+  matchFileNamePattern: string
 }
 
 interface FlowSettings {
@@ -103,6 +106,8 @@ interface FlowState {
   basic: BasicInfo
   cardSchema: SchemaFieldDefinition[]
   detailSchema: SchemaFieldDefinition[]
+  detailTableKey: string
+  extraDetailTables: DetailTableSchema[]
   cardHeader: CardHeaderConfig
   cardComponents: CardComponentDefinition[]
   stages: StageDefinition[]
@@ -117,9 +122,12 @@ const initialState = (): FlowState => ({
     numberTemplate: '', titleTemplate: '',
     flowGroupId: undefined, allowedRoles: [],
     status: 'draft',
+    matchFileNamePattern: '',
   },
   cardSchema: [],
   detailSchema: [],
+  detailTableKey: 'default',
+  extraDetailTables: [],
   cardHeader: defaultCardHeaderConfig(),
   cardComponents: [],
   stages: [],
@@ -177,11 +185,20 @@ const runtimePreviewDetailRows = ref<DetailRow[]>([])
 const STEPS = [
   { key: 'basic',    title: '基本信息', desc: '名称 · 编码 · 模板 · 角色' },
   { key: 'schema',   title: '字段设计', desc: '卡片字段 · 明细行字段' },
-  { key: 'cardView', title: '卡片视图', desc: '组件编排 · 所见即所得' },
+  // V2 冻结：卡片视图低代码编排（简化瘦身桶B 2026-06-16），入口暂下线，数据通道保留
   { key: 'stages',   title: '节点链',   desc: '流程图 · 节点权限' },
   { key: 'settings', title: '流程配置', desc: '退回 · 重提 · 依赖 · 余额' },
   { key: 'preview',  title: '预演与校验', desc: '路径 · 卡片视图 · 发布校验' },
 ] as const
+
+// 步骤索引一律按 key 解析，冻结/恢复步骤时不必追改散落的硬编码数字
+type StepKey = (typeof STEPS)[number]['key']
+const stepIndexOf = (key: StepKey) => STEPS.findIndex(s => s.key === key)
+const STEP_BASIC = stepIndexOf('basic')
+const STEP_SCHEMA = stepIndexOf('schema')
+const STEP_STAGES = stepIndexOf('stages')
+const STEP_SETTINGS = stepIndexOf('settings')
+const STEP_PREVIEW = stepIndexOf('preview')
 
 const activeStep = ref(0)
 
@@ -200,8 +217,6 @@ const stepStatus = computed<Array<'finish' | 'error' | 'process' | 'wait'>>(() =
       case 'schema':
         if (errors.schema) return 'error'
         return state.cardSchema.length > 0 ? 'finish' : 'wait'
-      case 'cardView':
-        return state.cardComponents.length > 0 ? 'finish' : 'wait'
       case 'stages':
         if (errors.stages || errors.condition) return 'error'
         return state.stages.length > 0 ? 'finish' : 'wait'
@@ -216,11 +231,13 @@ const stepStatus = computed<Array<'finish' | 'error' | 'process' | 'wait'>>(() =
 
 // 历史栈
 const history = useUndoRedo<FlowState>(JSON.parse(JSON.stringify(state)))
-const { silently } = useAutoCommit(() => state, history, 500)
+const { silently, flushPending } = useAutoCommit(() => state, history, 500)
 
 // ==================== 自动保存 ====================
 
 const dirty = ref(false)
+// 编辑序号：保存请求在途期间若产生新编辑，保存完成后不得清除 dirty（否则关页丢数据）
+let editSeq = 0
 
 const auto = useAutoSave({
   intervalMs: 30_000,
@@ -228,7 +245,7 @@ const auto = useAutoSave({
   save: async () => { await silentSave() },
 })
 
-watch(() => state, () => { dirty.value = true; auto.markDirty() }, { deep: true })
+watch(() => state, () => { editSeq++; dirty.value = true; auto.markDirty() }, { deep: true })
 
 const saveStateText = computed(() => {
   if (auto.saveState.value === 'saving') return '保存中...'
@@ -271,7 +288,7 @@ const previewReadinessItems = computed<PreviewReadinessItem[]>(() => [
     title: '基本信息完整',
     description: '需要流程名称和编码，预演卡片才有可识别的标题。',
     ready: Boolean(state.basic.flowName.trim() && state.basic.flowCode.trim()),
-    step: 0,
+    step: STEP_BASIC,
     actionText: '去基本信息',
   },
   {
@@ -279,23 +296,16 @@ const previewReadinessItems = computed<PreviewReadinessItem[]>(() => [
     title: '字段设计已配置',
     description: '至少配置一个卡片字段，才能生成样例卡片数据和节点权限视图。',
     ready: state.cardSchema.length > 0,
-    step: 1,
+    step: STEP_SCHEMA,
     actionText: '去字段设计',
   },
-  {
-    key: 'cardView',
-    title: '卡片视图已编排',
-    description: '需要先把字段、明细或业务组件拖到卡片画布，预演才是审批人看到的视图。',
-    ready: state.cardComponents.length > 0,
-    step: 2,
-    actionText: '去卡片视图',
-  },
+  // V2 冻结：卡片视图就绪项随桶B入口下线（2026-06-16）——无组件时预演走扁平字段回退渲染，不再阻塞
   {
     key: 'stages',
     title: '节点链已配置',
     description: '至少需要一个审批或自动节点，才能选择节点视图并预演路径。',
     ready: state.stages.length > 0,
-    step: 3,
+    step: STEP_STAGES,
     actionText: '去节点链',
   },
 ])
@@ -594,6 +604,21 @@ function openComponentConfig(componentId: string) {
 watch(
   () => state.stages.map(stage => stage.id).join('|'),
   () => {
+    // 节点删除后联动清理孤儿引用：后端保存会因"来源/目标节点不存在"直接拒绝整份草稿，
+    // 而画布对孤儿边是静默隐藏的，用户既看不到也删不掉，保存会被永久阻断
+    const stageIds = new Set(state.stages.map(stage => stage.id))
+    if (state.routes.some(route => !stageIds.has(route.fromStageKey) || !stageIds.has(route.toStageKey))) {
+      state.routes = state.routes.filter(route => stageIds.has(route.fromStageKey) && stageIds.has(route.toStageKey))
+    }
+    if (state.dynamicPolicies.some(policy => !stageIds.has(policy.sourceStageKey))) {
+      state.dynamicPolicies = state.dynamicPolicies.filter(policy => stageIds.has(policy.sourceStageKey))
+    }
+    for (const policy of state.dynamicPolicies) {
+      if (policy.continuationStageKey && !stageIds.has(policy.continuationStageKey)) {
+        policy.continuationStageKey = null
+      }
+    }
+
     if (!state.stages.length) {
       selectedPreviewStageId.value = undefined
       return
@@ -1065,15 +1090,16 @@ function buildCardSchemaPayload() {
 }
 
 function buildDetailSchemaPayload() {
+  // 编辑器只维护当前表（通常是 default）；其余明细表（来自导入链路/外部）在加载时保留，
+  // 此处原样透传避免打开草稿再保存即静默丢表。
+  const editingTable = {
+    detailTableKey: state.detailTableKey || 'default',
+    label: '明细',
+    columns: state.detailSchema,
+  }
   return {
     version: 2,
-    tables: [
-      {
-        detailTableKey: 'default',
-        label: '明细',
-        columns: state.detailSchema,
-      },
-    ],
+    tables: [editingTable, ...state.extraDetailTables],
   }
 }
 
@@ -1107,6 +1133,10 @@ async function loadData() {
     try {
       state.basic.allowedRoles = d.allowedRolesJson ? JSON.parse(d.allowedRolesJson) : []
     } catch { state.basic.allowedRoles = [] }
+    try {
+      const mp = d.matchPattern ? JSON.parse(d.matchPattern) : null
+      state.basic.matchFileNamePattern = typeof mp?.fileNamePattern === 'string' ? mp.fileNamePattern : ''
+    } catch { state.basic.matchFileNamePattern = '' }
 
     if (draft) {
       const dv = draft as FlowVersionDetailDto
@@ -1115,7 +1145,11 @@ async function loadData() {
       state.cardSchema = cardSchemaPayload.fields
       state.cardComponents = cardSchemaPayload.components
       Object.assign(state.cardHeader, defaultCardHeaderConfig(), cardSchemaPayload.header || {})
-      state.detailSchema = parseDetailSchemaFields(dv.detailSchemaJson)
+      const detailTables = parseDetailSchema(dv.detailSchemaJson)
+      const editingTable = detailTables.find(t => t.detailTableKey === 'default') || detailTables[0] || null
+      state.detailSchema = editingTable?.columns || []
+      state.detailTableKey = editingTable?.detailTableKey || 'default'
+      state.extraDetailTables = detailTables.filter(t => t !== editingTable)
       state.routes = (dv.routes || []).map(route => ({
         edgeKey: route.edgeKey,
         fromStageKey: route.fromStageKey,
@@ -1202,6 +1236,7 @@ function mapStageFromDto(s: any): StageDefinition {
     pluginRuleId: s.pluginRuleId ?? undefined,
     failurePolicy: tryParseFailurePolicy(s.failurePolicyJson),
     conditionJson: s.conditionJson || undefined,
+    priorityTemplate: s.priorityTemplate ?? undefined,
   }
 }
 function tryParseFailurePolicy(j?: string | null): 'skip' | 'halt' | 'retry' | undefined {
@@ -1263,8 +1298,9 @@ function buildStageRequests(): StageDefinitionRequest[] {
   return state.stages.map((s, i) => ({
     stageKey: s.id,
     name: s.name,
-    // 统一以 'auto' / 'approval' 提交后端；粒度信息通过 processingGranularity 字段传递
-    type: s.type === 'auto' ? 'auto' : 'approval',
+    // 人工节点必须提交 'human'：引擎退回指定节点（ReturnToStageRuntime.IsHuman）只认 'human'，
+    // 存 'approval' 会导致该节点不能作为退回目标、退回时下游不作废
+    type: s.type === 'auto' ? 'auto' : 'human',
     processingGranularity: s.type === 'auto' ? (s.processingGranularity || 'card') : undefined,
     sortOrder: i + 1,
     approvalMode: s.approvalMode || null,
@@ -1278,11 +1314,13 @@ function buildStageRequests(): StageDefinitionRequest[] {
     failurePolicyJson: s.failurePolicy ? JSON.stringify({ policy: s.failurePolicy }) : null,
     ccConfigJson: s.ccConfigJson || null,
     timeoutHours: s.timeoutHours || null,
+    // 不发该字段会被后端"全删全建"置空，存量节点的优先级模板会静默丢失
+    priorityTemplate: s.priorityTemplate ?? null,
   }))
 }
 
 function buildRouteRequests(): StageRouteRuleRequest[] {
-  return state.routes
+  const routes = state.routes
     .filter(route => route.fromStageKey && route.toStageKey)
     .map((route, index) => ({
       edgeKey: route.edgeKey || genStableKey('edge'),
@@ -1295,6 +1333,20 @@ function buildRouteRequests(): StageRouteRuleRequest[] {
       status: route.status || 'active',
       failurePolicyJson: route.failurePolicyJson || null,
     }))
+  // 后端发布校验要求同一来源节点的优先级不重复；删边/加边后可能出现重复值，
+  // 按现有优先级保序重编为 1..n（默认分支固定排最后兜底）
+  const byFrom = new Map<string, typeof routes>()
+  for (const route of routes) {
+    const group = byFrom.get(route.fromStageKey) || []
+    group.push(route)
+    byFrom.set(route.fromStageKey, group)
+  }
+  for (const group of byFrom.values()) {
+    group
+      .sort((a, b) => Number(a.isDefault) - Number(b.isDefault) || a.priority - b.priority)
+      .forEach((route, i) => { route.priority = i + 1 })
+  }
+  return routes
 }
 
 function buildDynamicPolicyRequests(): DynamicStagePolicyRequest[] {
@@ -1328,6 +1380,9 @@ async function ensureDefinitionId(): Promise<number | null> {
     titleTemplate: state.basic.titleTemplate || undefined,
     flowGroupId: state.basic.flowGroupId || undefined,
     allowedRolesJson: state.basic.allowedRoles.length ? JSON.stringify(state.basic.allowedRoles) : undefined,
+    matchPattern: state.basic.matchFileNamePattern.trim()
+      ? JSON.stringify({ fileNamePattern: state.basic.matchFileNamePattern.trim() })
+      : undefined,
     orgId: orgStore.currentOrgId || undefined,
   })
   const newId = created?.id
@@ -1337,8 +1392,9 @@ async function ensureDefinitionId(): Promise<number | null> {
   return newId || null
 }
 
-async function silentSave(): Promise<number | undefined> {
+async function doSilentSave(): Promise<number | undefined> {
   // 自动保存：仅当有 ID 时（避免误创建）；新建时仅当填齐 name+code 才创建
+  const seqAtStart = editSeq
   let id = flowId.value
   if (!id) {
     if (!state.basic.flowName.trim() || !state.basic.flowCode.trim()) return undefined
@@ -1352,6 +1408,9 @@ async function silentSave(): Promise<number | undefined> {
       titleTemplate: state.basic.titleTemplate || undefined,
       flowGroupId: state.basic.flowGroupId || undefined,
       allowedRolesJson: JSON.stringify(state.basic.allowedRoles),
+      matchPattern: state.basic.matchFileNamePattern.trim()
+        ? JSON.stringify({ fileNamePattern: state.basic.matchFileNamePattern.trim() })
+        : '',
     })
   }
   await saveFlowDraftVersion(id!, {
@@ -1362,32 +1421,43 @@ async function silentSave(): Promise<number | undefined> {
     routes: buildRouteRequests(),
     dynamicPolicies: buildDynamicPolicyRequests(),
   })
-  dirty.value = false
+  // 保存在途期间产生的新编辑不能被标记为已保存
+  if (editSeq === seqAtStart) dirty.value = false
   return id!
+}
+
+// 保存串行化：30s 定时保存、Ctrl+S、发布三条路径可能并发触发，
+// 并发提交 saveFlowDraftVersion（后端全删全建）会互相踩踏，这里统一排队
+let saveChain: Promise<number | undefined> = Promise.resolve(undefined)
+function silentSave(): Promise<number | undefined> {
+  const next = saveChain.catch(() => undefined).then(() => doSilentSave())
+  saveChain = next
+  return next
 }
 
 async function handleSaveDraft() {
   if (!state.basic.flowName.trim()) {
     errors.basic = true
-    activeStep.value = 0
+    activeStep.value = STEP_BASIC
     message.warning('请输入流程名称')
     return
   }
   if (!state.basic.flowCode.trim()) {
     errors.basic = true
-    activeStep.value = 0
+    activeStep.value = STEP_BASIC
     message.warning('请输入流程编码')
     return
   }
   errors.basic = false
+  auto.saveState.value = 'saving'
   try {
-    await auto.flush()
     await silentSave()
-    auto.saveState.value = 'saved'
+    auto.saveState.value = dirty.value ? 'dirty' : 'saved'
     message.success('草稿已保存')
-  } catch {
+  } catch (e) {
     auto.saveState.value = 'error'
-    message.error('保存失败')
+    // 拦截器已弹出后端具体错误（如插件规则不存在、StageKey 冲突），此处不重复弹泛化提示
+    console.error('[FlowDefinition] 保存草稿失败:', e)
   }
 }
 
@@ -1503,6 +1573,10 @@ function validateCardFlow2Config() {
         msgs.push(`节点[${stageName}]允许动作不能为空`)
       }
 
+      if (stage.ccConfigJson && !tryParseObject(stage.ccConfigJson)) {
+        msgs.push(`节点[${stageName}]抄送配置不是合法的 JSON 对象`)
+      }
+
       msgs.push(...validateStageReferenceKeys(stage, index))
     }
 
@@ -1526,6 +1600,13 @@ function validateCardFlow2Config() {
     if (!stageKeys.has(policy.sourceStageKey)) msgs.push(`动态策略[${policy.policyName}]来源节点不存在`)
     if (!policy.fallbackJson) msgs.push(`动态策略[${policy.policyName}]未配置处理人 fallback`)
     if ((policy.maxInsertCount || 20) > 20) msgs.push(`动态策略[${policy.policyName}]最大插入数不能超过 20`)
+    // 后端发布校验：afterRouteBeforeTarget 时机必须配置续接节点，否则发布必失败
+    const timing = policy.triggerTiming || 'afterRouteBeforeTarget'
+    if (timing === 'afterRouteBeforeTarget' && !policy.continuationStageKey) {
+      msgs.push(`动态策略[${policy.policyName}]触发时机为"路由后、目标前"时必须选择继续节点`)
+    } else if (policy.continuationStageKey && !stageKeys.has(policy.continuationStageKey)) {
+      msgs.push(`动态策略[${policy.policyName}]的继续节点不存在`)
+    }
   })
   return msgs
 }
@@ -1572,9 +1653,9 @@ function validateForPublish(): boolean {
   if (msgs.length) {
     message.error('发布前校验失败：' + msgs.join('；'))
     // 自动跳转到第一个出错的步骤
-    if (errors.basic) activeStep.value = 0
-    else if (errors.schema) activeStep.value = 1
-    else if (errors.stages || errors.condition) activeStep.value = 3
+    if (errors.basic) activeStep.value = STEP_BASIC
+    else if (errors.schema) activeStep.value = STEP_SCHEMA
+    else if (errors.stages || errors.condition) activeStep.value = STEP_STAGES
     return false
   }
   return true
@@ -1582,18 +1663,30 @@ function validateForPublish(): boolean {
 
 async function handlePublish() {
   if (!validateForPublish()) return
-  publishing.value = true
-  try {
-    const savedId = await silentSave()
-    if (savedId) await publishFlowDefinition(savedId)
-    else throw new Error('保存失败，无法获取流程ID')
-    message.success('已发布')
-    router.push('/cardflow/definitions')
-  } catch {
-    message.error('发布失败')
-  } finally {
-    publishing.value = false
-  }
+  Modal.confirm({
+    title: '确认发布？',
+    content: `发布后将生成新版本 v${(publishedVersionNumber.value || 0) + 1} 并立即生效，新发起的卡片将使用该版本。`,
+    okText: '发布',
+    cancelText: '取消',
+    async onOk() {
+      publishing.value = true
+      try {
+        const savedId = await silentSave()
+        if (!savedId) {
+          message.warning('请先填写流程名称和编码')
+          return
+        }
+        await publishFlowDefinition(savedId)
+        message.success('已发布')
+        router.push('/cardflow/definitions')
+      } catch (e) {
+        // 拦截器已弹出后端具体校验错误（环/不可达/默认分支等），此处不再重复弹泛化提示
+        console.error('[FlowDefinition] 发布失败:', e)
+      } finally {
+        publishing.value = false
+      }
+    },
+  })
 }
 
 // ==================== 撤销/重做 ====================
@@ -1603,6 +1696,8 @@ function applyState(snap: FlowState) {
     Object.assign(state.basic, snap.basic)
     state.cardSchema = JSON.parse(JSON.stringify(snap.cardSchema))
     state.detailSchema = JSON.parse(JSON.stringify(snap.detailSchema))
+    state.detailTableKey = snap.detailTableKey || 'default'
+    state.extraDetailTables = JSON.parse(JSON.stringify(snap.extraDetailTables || []))
     Object.assign(state.cardHeader, defaultCardHeaderConfig(), snap.cardHeader || {})
     state.cardComponents = JSON.parse(JSON.stringify(snap.cardComponents || []))
     state.stages = JSON.parse(JSON.stringify(snap.stages))
@@ -1613,22 +1708,25 @@ function applyState(snap: FlowState) {
 }
 
 function doUndo() {
+  // 先提交防抖窗口内未入栈的编辑，否则 500ms 内按撤销会跳过最新编辑且无法重做
+  flushPending()
   const s = history.undo()
   if (s) applyState(s)
 }
 function doRedo() {
+  flushPending()
   const s = history.redo()
   if (s) applyState(s)
 }
 
 // ==================== 预览 ====================
 
-// 预览改为「步骤 6」内嵌渲染，工具栏「预览」按钮直接跳到第 6 步
+// 预览改为末步「预演与校验」内嵌渲染，工具栏「预览」按钮直接跳到该步
 function openPreview() {
   if (!selectedPreviewStageId.value && state.stages.length) {
     selectedPreviewStageId.value = state.stages[0].id
   }
-  activeStep.value = 5
+  activeStep.value = STEP_PREVIEW
 }
 
 function reloadFlowDefinition() {
@@ -1663,13 +1761,24 @@ function onKeyDown(e: KeyboardEvent) {
   }
 }
 
+function onBeforeUnload(e: BeforeUnloadEvent) {
+  if (dirty.value) {
+    e.preventDefault()
+    e.returnValue = ''
+  }
+}
+
 onMounted(() => {
   window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('beforeunload', onBeforeUnload)
   void loadData()
 })
 
 import { onBeforeUnmount } from 'vue'
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('beforeunload', onBeforeUnload)
+})
 
 // ==================== 流程设置子操作 ====================
 
@@ -1794,8 +1903,8 @@ function goBack() {
 
       <!-- 步骤内容区：v-show 保留子组件状态，避免切换丢失编辑数据 -->
       <div class="fdef-step-body">
-        <!-- 步骤 1：基本信息 -->
-        <div v-show="activeStep === 0" class="fdef-step" :class="{ 'fdef-step--err': errors.basic }">
+        <!-- 步骤：基本信息 -->
+        <div v-show="activeStep === STEP_BASIC" class="fdef-step" :class="{ 'fdef-step--err': errors.basic }">
           <div class="fdef-basic-config">
             <div class="fdef-fc-item">
               <div class="fdef-fc-item__label">流程名称 <span class="fdef-required-star">*</span></div>
@@ -1830,6 +1939,17 @@ function goBack() {
               />
             </div>
             <div class="fdef-fc-item">
+              <div class="fdef-fc-item__label">
+                导入文件名匹配
+                <span class="fdef-fc-item__hint">导入文件按列头匹配失败时，按文件名通配符回退匹配到本流程（仅导入类流程需要）</span>
+              </div>
+              <a-input
+                v-model:value="state.basic.matchFileNamePattern"
+                placeholder="如：*韵达*总部交易*，支持 * 通配符，留空表示不参与文件名匹配"
+                allow-clear
+              />
+            </div>
+            <div class="fdef-fc-item">
               <div class="fdef-fc-item__label">状态</div>
               <StatusTag :type="FLOW_STATUS_META[state.basic.status as FlowStatus]?.tagType ?? 'default'">
                 {{ FLOW_STATUS_META[state.basic.status as FlowStatus]?.text ?? '草稿' }}
@@ -1842,19 +1962,22 @@ function goBack() {
           </div>
         </div>
 
-        <!-- 步骤 2：字段设计 -->
-        <div v-show="activeStep === 1" class="fdef-step" :class="{ 'fdef-step--err': errors.schema }">
+        <!-- 步骤：字段设计 -->
+        <div v-show="activeStep === STEP_SCHEMA" class="fdef-step" :class="{ 'fdef-step--err': errors.schema }">
           <BaseCard no-padding class="fdef-schema-guide-card">
             <div class="fdef-schema-guide">
               <span class="fdef-schema-guide__item">
                 <strong>字段 = 数据结构</strong>
                 <em>保存数据、参与条件路由和统计</em>
               </span>
-              <span class="fdef-schema-guide__arrow"><RightOutlined /></span>
-              <span class="fdef-schema-guide__item">
-                <strong>下一步配置卡片视图</strong>
-                <em>把字段、明细、关系和快照编排成审批人看到的卡片</em>
-              </span>
+              <!-- V2 冻结：卡片视图引导项随桶B入口下线（简化瘦身 2026-06-16），恢复入口时一并放开 -->
+              <template v-if="false">
+                <span class="fdef-schema-guide__arrow"><RightOutlined /></span>
+                <span class="fdef-schema-guide__item">
+                  <strong>下一步配置卡片视图</strong>
+                  <em>把字段、明细、关系和快照编排成审批人看到的卡片</em>
+                </span>
+              </template>
               <span class="fdef-schema-guide__arrow"><RightOutlined /></span>
               <span class="fdef-schema-guide__item">
                 <strong>节点权限</strong>
@@ -1872,6 +1995,13 @@ function goBack() {
               />
             </a-col>
             <a-col :span="12">
+              <a-alert
+                v-if="state.extraDetailTables.length > 0"
+                type="warning"
+                show-icon
+                :message="`本流程含 ${state.extraDetailTables.length + 1} 张明细表，编辑器仅维护 default 表；其余 ${state.extraDetailTables.length} 张将原样保留`"
+                style="margin-bottom: 8px"
+              />
               <SchemaFieldEditor
                 v-model="state.detailSchema"
                 title="明细行字段"
@@ -1881,8 +2011,12 @@ function goBack() {
           </a-row>
         </div>
 
-        <!-- 步骤 3：卡片视图 -->
-        <div v-show="activeStep === 2" class="fdef-step fdef-step--card-view">
+        <!-- V2 冻结：卡片视图低代码编排工作台（简化瘦身桶B 2026-06-16）。
+             入口暂下线（步骤条已移除该步），整块工作台连同运行态预览 modal 用 v-show=false 保留代码
+             （用 v-show 而非 v-if：保持与原实现一致的挂载与模板类型窄化环境，v-if=false 会使
+             vue-tsc 丢失 selectedCardComponent 等窄化导致 TS18047）；
+             cardComponents/cardHeader 的加载、保存与发布校验数据通道不变，存量已编排组件继续生效 -->
+        <div v-show="false" class="fdef-step fdef-step--card-view">
           <div class="fdef-card-view-workbench">
             <aside class="fdef-card-view-library">
               <CardComponentCatalog
@@ -2331,8 +2465,8 @@ function goBack() {
           </a-modal>
         </div>
 
-        <!-- 步骤 4：节点链 -->
-        <div v-show="activeStep === 3" class="fdef-step fdef-step--nodechain" :class="{ 'fdef-step--err': errors.stages || errors.condition }">
+        <!-- 步骤：节点链 -->
+        <div v-show="activeStep === STEP_STAGES" class="fdef-step fdef-step--nodechain" :class="{ 'fdef-step--err': errors.stages || errors.condition }">
           <a-tabs class="fdef-designer-tabs" default-active-key="canvas">
             <a-tab-pane key="canvas" tab="流程图">
               <div class="fdef-designer-layout">
@@ -2375,8 +2509,8 @@ function goBack() {
           </a-tabs>
         </div>
 
-        <!-- 步骤 5：流程配置 -->
-        <div v-show="activeStep === 4" class="fdef-step">
+        <!-- 步骤：流程配置 -->
+        <div v-show="activeStep === STEP_SETTINGS" class="fdef-step">
           <div class="fdef-flow-config">
             <BaseCard title="审批规则" class="fdef-flow-config-card">
               <template #extra>
@@ -2499,8 +2633,8 @@ function goBack() {
           </div>
         </div>
 
-        <!-- 步骤 6：预演与发布校验 -->
-        <div v-show="activeStep === 5" class="fdef-step fdef-step--preview">
+        <!-- 步骤：预演与发布校验 -->
+        <div v-show="activeStep === STEP_PREVIEW" class="fdef-step fdef-step--preview">
           <header class="page-section__title fdef-preview-stephead">
             <strong>节点视图预览</strong>
             <span>预演任意节点的运行态卡片、审批路径与发布前风险。</span>
@@ -2604,7 +2738,7 @@ function goBack() {
                     title="当前节点无可见组件。请到节点链中配置该节点的组件可见、可编辑或脱敏权限。"
                     class="fdef-preview-card__empty"
                   >
-                    <a-button size="small" type="link" @click="activeStep = 3">去节点链</a-button>
+                    <a-button size="small" type="link" @click="activeStep = STEP_STAGES">去节点链</a-button>
                   </EmptyState>
                 </div>
               </div>
@@ -2615,6 +2749,7 @@ function goBack() {
                 :flow-definition-id="flowId"
                 :preview-api="previewFlowDraftPath"
                 :disabled="!previewReady"
+                :fields="state.cardSchema"
               />
             </BaseCard>
 
@@ -2728,9 +2863,13 @@ function goBack() {
           </label>
         </div>
 
+        <!-- V2 冻结：动态加签编辑器（简化瘦身桶B 2026-06-16），入口暂下线；金额分级可用条件路由表达。
+             dynamicPolicies 数据通道保留，存量策略仍随草稿加载/保存。
+             条件里保留 selectedDesignerStage 判空以维持模板类型窄化 -->
         <DynamicApprovalPolicyEditor
+          v-if="false"
           v-model="state.dynamicPolicies"
-          :source-stage-key="selectedDesignerStage.id"
+          :source-stage-key="selectedDesignerStage?.id ?? ''"
           :stages="state.stages"
           :fields="state.cardSchema"
         />
@@ -2755,6 +2894,7 @@ function goBack() {
         <PathPreviewPanel
           :flow-definition-id="flowId"
           :preview-api="previewFlowDraftPath"
+          :fields="state.cardSchema"
         />
         <RuleHealthPanel
           :stages="state.stages"

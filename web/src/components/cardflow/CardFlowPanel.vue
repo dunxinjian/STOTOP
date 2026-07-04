@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, reactive, watch, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import {
   ActionSheet as VanActionSheet,
   Field as VanField,
@@ -17,6 +17,7 @@ import 'vant/es/dialog/style'
 import type {
   CardDetailDto,
   CardHeaderConfig,
+  RejectRequest,
   SchemaFieldDefinition,
 } from '@/types/cardflow'
 import {
@@ -31,9 +32,14 @@ import {
   resubmitCard,
   voidCard,
   deleteCard,
+  transferCard,
+  countersignCard,
+  ccCard,
 } from '@/api/cardflow'
+import { getUserList } from '@/api/system'
 import request from '@/api/request'
 import SchemaRenderer from './SchemaRenderer.vue'
+import StageInputFields from './StageInputFields.vue'
 import CardTimeline from './CardTimeline.vue'
 import CardDetailTable, { type DetailRow } from './CardDetailTable.vue'
 import { useAccountSetStore } from '@/stores/accountSet'
@@ -68,6 +74,9 @@ const emit = defineEmits<{
   (e: 'closed'): void
   (e: 'withdrawn'): void
   (e: 'urged'): void
+  (e: 'transferred'): void
+  (e: 'countersigned'): void
+  (e: 'cc-sent'): void
   (e: 'resubmitted'): void
   (e: 'voided'): void
   (e: 'deleted'): void
@@ -89,6 +98,14 @@ const opinion = ref('')
 const showActionSheet = ref(false)
 const conflictError = ref(false)
 
+// 退回模式：默认退回发起人（不传 targetStageId）；toSpecified 时后端要求节点定义 ID
+const rejectReturnMode = ref<'toInitiator' | 'toPrevious' | 'toSpecified'>('toInitiator')
+// AntD SelectValue 不接受 null，空值统一用 undefined
+const rejectTargetStageId = ref<number | undefined>(undefined)
+
+// 审批补充字段值（节点工作视图声明 editable/required 的字段，随 approve 以 supplementData 提交）
+const stageFieldsData = ref<Record<string, any>>({})
+
 // schema（来自流程版本）
 const cardSchema = ref<SchemaFieldDefinition[]>([])
 const detailSchema = ref<SchemaFieldDefinition[]>([])
@@ -107,6 +124,8 @@ const contextOrgId = computed(() => orgContextStore.currentOrgId ?? null)
 // 编辑态数据（fill 模式使用）
 const editFormData = ref<Record<string, any>>({})
 const editDetailRows = ref<DetailRow[]>([])
+// 保留每行的明细表归属（rowId → detailTableKey），保存时回传，避免非 default 表行被归并回 default
+const detailTableKeys = new Map<string, string>()
 const formErrors = ref<Record<string, string>>({})
 
 // 键盘补偿
@@ -115,24 +134,27 @@ const opinionFieldRef = ref<any>(null)
 
 // ==================== 计算属性 ====================
 
+// 后端卡片状态为全小写字符串（draft/active/returned/completed/voided/exception）
 const statusTagType = computed(() => {
   const map: Record<string, string> = {
-    Draft: 'default',
-    Pending: 'warning',
-    Approved: 'success',
-    Rejected: 'danger',
-    Voided: 'default',
+    draft: 'default',
+    active: 'warning',
+    completed: 'success',
+    returned: 'danger',
+    voided: 'default',
+    exception: 'danger',
   }
   return map[cardDetail.value?.status ?? ''] ?? 'default'
 })
 
 const statusLabel = computed(() => {
   const map: Record<string, string> = {
-    Draft: '草稿',
-    Pending: '审批中',
-    Approved: '已通过',
-    Rejected: '已退回',
-    Voided: '已废除',
+    draft: '草稿',
+    active: '审批中',
+    completed: '已通过',
+    returned: '已退回',
+    voided: '已废除',
+    exception: '异常',
   }
   return map[cardDetail.value?.status ?? ''] ?? cardDetail.value?.status ?? ''
 })
@@ -209,6 +231,40 @@ function applyStageDetailAccess(schema: SchemaFieldDefinition[]): SchemaFieldDef
 const visibleMainCardSchema = computed(() => applyStageFieldAccess(mainCardSchema.value))
 const visibleAttachmentSchema = computed(() => applyStageFieldAccess(attachmentSchema.value))
 const visibleDetailSchema = computed(() => applyStageDetailAccess(detailSchema.value))
+
+/** 审批模式下当前节点可填写的补充字段（editable/required） */
+const stageInputFields = computed<SchemaFieldDefinition[]>(() => {
+  if (props.mode !== 'approval') return []
+  const access = stageWorkView.value?.fieldAccess
+  if (!access) return []
+  return cardSchema.value
+    .filter((field) => {
+      const rule = access[field.key]
+      return rule?.access === 'editable' || rule?.access === 'required'
+    })
+    .map((field) => ({
+      ...field,
+      readonly: false,
+      required: access[field.key]?.required ?? (access[field.key]?.access === 'required'),
+    }))
+})
+
+/** 退回指定节点候选：本轮已完成的人工节点，按节点定义 ID 去重 */
+const rejectStageCandidates = computed<Array<{ label: string; value: number }>>(() => {
+  const card = cardDetail.value
+  if (!card) return []
+  const seen = new Set<number>()
+  const options: Array<{ label: string; value: number }> = []
+  for (const stage of card.stageInstances || []) {
+    if (stage.round !== card.currentRound) continue
+    if (stage.status !== 'completed' || stage.type !== 'human') continue
+    const defId = stage.stageDefinitionId
+    if (defId == null || seen.has(defId)) continue
+    seen.add(defId)
+    options.push({ label: stage.stageName, value: defId })
+  }
+  return options
+})
 const stageRuntimeComponents = computed(() => stageWorkView.value?.components ?? [])
 const hasStageRuntimeComponents = computed(() => stageRuntimeComponents.value.length > 0)
 
@@ -307,12 +363,12 @@ const budgetPreviewOver = computed(() =>
   Boolean(budgetPreview.value?.blocked || Number(budgetPreview.value?.gapAmount || 0) > 0),
 )
 
-// 更多操作选项
+// 更多操作选项（action 用于节点动作策略过滤，value 用于分发处理）
 const moreActions = [
-  { name: '转交', subname: '将审批转给他人', action: 'transfer' },
-  { name: '加签', subname: '增加审批人', action: 'addSignAfter' },
-  { name: '抄送', subname: '知会相关人员', action: 'cc' },
-  { name: '催办', subname: '催促当前审批人' },
+  { name: '转交', subname: '将审批转给他人', action: 'transfer', value: 'transfer' },
+  { name: '加签', subname: '增加审批人', action: 'addSignAfter', value: 'countersign' },
+  { name: '抄送', subname: '知会相关人员', action: 'cc', value: 'cc' },
+  { name: '催办', subname: '催促当前审批人', value: 'urge' },
 ]
 const stageAllowedActions = computed(() => stageWorkView.value?.actionPolicy?.allowedActions ?? null)
 
@@ -590,11 +646,18 @@ async function loadCardDetail(id: number | string) {
   conflictError.value = false
   actionMode.value = 'default'
   opinion.value = ''
+  rejectReturnMode.value = 'toInitiator'
+  rejectTargetStageId.value = undefined
+  stageFieldsData.value = {}
   formErrors.value = {}
   budgetPreview.value = null
   try {
     const card = (await getCard(numId)) as CardDetailDto
     cardDetail.value = card
+    detailTableKeys.clear()
+    for (const d of card.details || []) {
+      detailTableKeys.set(String(d.id), d.detailTableKey || 'default')
+    }
 
     // 加载 schema
     if (card.flowDefinitionId && card.flowVersionId) {
@@ -619,6 +682,16 @@ async function loadCardDetail(id: number | string) {
       editDetailRows.value = [...viewDetailRows.value]
       applyAutoIdentityDefaults()
       void ensureUserContextDefaults()
+    }
+
+    // 审批模式：补充字段预填卡片现值，便于在原值基础上修改
+    if (props.mode === 'approval' && stageInputFields.value.length > 0) {
+      const base = viewFormData.value
+      const next: Record<string, any> = {}
+      for (const field of stageInputFields.value) {
+        if (base[field.key] !== undefined) next[field.key] = base[field.key]
+      }
+      stageFieldsData.value = next
     }
   } catch (err: any) {
     loadError.value = true
@@ -674,6 +747,8 @@ function startApprove() {
 function startReject() {
   actionMode.value = 'reject'
   opinion.value = ''
+  rejectReturnMode.value = 'toInitiator'
+  rejectTargetStageId.value = undefined
   focusOpinionInput()
 }
 
@@ -684,10 +759,23 @@ function cancelAction() {
 
 async function confirmApprove() {
   if (!cardDetail.value || submitting.value) return
+  // 补充字段必填校验
+  if (stageInputFields.value.length > 0) {
+    const missing = stageInputFields.value.find((f) => {
+      if (!f.required) return false
+      const val = stageFieldsData.value[f.key]
+      return val === null || val === undefined || val === '' || (Array.isArray(val) && val.length === 0)
+    })
+    if (missing) {
+      showToast({ message: `请填写：${missing.label}`, type: 'fail' })
+      return
+    }
+  }
   submitting.value = true
   try {
     await approveCard(cardDetail.value.id, {
       opinion: opinion.value.trim() || null,
+      supplementData: Object.keys(stageFieldsData.value).length > 0 ? { ...stageFieldsData.value } : null,
       concurrencyStamp: cardDetail.value.concurrencyStamp,
     })
     showToast({ message: '审批通过', type: 'success' })
@@ -710,12 +798,23 @@ async function confirmReject() {
     showToast('请填写退回原因')
     return
   }
+  if (rejectReturnMode.value === 'toSpecified' && rejectTargetStageId.value == null) {
+    showToast('请选择退回节点')
+    return
+  }
+  const payload: RejectRequest = {
+    opinion: opinion.value.trim(),
+    concurrencyStamp: cardDetail.value.concurrencyStamp,
+  }
+  if (rejectReturnMode.value === 'toPrevious') {
+    payload.returnMode = 'toPrevious'
+  } else if (rejectReturnMode.value === 'toSpecified') {
+    payload.returnMode = 'toSpecified'
+    payload.targetStageId = rejectTargetStageId.value
+  }
   submitting.value = true
   try {
-    await rejectCard(cardDetail.value.id, {
-      opinion: opinion.value.trim(),
-      concurrencyStamp: cardDetail.value.concurrencyStamp,
-    })
+    await rejectCard(cardDetail.value.id, payload)
     showToast({ message: '已退回', type: 'success' })
     emit('rejected')
     close()
@@ -730,9 +829,132 @@ async function confirmReject() {
   }
 }
 
-function handleMoreAction(action: { name: string }) {
-  // 转交/加签/抄送/催办 — 需要选人界面，这里仅占位
-  showToast(`${action.name}功能开发中`)
+// ==================== 更多操作（转交/加签/抄送/催办） ====================
+
+type MoreActionType = 'transfer' | 'countersign' | 'cc' | 'urge'
+
+const moreActionDialog = reactive({
+  visible: false,
+  type: 'transfer' as MoreActionType,
+  userId: undefined as number | undefined,
+  userIds: [] as number[],
+  insertMode: 'after' as 'before' | 'after',
+  note: '',
+  processing: false,
+})
+
+const moreActionDialogTitle = computed(() => {
+  const map: Record<MoreActionType, string> = {
+    transfer: '转交',
+    countersign: '加签',
+    cc: '抄送',
+    urge: '催办',
+  }
+  return map[moreActionDialog.type]
+})
+
+const userOptions = ref<Array<{ label: string; value: number }>>([])
+const userSearchLoading = ref(false)
+let userSearchTimer: ReturnType<typeof setTimeout> | null = null
+
+async function loadUserOptions(keyword = '') {
+  userSearchLoading.value = true
+  try {
+    const res: any = await getUserList({ keyword, pageIndex: 1, pageSize: 50 })
+    const items = res?.items || res?.data?.items || (Array.isArray(res) ? res : [])
+    const next = items
+      .map((u: any) => ({
+        label: [u.realName || u.userName || u.username, u.orgName]
+          .filter(Boolean)
+          .join(' / '),
+        value: Number(u.id),
+      }))
+      .filter((o: { value: number }) => Number.isFinite(o.value) && o.value > 0)
+    // 保留已选项，避免远端搜索换页后回显丢失
+    const selected = userOptions.value.filter(
+      (o) => o.value === moreActionDialog.userId || moreActionDialog.userIds.includes(o.value),
+    )
+    const merged = [...selected, ...next]
+    userOptions.value = merged.filter(
+      (o, index, arr) => arr.findIndex((item) => item.value === o.value) === index,
+    )
+  } catch {
+    // 用户搜索失败不阻断审批操作
+  } finally {
+    userSearchLoading.value = false
+  }
+}
+
+function onUserSearch(keyword: string) {
+  if (userSearchTimer) clearTimeout(userSearchTimer)
+  userSearchTimer = setTimeout(() => loadUserOptions(keyword), 300)
+}
+
+function handleMoreAction(action: { name: string; value?: string }) {
+  showActionSheet.value = false
+  if (!action.value) return
+  moreActionDialog.type = action.value as MoreActionType
+  moreActionDialog.userId = undefined
+  moreActionDialog.userIds = []
+  moreActionDialog.insertMode = 'after'
+  moreActionDialog.note = ''
+  moreActionDialog.visible = true
+  if (action.value !== 'urge' && userOptions.value.length === 0) {
+    void loadUserOptions()
+  }
+}
+
+async function confirmMoreAction() {
+  if (!cardDetail.value || moreActionDialog.processing) return
+  const id = cardDetail.value.id
+  const note = moreActionDialog.note.trim()
+  if (moreActionDialog.type === 'transfer' && !moreActionDialog.userId) {
+    showToast('请选择转交对象')
+    return
+  }
+  if (moreActionDialog.type === 'countersign' && !moreActionDialog.userId) {
+    showToast('请选择加签人')
+    return
+  }
+  if (moreActionDialog.type === 'cc' && moreActionDialog.userIds.length === 0) {
+    showToast('请选择抄送人')
+    return
+  }
+  moreActionDialog.processing = true
+  try {
+    if (moreActionDialog.type === 'transfer') {
+      await transferCard(id, { newUserId: moreActionDialog.userId!, opinion: note || null })
+      showToast({ message: '已转交', type: 'success' })
+      moreActionDialog.visible = false
+      emit('transferred')
+      // 转交后本人不再是当前处理人，直接关闭面板
+      close()
+    } else if (moreActionDialog.type === 'countersign') {
+      await countersignCard(id, {
+        userId: moreActionDialog.userId!,
+        insertMode: moreActionDialog.insertMode,
+        opinion: note || null,
+      })
+      showToast({ message: '已加签', type: 'success' })
+      moreActionDialog.visible = false
+      emit('countersigned')
+      // 前加签后待办转移给加签人，刷新卡片状态
+      await loadCardDetail(id)
+    } else if (moreActionDialog.type === 'cc') {
+      await ccCard(id, { userIds: [...moreActionDialog.userIds] })
+      showToast({ message: '已抄送', type: 'success' })
+      moreActionDialog.visible = false
+      emit('cc-sent')
+    } else {
+      await urgeCard(id, note || undefined)
+      showToast({ message: '已催办', type: 'success' })
+      moreActionDialog.visible = false
+    }
+  } catch (err: any) {
+    showToast({ message: err?.message || '操作失败', type: 'fail' })
+  } finally {
+    moreActionDialog.processing = false
+  }
 }
 
 // ==================== 只读（抄送）模式 ====================
@@ -890,6 +1112,7 @@ function buildSavePayload() {
   const details = editDetailRows.value.map((row, index) => {
     const { _id, ...data } = row
     return {
+      detailTableKey: detailTableKeys.get(String(_id)) || 'default',
       sortOrder: index + 1,
       dataJson: JSON.stringify(data),
     }
@@ -1105,6 +1328,18 @@ void showDialog
             />
           </div>
 
+          <!-- 审批补充信息：当前节点声明可填写的字段 -->
+          <div
+            v-if="mode === 'approval' && stageInputFields.length > 0"
+            class="cf-panel__form-section"
+          >
+            <StageInputFields
+              v-model="stageFieldsData"
+              :fields="stageInputFields"
+              platform="pc"
+            />
+          </div>
+
           <!-- 明细行 -->
           <div v-if="!hasStageRuntimeComponents && visibleDetailSchema.length > 0" class="cf-panel__details cf-panel__form-section">
             <div class="cf-panel__section-title">
@@ -1213,6 +1448,26 @@ void showDialog
             class="cf-panel__opinion"
             :class="{ 'cf-panel__opinion--open': actionMode !== 'default' }"
           >
+            <div v-if="actionMode === 'reject'" class="cf-panel__reject-mode">
+              <a-radio-group v-model:value="rejectReturnMode" size="small">
+                <a-radio-button value="toInitiator">退回发起人</a-radio-button>
+                <a-radio-button value="toPrevious">上一节点</a-radio-button>
+                <a-radio-button
+                  value="toSpecified"
+                  :disabled="rejectStageCandidates.length === 0"
+                >
+                  指定节点
+                </a-radio-button>
+              </a-radio-group>
+              <a-select
+                v-if="rejectReturnMode === 'toSpecified'"
+                v-model:value="rejectTargetStageId"
+                :options="rejectStageCandidates"
+                placeholder="选择退回到的节点"
+                size="small"
+                class="cf-panel__reject-stage"
+              />
+            </div>
             <VanField
               ref="opinionFieldRef"
               v-model="opinion"
@@ -1330,6 +1585,71 @@ void showDialog
         cancel-text="取消"
         @select="handleMoreAction"
       />
+
+      <!-- 转交/加签/抄送/催办 弹窗（面板 z-index 1000，弹窗须更高） -->
+      <a-modal
+        v-model:open="moreActionDialog.visible"
+        :title="moreActionDialogTitle"
+        :confirm-loading="moreActionDialog.processing"
+        :width="420"
+        :z-index="1200"
+        @ok="confirmMoreAction"
+      >
+        <a-form layout="vertical" style="margin-top: 8px">
+          <a-form-item v-if="moreActionDialog.type === 'transfer'" label="转交给" required>
+            <a-select
+              v-model:value="moreActionDialog.userId"
+              show-search
+              placeholder="搜索并选择人员"
+              :options="userOptions"
+              :loading="userSearchLoading"
+              :filter-option="false"
+              @search="onUserSearch"
+            />
+          </a-form-item>
+          <template v-if="moreActionDialog.type === 'countersign'">
+            <a-form-item label="加签人" required>
+              <a-select
+                v-model:value="moreActionDialog.userId"
+                show-search
+                placeholder="搜索并选择人员"
+                :options="userOptions"
+                :loading="userSearchLoading"
+                :filter-option="false"
+                @search="onUserSearch"
+              />
+            </a-form-item>
+            <a-form-item label="加签方式">
+              <a-radio-group v-model:value="moreActionDialog.insertMode">
+                <a-radio value="before">前加签（先由其审批）</a-radio>
+                <a-radio value="after">后加签（我通过后由其审批）</a-radio>
+              </a-radio-group>
+            </a-form-item>
+          </template>
+          <a-form-item v-if="moreActionDialog.type === 'cc'" label="抄送给" required>
+            <a-select
+              v-model:value="moreActionDialog.userIds"
+              mode="multiple"
+              show-search
+              placeholder="搜索并选择人员（可多选）"
+              :options="userOptions"
+              :loading="userSearchLoading"
+              :filter-option="false"
+              @search="onUserSearch"
+            />
+          </a-form-item>
+          <a-form-item
+            v-if="moreActionDialog.type !== 'cc'"
+            :label="moreActionDialog.type === 'urge' ? '催办留言' : '说明'"
+          >
+            <a-textarea
+              v-model:value="moreActionDialog.note"
+              :rows="3"
+              :placeholder="moreActionDialog.type === 'urge' ? '选填催办留言' : '选填说明'"
+            />
+          </a-form-item>
+        </a-form>
+      </a-modal>
     </div>
   </Transition>
 </template>
@@ -1690,7 +2010,8 @@ void showDialog
     padding: 0 20px;
 
     &--open {
-      max-height: 260px;
+      // 退回模式行 + 意见输入 + 按钮行的总高度上限
+      max-height: 340px;
       padding: 12px 20px;
       border-bottom: 1px solid var(--border);
     }
@@ -1700,6 +2021,15 @@ void showDialog
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+    margin-top: 8px;
+  }
+
+  &__reject-mode {
+    margin-bottom: 8px;
+  }
+
+  &__reject-stage {
+    width: 100%;
     margin-top: 8px;
   }
 }

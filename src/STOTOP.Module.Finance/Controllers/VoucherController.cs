@@ -41,7 +41,7 @@ public class VoucherController : ControllerBase
     [RequireAccountSetPermission(AccountSetPermissions.VoucherView)]
     public async Task<ApiResult<VoucherPagedResult>> GetPagedList([FromQuery] VoucherQueryRequest request, [FromQuery] long accountSetId = 0)
     {
-        var result = await _voucherService.GetPagedListAsync(request, accountSetId);
+        var result = await _voucherService.GetPagedListAsync(request, ResolveAccountSetId(accountSetId));
         return ApiResult<VoucherPagedResult>.Success(result);
     }
 
@@ -170,7 +170,7 @@ public class VoucherController : ControllerBase
     [RequireAccountSetPermission(AccountSetPermissions.VoucherEdit)]
     public async Task<ApiResult> ReorderNumbers(long periodId, [FromQuery] long accountSetId = 0)
     {
-        var result = await _voucherService.ReorderNumbersAsync(periodId, accountSetId);
+        var result = await _voucherService.ReorderNumbersAsync(periodId, ResolveAccountSetId(accountSetId));
         return ApiResult.Ok("整理凭证号成功");
     }
 
@@ -178,7 +178,7 @@ public class VoucherController : ControllerBase
     [RequireAccountSetPermission(AccountSetPermissions.VoucherView)]
     public async Task<ApiResult<int>> GetNextNumber([FromQuery] string word, [FromQuery] long periodId, [FromQuery] long accountSetId = 0)
     {
-        var result = await _voucherService.GetNextNumberAsync(word, periodId, accountSetId);
+        var result = await _voucherService.GetNextNumberAsync(word, periodId, ResolveAccountSetId(accountSetId));
         return ApiResult<int>.Success(result);
     }
 
@@ -186,7 +186,7 @@ public class VoucherController : ControllerBase
     [RequireAccountSetPermission(AccountSetPermissions.VoucherView)]
     public async Task<ApiResult<int>> GetPendingAuditCount([FromQuery] long accountSetId = 0)
     {
-        var result = await _voucherService.GetPendingAuditCountAsync(accountSetId);
+        var result = await _voucherService.GetPendingAuditCountAsync(ResolveAccountSetId(accountSetId));
         return ApiResult<int>.Success(result);
     }
 
@@ -218,7 +218,7 @@ public class VoucherController : ControllerBase
     [RequireAccountSetPermission(AccountSetPermissions.VoucherView)]
     public async Task<ApiResult<object>> CheckGap([FromQuery] long accountSetId, [FromQuery] int year, [FromQuery] int periodNo)
     {
-        return await _voucherService.CheckGapAsync(accountSetId, year, periodNo);
+        return await _voucherService.CheckGapAsync(ResolveAccountSetId(accountSetId), year, periodNo);
     }
 
     [HttpGet("export")]
@@ -229,7 +229,8 @@ public class VoucherController : ControllerBase
             return BadRequest(ApiResult.Fail("请指定要导出的凭证"));
 
         var voucherIds = ids.Split(',').Select(long.Parse).ToList();
-        var bytes = await _voucherExcelService.ExportToExcel(voucherIds, accountSetId);
+        var effectiveAccountSetId = ResolveAccountSetId(accountSetId);
+        var bytes = await _voucherExcelService.ExportToExcel(voucherIds, effectiveAccountSetId);
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "凭证导出.xlsx");
     }
 
@@ -248,8 +249,9 @@ public class VoucherController : ControllerBase
             return ApiResult<VoucherImportResult>.Fail("文件过大，请拆分后再导入");
 
         var currentUser = User.FindFirst(ClaimTypes.Name)?.Value ?? "system";
+        var effectiveAccountSetId = ResolveAccountSetId(accountSetId);
         using var stream = file.OpenReadStream();
-        var result = await _voucherExcelService.ImportFromExcel(stream, file.FileName, accountSetId, currentUser);
+        var result = await _voucherExcelService.ImportFromExcel(stream, file.FileName, effectiveAccountSetId, currentUser);
         return ApiResult<VoucherImportResult>.Success(result);
     }
 

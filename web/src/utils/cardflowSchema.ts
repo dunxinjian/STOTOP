@@ -55,21 +55,44 @@ export function parseCardSchemaHeader(json?: string | null): CardHeaderConfig {
   return parseCardSchemaPayload(json).header || defaultCardHeaderConfig()
 }
 
-export function parseDetailSchemaFields(json?: string | null): SchemaFieldDefinition[] {
+export interface DetailTableSchema {
+  detailTableKey: string
+  label?: string
+  columns: SchemaFieldDefinition[]
+}
+
+/**
+ * 解析明细 schema 为完整的多表结构：兼容 legacy 裸数组 / { fields } / { tables:[...] } 三形态。
+ * 编辑器仅编辑 default 表，但保存时须原样透传其余表，故解析必须保留全部表——单表取值走 parseDetailSchemaFields。
+ */
+export function parseDetailSchema(json?: string | null): DetailTableSchema[] {
   if (!json) return []
   try {
     const parsed = JSON.parse(json)
-    if (Array.isArray(parsed)) return parsed
+    if (Array.isArray(parsed)) {
+      return [{ detailTableKey: 'default', label: '明细', columns: parsed }]
+    }
     if (parsed && typeof parsed === 'object' && Array.isArray(parsed.tables)) {
-      const defaultTable = parsed.tables.find((table: any) => table?.detailTableKey === 'default')
-      const table = defaultTable || parsed.tables[0]
-      return Array.isArray(table?.columns) ? table.columns : []
+      return parsed.tables
+        .filter((table: any) => table && typeof table === 'object')
+        .map((table: any) => ({
+          detailTableKey: typeof table.detailTableKey === 'string' ? table.detailTableKey : 'default',
+          label: typeof table.label === 'string' ? table.label : undefined,
+          columns: Array.isArray(table.columns) ? table.columns : [],
+        }))
     }
     if (parsed && typeof parsed === 'object' && Array.isArray(parsed.fields)) {
-      return parsed.fields
+      return [{ detailTableKey: 'default', label: '明细', columns: parsed.fields }]
     }
   } catch {
     // Keep callers resilient to older or partially saved draft payloads.
   }
   return []
+}
+
+export function parseDetailSchemaFields(json?: string | null): SchemaFieldDefinition[] {
+  const tables = parseDetailSchema(json)
+  if (tables.length === 0) return []
+  const defaultTable = tables.find(table => table.detailTableKey === 'default') || tables[0]
+  return defaultTable.columns
 }

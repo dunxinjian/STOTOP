@@ -45,7 +45,7 @@ public class VoucherExcelService
     {
         var vouchers = await _context.Set<FinVoucher>()
             .Include(v => v.Entries)
-            .Where(v => voucherIds.Contains(v.FID))
+            .Where(v => voucherIds.Contains(v.FID) && v.FAccountSetId == accountSetId)
             .OrderBy(v => v.FVoucherNo)
             .AsNoTracking()
             .ToListAsync();
@@ -338,6 +338,8 @@ public class VoucherExcelService
                         var period = periods.FirstOrDefault(p => voucherDate >= p.FStartDate && voucherDate <= p.FEndDate);
                         if (period == null)
                             errors.Add(new VoucherImportError { RowNumber = excelRow, Message = $"日期 {dateStr} 找不到对应的会计期间" });
+                        else if (period.FIsClosed == 1)
+                            errors.Add(new VoucherImportError { RowNumber = excelRow, Message = $"日期 {dateStr} 所属会计期间已结账，不能导入凭证" });
                         else
                             periodId = period.FID;
                     }

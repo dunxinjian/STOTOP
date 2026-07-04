@@ -255,6 +255,9 @@ public class JournalService
                 p.FPeriodNo == request.Date.Month)
             ?? throw new InvalidOperationException($"未找到 {request.Date.Year}年{request.Date.Month}期 的会计期间");
 
+        // 已结账期间禁止登记调整凭证
+        VoucherPostingRules.EnsureOpenForPosting(period);
+
         const int maxRetries = 3;
         for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
@@ -366,7 +369,19 @@ public class JournalService
             .Where(v => voucherIds.Contains(v.FID) && v.FAccountSetId == request.AccountSetId)
             .ToListAsync();
 
-        foreach (var voucher in vouchers.Where(v => v.FStatus == (int)VoucherStatus.Draft))
+        // 校验各凭证所属期间未结账，已结账则拒绝提交（否则可把草稿提交进已结账期间）
+        var draftVouchers = vouchers.Where(v => v.FStatus == (int)VoucherStatus.Draft).ToList();
+        if (draftVouchers.Count > 0)
+        {
+            var periodIds = draftVouchers.Select(v => v.FPeriodId).Distinct().ToList();
+            var periods = await _periodRepository.Query()
+                .Where(p => periodIds.Contains(p.FID))
+                .ToListAsync();
+            foreach (var p in periods)
+                VoucherPostingRules.EnsureOpenForPosting(p);
+        }
+
+        foreach (var voucher in draftVouchers)
         {
             voucher.FStatus = (int)VoucherStatus.Pending;
             voucher.FUpdatedTime = DateTime.Now;
@@ -386,8 +401,9 @@ public class JournalService
 
         if (voucher == null) return false;
 
-        if (voucher.FStatus == (int)VoucherStatus.Audited)
-            throw new InvalidOperationException("已审核的凭证不能删除");
+        // 已审核(2)/已锁定(3，结账后)均不可删除——原判等仅拦 2，漏放锁定态被删破坏已结账数据
+        if (voucher.FStatus >= (int)VoucherStatus.Audited)
+            throw new InvalidOperationException("已审核或已结账锁定的凭证不能删除");
 
         await _voucherRepository.DeleteAsync(voucherId);
         await _operationLogService.LogAsync(
@@ -410,6 +426,9 @@ public class JournalService
                 p.FPeriodNo == request.Date.Month)
             ?? throw new InvalidOperationException(
                 $"未找到 {request.Date.Year}年{request.Date.Month}期 的会计期间");
+
+        // 已结账期间禁止登记凭证（FIsClosed==1 抛 InvalidOperationException → 400）
+        VoucherPostingRules.EnsureOpenForPosting(period);
 
         const int maxRetries = 3;
         for (int attempt = 1; attempt <= maxRetries; attempt++)

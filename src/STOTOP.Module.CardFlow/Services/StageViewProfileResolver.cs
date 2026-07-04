@@ -129,17 +129,23 @@ public sealed class StageViewProfileResolver : IStageViewProfileResolver
         StageConfigEnvelope config)
     {
         var result = new Dictionary<string, StageDetailAccessRule>();
-        foreach (var field in ReadFields(detailSchemaJson))
+        // 遍历全部明细表（含非 default 表）建 baseline，Sensitive 列一律 masked——
+        // 否则 {tables:[...]} 多表形态下非 default 表敏感列取不到规则会被 fail-open 成明文下发。
+        foreach (var table in CardSchemaReader.ReadDetailTables(detailSchemaJson))
         {
-            if (string.IsNullOrWhiteSpace(field.Key))
+            var tableKey = string.IsNullOrWhiteSpace(table.DetailTableKey) ? "default" : table.DetailTableKey;
+            foreach (var field in table.Columns)
             {
-                continue;
-            }
+                if (string.IsNullOrWhiteSpace(field.Key))
+                {
+                    continue;
+                }
 
-            var rule = field.Sensitive
-                ? new StageDetailAccessRule { Access = "masked", MaskPattern = field.MaskPattern }
-                : new StageDetailAccessRule { Access = "readonly" };
-            result[$"default.{field.Key}"] = rule;
+                var rule = field.Sensitive
+                    ? new StageDetailAccessRule { Access = "masked", MaskPattern = field.MaskPattern }
+                    : new StageDetailAccessRule { Access = "readonly" };
+                result[$"{tableKey}.{field.Key}"] = rule;
+            }
         }
 
         if (config.ViewProfile?.DetailAccess != null)
@@ -193,11 +199,11 @@ public sealed class StageViewProfileResolver : IStageViewProfileResolver
         var obj = ParseObject(dataJson);
         foreach (var (key, rule) in access)
         {
-            if (rule.Access.Equals("hidden", StringComparison.OrdinalIgnoreCase))
+            if (StageAccessLevels.IsHidden(rule.Access))
             {
                 obj.Remove(key);
             }
-            else if (rule.Access.Equals("masked", StringComparison.OrdinalIgnoreCase) && obj.ContainsKey(key))
+            else if (StageAccessLevels.IsMasked(rule.Access) && obj.ContainsKey(key))
             {
                 obj[key] = MaskValue(obj[key], rule.MaskPattern);
             }
@@ -221,11 +227,11 @@ public sealed class StageViewProfileResolver : IStageViewProfileResolver
             }
 
             var columnKey = key[prefix.Length..];
-            if (rule.Access.Equals("hidden", StringComparison.OrdinalIgnoreCase))
+            if (StageAccessLevels.IsHidden(rule.Access))
             {
                 obj.Remove(columnKey);
             }
-            else if (rule.Access.Equals("masked", StringComparison.OrdinalIgnoreCase) && obj.ContainsKey(columnKey))
+            else if (StageAccessLevels.IsMasked(rule.Access) && obj.ContainsKey(columnKey))
             {
                 obj[columnKey] = MaskValue(obj[columnKey], rule.MaskPattern);
             }
@@ -265,40 +271,8 @@ public sealed class StageViewProfileResolver : IStageViewProfileResolver
         return FieldMasker.Mask(text, pattern);
     }
 
-    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
-
     private static List<CardFieldDefinitionV2> ReadFields(string? schemaJson)
-    {
-        if (string.IsNullOrWhiteSpace(schemaJson))
-        {
-            return new List<CardFieldDefinitionV2>();
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(schemaJson);
-            var root = document.RootElement;
-
-            if (root.ValueKind == JsonValueKind.Array)
-            {
-                return JsonSerializer.Deserialize<List<CardFieldDefinitionV2>>(schemaJson, JsonOptions) ?? new();
-            }
-
-            if (root.ValueKind == JsonValueKind.Object
-                && root.TryGetProperty("fields", out var fieldsProp)
-                && fieldsProp.ValueKind == JsonValueKind.Array)
-            {
-                var schema = JsonSerializer.Deserialize<CardSchemaV2>(schemaJson, JsonOptions);
-                return schema?.Fields ?? new List<CardFieldDefinitionV2>();
-            }
-        }
-        catch (JsonException)
-        {
-            // ignore，返回空
-        }
-
-        return new List<CardFieldDefinitionV2>();
-    }
+        => CardSchemaReader.ReadFields(schemaJson);
 
     private static List<string> ReadFieldKeys(string? schemaJson)
     {
