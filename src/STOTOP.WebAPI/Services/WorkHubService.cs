@@ -23,7 +23,7 @@ public interface IWorkHubService
 {
     Task<PagedResult<DtoWorkItemDto>> GetWorkItemsAsync(long userId, long orgId, string? category, string? priority, int page, int pageSize);
     Task<WorkHubStatsDto> GetStatsAsync(long userId, long orgId);
-    Task<WorkItemsWithStatsDto> GetWorkItemsWithStatsAsync(long userId, long orgId, string? priority, int page, int pageSize);
+    Task<WorkItemsWithStatsDto> GetWorkItemsWithStatsAsync(long userId, long orgId, string? category, string? priority, int page, int pageSize);
     Task<bool> ExecuteActionAsync(long userId, string itemId, string actionKey);
 }
 
@@ -247,9 +247,9 @@ public class WorkHubService : IWorkHubService
         };
     }
 
-    public async Task<WorkItemsWithStatsDto> GetWorkItemsWithStatsAsync(long userId, long orgId, string? priority, int page, int pageSize)
+    public async Task<WorkItemsWithStatsDto> GetWorkItemsWithStatsAsync(long userId, long orgId, string? category, string? priority, int page, int pageSize)
     {
-        // 并行获取所有模块数据（只执行一次，同时用于 items 和 stats）
+        // 并行获取所有模块数据（只执行一次，同时用于 items 和 stats；stats 需要全类 count，故不按 category 裁剪数据源）
         var tasks = new List<Task<List<DtoWorkItemDto>>>
         {
             ExecuteInScopeAsync<ITodoService>(svc => GetCardFlowTodosFromServiceAsync(svc, userId)),
@@ -269,7 +269,7 @@ public class WorkHubService : IWorkHubService
         // 回填业务类型（BizTypeKey / BizTypeLabel）
         EnrichBizTypes(allItems);
 
-        // 计算统计（基于全量数据）
+        // 计算统计（基于全量数据，在 category/priority 过滤之前）
         var statsResult = new WorkHubStatsDto
         {
             Total = allItems.Count,
@@ -280,6 +280,12 @@ public class WorkHubService : IWorkHubService
             Reminder = allItems.Count(i => i.Category == "reminder"),
             Initiated = allItems.Count(i => i.Category == "initiated"),
         };
+
+        // 按分类筛选（列表部分；统计仍为全类）
+        if (!string.IsNullOrEmpty(category))
+        {
+            allItems = allItems.Where(i => i.Category == category).ToList();
+        }
 
         // 按优先级筛选
         if (!string.IsNullOrEmpty(priority))
@@ -350,22 +356,41 @@ public class WorkHubService : IWorkHubService
         };
     }
 
+    /// <summary>单个数据源慢于该阈值时记 Warning（正常应为几十 ms；数秒级通常是 DB 连接建立被网络/代理拖慢）</summary>
+    private const int SlowSourceThresholdMs = 2000;
+
+    /// <summary>
+    /// 数据源 fan-out 的全局 DB 并发闸（跨请求共享）。
+    /// 每个数据源占用一条池化连接；无上限并发会在连接池热连接不足时触发新建物理连接，
+    /// 高延迟链路（远程库/代理）下每条新建要数秒，整批被拖垮。限到 3（加请求自身 ≈4 条连接）
+    /// 让 fan-out 基本复用池内热连接：8 源 ≈ 3 批 × 单源耗时，健康链路下总耗时仍在百毫秒级。
+    /// </summary>
+    private static readonly SemaphoreSlim FanOutGate = new(3, 3);
+
     /// <summary>
     /// 在独立 scope 中执行查询，仅解析实际需要的服务
     /// </summary>
     private async Task<List<DtoWorkItemDto>> ExecuteInScopeAsync<TService>(
         Func<TService, Task<List<DtoWorkItemDto>>> query) where TService : notnull
     {
+        await FanOutGate.WaitAsync();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             using var scope = _scopeFactory.CreateScope();
             var service = scope.ServiceProvider.GetRequiredService<TService>();
-            return await query(service);
+            var result = await query(service);
+            LogSourceElapsed(typeof(TService).Name, sw.ElapsedMilliseconds, result.Count);
+            return result;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "并行查询执行失败");
+            _logger.LogWarning(ex, "并行查询执行失败：{Service}，耗时 {Elapsed}ms", typeof(TService).Name, sw.ElapsedMilliseconds);
             return new List<DtoWorkItemDto>();
+        }
+        finally
+        {
+            FanOutGate.Release();
         }
     }
 
@@ -375,17 +400,33 @@ public class WorkHubService : IWorkHubService
     private async Task<List<DtoWorkItemDto>> ExecuteInScopeOptionalAsync<TService>(
         Func<TService?, Task<List<DtoWorkItemDto>>> query) where TService : class
     {
+        await FanOutGate.WaitAsync();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             using var scope = _scopeFactory.CreateScope();
             var service = scope.ServiceProvider.GetService<TService>();
-            return await query(service);
+            var result = await query(service);
+            LogSourceElapsed(typeof(TService).Name, sw.ElapsedMilliseconds, result.Count);
+            return result;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "并行查询执行失败");
+            _logger.LogWarning(ex, "并行查询执行失败：{Service}，耗时 {Elapsed}ms", typeof(TService).Name, sw.ElapsedMilliseconds);
             return new List<DtoWorkItemDto>();
         }
+        finally
+        {
+            FanOutGate.Release();
+        }
+    }
+
+    private void LogSourceElapsed(string serviceName, long elapsedMs, int count)
+    {
+        if (elapsedMs >= SlowSourceThresholdMs)
+            _logger.LogWarning("WorkHub 数据源 {Service} 慢查询：耗时 {Elapsed}ms，返回 {Count} 条", serviceName, elapsedMs, count);
+        else
+            _logger.LogDebug("WorkHub 数据源 {Service} 耗时 {Elapsed}ms，返回 {Count} 条", serviceName, elapsedMs, count);
     }
 
     // ===== 质量异常告警 =====

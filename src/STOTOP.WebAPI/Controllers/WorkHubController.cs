@@ -59,10 +59,11 @@ public class WorkHubController : ControllerBase
     }
 
     /// <summary>
-    /// 获取工作项列表 + 统计信息（合并接口，用于初始化加载）
+    /// 获取工作项列表 + 统计信息（合并接口，用于初始化加载；category 只过滤列表，统计始终为全类）
     /// </summary>
     [HttpGet("items-with-stats")]
     public async Task<ApiResult<WorkItemsWithStatsDto>> GetItemsWithStats(
+        [FromQuery] string? category,
         [FromQuery] string? priority,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 15)
@@ -70,7 +71,7 @@ public class WorkHubController : ControllerBase
         var userId = GetUserId();
         var orgId = GetOrgId();
 
-        var result = await _workHubService.GetWorkItemsWithStatsAsync(userId, orgId, priority, page, pageSize);
+        var result = await _workHubService.GetWorkItemsWithStatsAsync(userId, orgId, category, priority, page, pageSize);
         return ApiResult<WorkItemsWithStatsDto>.Success(result);
     }
 

@@ -144,6 +144,9 @@ let manager: SignalRManager | null = null
 /** 标记初始数据是否已加载（防止 SignalR 首次连接时重复 init） */
 let initialDataLoaded = false
 
+/** 是否已成功连接过 SignalR（用于区分首次连接与断线重连，仅重连时才需要重新拉数据） */
+let hasConnectedBefore = false
+
 /** 防抖定时器 */
 let statsDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -232,12 +235,14 @@ async function fetchStats() {
   }
 }
 
-/** 初始化：合并接口加载列表 + 统计 */
+/** 初始化：合并接口一次加载列表 + 统计（列表按当前 category 过滤，统计为全类角标） */
 async function init() {
+  loading.value = true
   try {
     const result = await getWorkItemsWithStats({
       page: 1,
       pageSize: pageSize.value,
+      category: filters.value.category || undefined,
     })
     if (result) {
       items.value = result.items?.items || []
@@ -250,6 +255,8 @@ async function init() {
   } catch (e) {
     console.warn('[useWorkHub] init 失败，回退到分离调用', e)
     await Promise.allSettled([fetchItems(true), fetchStats()])
+  } finally {
+    loading.value = false
   }
   initialDataLoaded = true
 }
@@ -269,16 +276,16 @@ function dismissPendingItems() {
 
 // ===== 筛选器操作 =====
 
+// 注：stats 是全类全量统计、不受任何筛选参数影响，因此切换筛选只需重取列表；
+// 角标数字由 SignalR 推送与操作后的 debouncedFetchStats 维护。
 function setFilter<K extends keyof WorkHubFilters>(key: K, value: WorkHubFilters[K]) {
   filters.value[key] = value
   fetchItems(true)
-  fetchStats()
 }
 
 function resetFilters() {
   filters.value = { ...DEFAULT_FILTERS }
   fetchItems(true)
-  fetchStats()
 }
 
 // ===== 工作项操作 =====
@@ -488,9 +495,12 @@ async function connect(userId: number | string) {
     url: '/hubs/workhub',
     onStateChange: (state) => {
       isConnected.value = state === HubConnectionState.Connected
-      // 仅在重连时刷新数据（首次连接由 init() 已完成加载）
-      if (state === HubConnectionState.Connected && initialDataLoaded) {
-        init()
+      if (state === HubConnectionState.Connected) {
+        // 仅断线重连时刷新数据（首次连接由页面 init() 已完成加载，勿重复拉取）
+        if (hasConnectedBefore && initialDataLoaded) {
+          init()
+        }
+        hasConnectedBefore = true
       }
     },
   })

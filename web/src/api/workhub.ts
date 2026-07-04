@@ -100,10 +100,11 @@ export interface WorkItemsWithStatsResult {
   stats: WorkHubStats
 }
 
-/** 获取工作项列表 + 统计信息（合并接口，用于初始化） */
+/** 获取工作项列表 + 统计信息（合并接口，用于初始化；category 只过滤列表，统计始终为全类） */
 export function getWorkItemsWithStats(params: {
   page: number
   pageSize: number
+  category?: string
   priority?: string
 }) {
   return get<WorkItemsWithStatsResult>('/workhub/items-with-stats', params, { silent: true } as any)

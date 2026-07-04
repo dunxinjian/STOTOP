@@ -231,8 +231,8 @@ onMounted(async () => {
     activeCategory.value = q as CatKey
   }
   hub.filters.value.category = activeCategory.value
-  await hub.fetchStats()
-  await hub.fetchItems(true)
+  // 合并接口一次拿列表 + 统计（后端一轮聚合），替代串行的 fetchStats + fetchItems 两轮
+  await hub.init()
   if (userStore.userInfo?.id) {
     hub.connect(userStore.userInfo.id)
   }
