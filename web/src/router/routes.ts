@@ -103,6 +103,13 @@ export const layoutRoute: RouteRecordRaw = {
       component: () => import('@/views/system/UserProfile.vue'),
       meta: { title: '个人设置', permission: '*', hidden: true },
     },
+    // 租户邀请（多租户阶段4F；不在侧栏，经直链/待确认提示进入）
+    {
+      path: 'tenant-invites',
+      name: 'TenantInvites',
+      component: () => import('@/views/system/TenantInvites.vue'),
+      meta: { title: '租户邀请', permission: '*', hidden: true },
+    },
     // 系统管理子路由
     {
       path: 'system/users',

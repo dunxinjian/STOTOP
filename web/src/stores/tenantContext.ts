@@ -28,6 +28,13 @@ export const useTenantContextStore = defineStore('tenantContext', () => {
     try {
       const res = await getMyTenants() as any
       tenants.value = Array.isArray(res) ? res : (res?.items || [])
+      // 入口自动选租户：无当前选择时选主租户/唯一租户 → 主动带 X-Tenant-Context、规避多租户 428。
+      // 多个且无主 → 不自动选，由 TenantSwitcher 手动选（428 提示兜底）。
+      if (!currentTenantId.value && tenants.value.length > 0) {
+        const pick = tenants.value.find(t => t.isPrimary)
+          ?? (tenants.value.length === 1 ? tenants.value[0] : null)
+        if (pick) setCurrentTenant(pick.tenantId, pick.tenantName)
+      }
     } catch {
       // 保留旧列表，避免切换器闪烁
     }
