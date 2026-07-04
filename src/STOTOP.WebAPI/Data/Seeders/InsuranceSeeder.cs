@@ -25,6 +25,7 @@ public static class InsuranceSeeder
         {
             new(1, "阶段0多租户: Insurance 8张租户表加 F租户ID 隔离键列(NOT NULL DEFAULT 0,不启用过滤器)+租户索引 (2026-07-01)", MigrateV1),
             new(2, "阶段0多租户: Insurance 存量行 F租户ID 回填到根组织单租户(=根组织id) (2026-07-01)", MigrateV2),
+            new(3, "阶段0收尾: Insurance 20个非租户列(审计时间戳/共保基金金额/理赔可驳回) 硬化为 NOT NULL(存量0 NULL行,无索引依赖) (2026-07-04)", MigrateV3),
         });
     }
 
@@ -71,6 +72,45 @@ public static class InsuranceSeeder
             DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
             IF @tenant IS NOT NULL
                 UPDATE [{t}] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
+        }
+    }
+
+    /// <summary>
+    /// 阶段0收尾·非租户列硬化目标：这些列建表早于模型标 NOT NULL，库中仍可空，与模型不一致；
+    /// SchemaAutoSync 对可空性只提示不自动改。均为审计时间戳 / 共保基金金额 / 理赔审批布尔等非隔离业务列，
+    /// (2026-07-04 核 47.105.65.51/stotop：这些列存量 NULL 行均为 0，且无索引依赖 → 直接 ALTER，无需回填/落索引。)
+    /// 不加 DEFAULT：与模型一致，新行由实体/审计管道回填。(Table, Col, ALTER-ready 类型)。
+    /// </summary>
+    private static readonly (string Table, string Col, string Type)[] Phase0NotNullHarden =
+    {
+        ("INS保单", "F创建时间", "datetime2"), ("INS保单", "F更新时间", "datetime2"),
+        ("INS保险公司", "F创建时间", "datetime2"), ("INS保险公司", "F更新时间", "datetime2"),
+        ("INS出险记录", "F创建时间", "datetime2"), ("INS出险记录", "F更新时间", "datetime2"),
+        ("INS共保基金", "F免赔额", "decimal(18,2)"), ("INS共保基金", "F创建时间", "datetime2"),
+        ("INS共保基金", "F基金余额", "decimal(18,2)"), ("INS共保基金", "F更新时间", "datetime2"),
+        ("INS共保基金", "F累计缴费", "decimal(18,2)"), ("INS共保基金", "F累计赔付", "decimal(18,2)"),
+        ("INS共保基金缴费", "F创建时间", "datetime2"), ("INS共保基金缴费", "F更新时间", "datetime2"),
+        ("INS理赔记录", "F创建时间", "datetime2"), ("INS理赔记录", "F更新时间", "datetime2"),
+        ("INS理赔审批记录", "F创建时间", "datetime2"),
+        ("INS理赔审批配置", "F可驳回", "bit"), ("INS理赔审批配置", "F创建时间", "datetime2"),
+        ("INS理赔审批配置", "F更新时间", "datetime2"),
+    };
+
+    /// <summary>
+    /// 阶段0收尾·硬化为 NOT NULL：幂等——仅在"列当前可空 且 已无 NULL"时 ALTER，硬化后再跑为 no-op；
+    /// fresh 库(EF 按模型直接建 NOT NULL)亦 no-op。这些列均无索引依赖，无需 drop/recreate。
+    /// </summary>
+    private static void MigrateV3(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        foreach (var (t, c, type) in Phase0NotNullHarden)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+                       WHERE TABLE_NAME = N'{t}' AND COLUMN_NAME = N'{c}' AND IS_NULLABLE = 'YES')
+               AND NOT EXISTS (SELECT 1 FROM [{t}] WHERE [{c}] IS NULL)
+                ALTER TABLE [{t}] ALTER COLUMN [{c}] {type} NOT NULL;");
         }
     }
 }
