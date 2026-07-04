@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
+using STOTOP.Module.System.Entities;
 
 namespace STOTOP.Module.System.Services;
 
@@ -33,5 +34,24 @@ public class TenantResolver : ITenantResolver
             _resolved = true;
             return _cached;
         }
+    }
+
+    /// <inheritdoc/>
+    public long? ResolveTenantForOrg(long orgId)
+    {
+        // 非法 orgId：无从解析 → 根租户兜底。
+        if (orgId <= 0) return GetRootTenantId();
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<STOTOPDbContext>();
+        // SYS组织架构 不实现 IOrgScoped/ITenantScoped(是租户结构骨架、不进硬墙)，Set<> 无全局过滤器，可直接读。
+        var tenantId = db.Set<SysOrganization>()
+            .Where(o => o.FID == orgId)
+            .Select(o => o.FTenantId)
+            .FirstOrDefault();
+
+        // F租户ID<=0：查不到该组织，或其租户根尚未由 OrgTreeMaterializer 物化(新建/reparent 的瞬时窗口、
+        // 或阶段0 回填遗漏)。此时回退根租户，避免把上下文解析成 0 → fail-closed 读空/写抛/污染。
+        return tenantId > 0 ? tenantId : GetRootTenantId();
     }
 }

@@ -177,8 +177,10 @@ public class FlowEngineService : IFlowEngineService
         if (orgAccessor != null)
         {
             orgAccessor.CurrentOrgId = batch.FOrgId;
-            // v2 多租户：后台批次链无 HttpContext，须显式设租户(单客户=组织树根)，否则写 ITenantScoped 实体 fail-closed 抛异常。
-            orgAccessor.CurrentTenantId = _serviceProvider.GetService<ITenantResolver>()?.GetRootTenantId();
+            // v2 多租户：后台批次链无 HttpContext，须显式设租户，否则写 ITenantScoped 实体 fail-closed 抛异常。
+            // 按【本批次所属组织】解析租户(多租户就绪)——非固定根租户，否则非根租户的导入/凭证会在根租户上下文下
+            // 读不到会计期间/跨租户写凭证。单客户下所有 org 的 F租户ID 都=组织树根，故此处仍返回根、行为不变。
+            orgAccessor.CurrentTenantId = _serviceProvider.GetService<ITenantResolver>()?.ResolveTenantForOrg(batch.FOrgId);
         }
 
         // 1. 获取流程当前发布版本

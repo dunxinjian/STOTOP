@@ -49,11 +49,19 @@ public class BatchJobProcessorService : BackgroundService
             try
             {
                 await using var scope = _scopeFactory.CreateAsyncScope();
-                // 后台 Channel 消费者无 HttpContext：显式设根租户上下文，经 AsyncLocal 穿透整条批次处理链
+                // 后台 Channel 消费者无 HttpContext：显式设租户上下文，经 AsyncLocal 穿透整条批次处理链
                 // （BatchTriggerService→FlowEngineService→插件/事件），令 ITenantScoped 读写不被 fail-closed 硬墙挡。
+                // 按【本批次所属组织】解析租户(多租户就绪)：这是贯穿全链的权威入口，覆盖所有 job kind——
+                // ParseAndStage 的 STG 暂存写、ProcessBatchStages 的凭证写都继承此租户。非固定根租户，否则
+                // 非根租户的导入会把暂存/凭证写进根租户。查不到批次/未物化则回退根。单客户下=组织树根，行为不变。
                 var orgContext = scope.ServiceProvider.GetService<IOrgContextAccessor>();
                 if (orgContext != null)
-                    orgContext.CurrentTenantId = scope.ServiceProvider.GetService<ITenantResolver>()?.GetRootTenantId();
+                {
+                    var db = scope.ServiceProvider.GetRequiredService<STOTOPDbContext>();
+                    var batchOrgId = await db.Set<CfBatch>().IgnoreQueryFilters()
+                        .Where(b => b.FID == job.BatchId).Select(b => b.FOrgId).FirstOrDefaultAsync(stoppingToken);
+                    orgContext.CurrentTenantId = scope.ServiceProvider.GetService<ITenantResolver>()?.ResolveTenantForOrg(batchOrgId);
+                }
                 var trigger = scope.ServiceProvider.GetRequiredService<IBatchTriggerService>();
                 await trigger.ProcessBatchJobAsync(job, stoppingToken);
             }

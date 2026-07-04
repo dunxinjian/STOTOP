@@ -44,6 +44,7 @@ public class PlatformBypassAuditTests
     private sealed class FakeTenantResolver : ITenantResolver
     {
         public long? GetRootTenantId() => 1;
+        public long? ResolveTenantForOrg(long orgId) => 1;
     }
 
     private static IConfiguration Config(bool? auditPlatformBypass)
