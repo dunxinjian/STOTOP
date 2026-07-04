@@ -53,6 +53,8 @@ public static class CardFlowModuleExtensions
         services.AddScoped<ICardSchemaService, CardSchemaService>();
         services.AddScoped<Services.Redaction.ICardRedactionService, Services.Redaction.CardRedactionService>();
         services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
+        // 阶段4E·R4：待办分发日志（taskId→租户/待办 权威绑定 + 回调幂等去重）
+        services.AddScoped<ITodoDispatchLogService, TodoDispatchLogService>();
 
         // 通知渠道
         services.AddScoped<INotificationChannel, DingTalkChannel>();

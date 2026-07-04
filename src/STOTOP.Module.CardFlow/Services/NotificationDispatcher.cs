@@ -11,15 +11,18 @@ public class NotificationDispatcher : INotificationDispatcher
     private readonly IEnumerable<INotificationChannel> _channels;
     private readonly STOTOPDbContext _dbContext;
     private readonly ILogger<NotificationDispatcher> _logger;
+    private readonly ITodoDispatchLogService _dispatchLog;
 
     public NotificationDispatcher(
         IEnumerable<INotificationChannel> channels,
         STOTOPDbContext dbContext,
-        ILogger<NotificationDispatcher> logger)
+        ILogger<NotificationDispatcher> logger,
+        ITodoDispatchLogService dispatchLog)
     {
         _channels = channels;
         _dbContext = dbContext;
         _logger = logger;
+        _dispatchLog = dispatchLog;
     }
 
     public async Task DispatchCreateTodoAsync(long todoItemId)
@@ -60,6 +63,20 @@ public class NotificationDispatcher : INotificationDispatcher
             var externalId = await channel.CreateTodoAsync(payload);
             todo.FExternalTodoId = externalId;
             todo.FPushStatus = "success";
+            await _dbContext.SaveChangesAsync();
+
+            // 阶段4E·R4：登记分发日志（taskId→租户/待办 权威绑定 + 幂等台账）。best-effort，绝不因日志失败翻掉已成功的推送。
+            try
+            {
+                // externalTodoId 格式 orgId|unionId|taskId → 取末段 taskId
+                var taskId = externalId?.Split('|').LastOrDefault();
+                await _dispatchLog.RecordDispatchAsync(todo.FID, todo.FTenantId, channelName, taskId, corpId: null);
+            }
+            catch (Exception logEx)
+            {
+                _logger.LogWarning(logEx, "登记待办分发日志失败(best-effort)，TodoItemId={Id}", todoItemId);
+            }
+            return;
         }
         catch (Exception ex)
         {

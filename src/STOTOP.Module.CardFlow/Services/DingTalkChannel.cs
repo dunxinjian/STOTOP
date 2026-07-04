@@ -17,6 +17,7 @@ public class DingTalkChannel : INotificationChannel
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly INotificationSettingsService _settingsService;
     private readonly STOTOPDbContext _dbContext;
+    private readonly ITodoDispatchLogService _dispatchLog;
 
     /// <summary>
     /// 组织级 AccessToken 缓存（orgId → (token, expireTime)）
@@ -27,12 +28,14 @@ public class DingTalkChannel : INotificationChannel
         ILogger<DingTalkChannel> logger,
         IHttpClientFactory httpClientFactory,
         INotificationSettingsService settingsService,
-        STOTOPDbContext dbContext)
+        STOTOPDbContext dbContext,
+        ITodoDispatchLogService dispatchLog)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _settingsService = settingsService;
         _dbContext = dbContext;
+        _dispatchLog = dispatchLog;
     }
 
     public string ChannelName => "dingtalk";
@@ -316,10 +319,27 @@ public class DingTalkChannel : INotificationChannel
             return;
         }
 
-        // 通过 externalTodoId 中包含的 taskId 部分匹配
-        var todoItem = await _dbContext.Set<CfTodoItem>()
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(t => t.FExternalTodoId != null && t.FExternalTodoId.EndsWith("|" + taskId));
+        // 阶段4E·R4：据分发日志的 taskId→(租户,待办) 权威绑定精确定位 + 幂等去重（防伪造回调命中无关/跨租户待办、防重放）。
+        var (todoItemId, alreadyProcessed) = await _dispatchLog.TryBeginCallbackAsync(taskId, newPushStatus);
+        if (alreadyProcessed)
+        {
+            _logger.LogInformation("[钉钉] 回调已幂等处理，跳过重放, TaskId={TaskId}, Event={Event}", taskId, newPushStatus);
+            return;
+        }
+
+        CfTodoItem? todoItem;
+        if (todoItemId != null)
+        {
+            todoItem = await _dbContext.Set<CfTodoItem>().IgnoreQueryFilters()
+                .FirstOrDefaultAsync(t => t.FID == todoItemId.Value);
+        }
+        else
+        {
+            // 无分发日志记录（历史遗留待办 / 可疑伪造）→ legacy 尾缀匹配兜底并告警。
+            _logger.LogWarning("[钉钉] 回调 taskId 无分发日志记录，走 legacy 尾缀匹配, TaskId={TaskId}", taskId);
+            todoItem = await _dbContext.Set<CfTodoItem>().IgnoreQueryFilters()
+                .FirstOrDefaultAsync(t => t.FExternalTodoId != null && t.FExternalTodoId.EndsWith("|" + taskId));
+        }
 
         if (todoItem == null)
         {
