@@ -7,12 +7,18 @@
 import { message, Modal } from 'ant-design-vue'
 import { useBatchStore } from '@/stores/batchStore'
 import { useBatchSync } from './useBatchSync'
+import { mapStatus } from '../utils/batchMapping'
 import {
   retryImportBatch,
   recalculateImportBatch,
   deleteBatch,
   preDeleteCheckBatch,
 } from '@/api/cardflow'
+
+/** 后端操作接口返回的 status 是 int（如 4=处理中），入 store 前先归一化为前端 BatchStatus */
+function normalizeApiResponse(raw: { status: number | string; version: number }) {
+  return { ...raw, status: typeof raw.status === 'number' ? mapStatus(raw.status) : raw.status }
+}
 
 export function useBatchOperations(deps?: { loadRecycledBatches?: () => Promise<void> }) {
   const store = useBatchStore()
@@ -37,7 +43,7 @@ export function useBatchOperations(deps?: { loadRecycledBatches?: () => Promise<
       const result = await retryImportBatch(batchId)
       // API 响应确认
       if (result && typeof result === 'object' && 'version' in (result as any)) {
-        store.applyApiResponse(batchId, result as any)
+        store.applyApiResponse(batchId, normalizeApiResponse(result as any))
       }
       subscribeBatch(batchId)
       message.success('已重新提交处理')
@@ -59,7 +65,7 @@ export function useBatchOperations(deps?: { loadRecycledBatches?: () => Promise<
     try {
       const result = await recalculateImportBatch(batchId)
       if (result && typeof result === 'object' && 'version' in (result as any)) {
-        store.applyApiResponse(batchId, result as any)
+        store.applyApiResponse(batchId, normalizeApiResponse(result as any))
       }
       subscribeBatch(batchId)
       message.success('已重新计费')
@@ -98,6 +104,10 @@ export function useBatchOperations(deps?: { loadRecycledBatches?: () => Promise<
         force = true
       } else if (check.affectedVoucherCount > 0) {
         confirmMessage = `此批次关联 ${check.affectedVoucherCount} 张凭证，撤销后凭证将被标记无效。确定继续？`
+      }
+
+      if (check.activeCardCount > 0) {
+        confirmMessage += `\n该批次已展开 ${check.activeCardCount} 张在途卡片，撤销将一并取消`
       }
 
       if (check.affectedRowCount > 0) {

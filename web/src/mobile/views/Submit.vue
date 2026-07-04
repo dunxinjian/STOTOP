@@ -8,13 +8,28 @@
 
     <!-- 加载中 -->
     <div v-if="loading" class="loading-wrap">
-      <van-loading size="24">加载表单...</van-loading>
+      <van-loading size="24">{{ selectedFlowId ? '加载表单...' : '加载流程...' }}</van-loading>
     </div>
 
     <!-- 加载失败 -->
-    <van-empty v-else-if="loadError" description="表单加载失败" class="error-wrap">
-      <van-button size="small" type="primary" @click="loadSchema">重试</van-button>
+    <van-empty v-else-if="loadError" description="加载失败" class="error-wrap">
+      <van-button size="small" type="primary" @click="retry">重试</van-button>
     </van-empty>
+
+    <!-- 流程选择（未指定流程时先选） -->
+    <template v-else-if="!selectedFlowId">
+      <van-cell-group v-if="flows.length > 0" inset class="flow-picker">
+        <van-cell
+          v-for="f in flows"
+          :key="f.id"
+          :title="f.flowName"
+          :label="f.description || f.flowCode"
+          is-link
+          @click="chooseFlow(f.id)"
+        />
+      </van-cell-group>
+      <van-empty v-else description="当前组织暂无可发起的流程" />
+    </template>
 
     <!-- 表单内容 -->
     <template v-else>
@@ -52,10 +67,21 @@ import {
   Loading as VanLoading,
   Empty as VanEmpty,
   Button as VanButton,
+  CellGroup as VanCellGroup,
+  Cell as VanCell,
   showToast,
   showDialog,
 } from 'vant'
-import { get, post } from '@/api/request'
+import { get, post, put } from '@/api/request'
+import { parseCardSchemaFields } from '@/utils/cardflowSchema'
+import type {
+  AvailableFlowDto,
+  FlowVersionDto,
+  FlowVersionDetailDto,
+  CardDetailDto,
+  CardOperationResult,
+  SchemaFieldDefinition,
+} from '@/types/cardflow'
 import MobileCardForm from '../components/MobileCardForm.vue'
 import type { FieldSchema } from '../components/MobileCardForm.vue'
 import { useAuthStore } from '../stores/auth'
@@ -66,13 +92,18 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
-const defId = computed(() => route.params.defId as string)
 const userId = computed(() => authStore.user?.id || 0)
+const orgId = computed(() => authStore.currentOrgId || authStore.currentOrg?.id || 0)
 
 // 状态
 const loading = ref(false)
 const loadError = ref(false)
 const submitting = ref(false)
+// 路由带有效 defId 时直入表单，否则先展示可发起流程列表
+const selectedFlowId = ref<number>(Number(route.params.defId) || 0)
+const flows = ref<AvailableFlowDto[]>([])
+// 提交时先建草稿卡；提交失败后重试复用同一草稿，避免堆积
+const draftCardId = ref<number | null>(null)
 const formSchema = ref<FieldSchema[]>([])
 const formData = ref<Record<string, any>>({})
 const cardFormRef = ref<InstanceType<typeof MobileCardForm> | null>(null)
@@ -82,16 +113,16 @@ const DRAFT_PREFIX = 'stotop_draft_'
 const MAX_DRAFTS = 3
 
 function getDraftKey() {
-  return `${DRAFT_PREFIX}${defId.value}_${userId.value}`
+  return `${DRAFT_PREFIX}${selectedFlowId.value}_${userId.value}`
 }
 
 function saveDraft() {
-  if (!formSchema.value.length) return
+  if (!formSchema.value.length || !selectedFlowId.value) return
   const key = getDraftKey()
   const draftData = {
     formData: formData.value,
     savedAt: Date.now(),
-    defId: defId.value,
+    defId: selectedFlowId.value,
   }
   localStorage.setItem(key, JSON.stringify(draftData))
   trimDrafts()
@@ -151,21 +182,62 @@ function stopAutoSave() {
   }
 }
 
+// --- Schema 转换 ---
+
+// file/cardRef/voucherRef 等复杂控件本页不支持渲染，直接跳过；其余降级为可输入类型
+function toFieldSchema(fields: SchemaFieldDefinition[]): FieldSchema[] {
+  return fields
+    .filter(f => !['file', 'cardRef', 'voucherRef'].includes(f.type))
+    .map(f => ({
+      name: f.key,
+      label: f.label,
+      type: f.type === 'money' ? 'number' as const
+        : f.type === 'enum' ? 'select' as const
+        : f.type === 'date' ? 'date' as const
+        : 'text' as const,
+      required: f.required,
+      placeholder: f.placeholder,
+      options: (f.options || []).map(o => ({ label: o, value: o })),
+    }))
+}
+
+// --- 加载可发起流程列表 ---
+async function loadFlows() {
+  loading.value = true
+  loadError.value = false
+  try {
+    flows.value = (await get<AvailableFlowDto[]>('/cardflow/cards/available-flows', { orgId: orgId.value })) || []
+  } catch (e) {
+    console.error('[Submit] loadFlows failed:', e)
+    loadError.value = true
+  } finally {
+    loading.value = false
+  }
+}
+
+function chooseFlow(id: number) {
+  selectedFlowId.value = id
+  loadSchema()
+}
+
 // --- 加载 Schema ---
+// 后端无 definitions/{id}/schema 端点：经 versions 列表定位当前版本，再取版本详情里的 cardSchemaJson
 async function loadSchema() {
   loading.value = true
   loadError.value = false
   try {
-    const res = await get<{ fields: FieldSchema[] }>(`/cardflow/definitions/${defId.value}/schema`)
-    formSchema.value = res.fields || res as any
+    const versions = (await get<FlowVersionDto[]>(`/cardflow/definitions/${selectedFlowId.value}/versions`)) || []
+    const current = versions.find(v => v.isCurrentVersion) || versions.find(v => v.status === 'published')
+    if (!current) throw new Error('该流程尚无已发布版本')
+    const detail = await get<FlowVersionDetailDto>(
+      `/cardflow/definitions/${selectedFlowId.value}/versions/${current.id}`
+    )
+    formSchema.value = toFieldSchema(parseCardSchemaFields(detail.cardSchemaJson))
+
     // 初始化空表单数据
     const initData: Record<string, any> = {}
     for (const field of formSchema.value) {
-      if (field.type === 'checkbox') {
-        initData[field.name] = []
-      } else if (field.type === 'image') {
-        initData[field.name] = []
-      } else if (field.type === 'table') {
+      if (field.type === 'checkbox' || field.type === 'image' || field.type === 'table') {
         initData[field.name] = []
       } else {
         initData[field.name] = ''
@@ -202,6 +274,11 @@ async function loadSchema() {
   }
 }
 
+function retry() {
+  if (selectedFlowId.value > 0) loadSchema()
+  else loadFlows()
+}
+
 // --- 提交 ---
 async function handleSubmit() {
   try {
@@ -214,10 +291,24 @@ async function handleSubmit() {
 
   submitting.value = true
   try {
-    await post('/cardflow/cards', {
-      definitionId: defId.value,
-      formData: formData.value,
-    })
+    const dataJson = JSON.stringify(formData.value)
+    if (!draftCardId.value) {
+      const created = await post<CardDetailDto>('/cardflow/cards', {
+        flowDefinitionId: selectedFlowId.value,
+        orgId: orgId.value,
+        dataJson,
+      })
+      draftCardId.value = created.id
+    } else {
+      // 上次提交失败留下的草稿：更新内容后重试
+      await put<CardDetailDto>(`/cardflow/cards/${draftCardId.value}`, { dataJson })
+    }
+
+    const result = await post<CardOperationResult>(`/cardflow/cards/${draftCardId.value}/submit`)
+    if (result && result.success === false) {
+      showToast({ message: result.message || '提交失败', type: 'fail' })
+      return
+    }
     showToast({ message: '提交成功', type: 'success' })
     clearDraft()
     stopAutoSave()
@@ -232,7 +323,8 @@ async function handleSubmit() {
 
 // --- 生命周期 ---
 onMounted(() => {
-  loadSchema()
+  if (selectedFlowId.value > 0) loadSchema()
+  else loadFlows()
 })
 
 onUnmounted(() => {
@@ -261,6 +353,10 @@ onUnmounted(() => {
 .error-wrap {
   flex: 1;
   padding-top: 60px;
+}
+
+.flow-picker {
+  margin: 12px;
 }
 
 .form-content {

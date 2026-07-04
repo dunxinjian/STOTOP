@@ -31,6 +31,7 @@ import {
   archiveFlowDefinition,
   disableFlowDefinition,
   enableFlowDefinition,
+  deleteFlowDefinition,
   getFlowGroups,
   cloneFlowDefinition,
   getFlowTemplates,
@@ -124,44 +125,21 @@ async function loadFlowGroups() {
 async function loadData() {
   loading.value = true
   try {
-    // 后端 status 字段当前为单值；若多选则前端再过滤
+    // 筛选/排序全部下推后端，避免"只过滤当前页"造成分页与总数错乱
     const req: FlowDefinitionQueryRequest = {
       keyword: searchParams.keyword.trim() || undefined,
       page: pagination.current,
       pageSize: pagination.pageSize,
       orgId: orgContextStore.currentOrgId ?? undefined,
-    }
-    if (searchParams.status.length === 1) {
-      req.status = searchParams.status[0]
+      statuses: searchParams.status.length ? searchParams.status.join(',') : undefined,
+      flowGroupId: searchParams.flowGroupId ?? undefined,
+      sortField: sorter.field || undefined,
+      sortOrder: sorter.order ? (sorter.order === 'ascend' ? 'asc' : 'desc') : undefined,
     }
 
     const res = await getFlowDefinitions(req)
-    let items = res?.items || []
-
-    // 客户端过滤：多状态、流程组
-    if (searchParams.status.length > 1) {
-      const set = new Set(searchParams.status)
-      items = items.filter(it => set.has((it.status as FlowStatus)))
-    }
-    if (searchParams.flowGroupId != null) {
-      items = items.filter(it => it.flowGroupId === searchParams.flowGroupId)
-    }
-
-    // 客户端排序
-    if (sorter.field && sorter.order) {
-      const dir = sorter.order === 'ascend' ? 1 : -1
-      items = [...items].sort((a, b) => {
-        const va = (a as any)[sorter.field!]
-        const vb = (b as any)[sorter.field!]
-        if (va == null && vb == null) return 0
-        if (va == null) return -1 * dir
-        if (vb == null) return 1 * dir
-        return va > vb ? dir : va < vb ? -dir : 0
-      })
-    }
-
-    dataSource.value = items
-    pagination.total = res?.total ?? items.length
+    dataSource.value = res?.items || []
+    pagination.total = res?.total ?? 0
   } catch {
     // 认证失效时拦截器已提示并跳转登录页，此处不再重复报错
     if (!isRedirectingToLogin) {
@@ -217,14 +195,23 @@ function handleVersions(record: FlowDefinitionDto) {
   router.push({ path: `/cardflow/definitions/${record.id}/versions` })
 }
 
-async function handlePublish(record: FlowDefinitionDto) {
-  try {
-    await publishFlowDefinition(record.id)
-    message.success(`「${record.flowName}」发布成功`)
-    loadData()
-  } catch {
-    message.error('发布失败')
-  }
+function handlePublish(record: FlowDefinitionDto) {
+  Modal.confirm({
+    title: `发布「${record.flowName}」？`,
+    icon: h(ExclamationCircleOutlined),
+    content: '发布后草稿将成为新版本并立即生效，新发起的卡片使用该版本。',
+    okText: '发布',
+    async onOk() {
+      try {
+        await publishFlowDefinition(record.id)
+        message.success(`「${record.flowName}」发布成功`)
+        loadData()
+      } catch (e) {
+        // 拦截器已弹出后端具体校验错误（缺草稿/环/不可达等），此处不重复弹泛化提示
+        console.error('[FlowDefinition] 发布失败:', e)
+      }
+    },
+  })
 }
 
 async function handleDisable(record: FlowDefinitionDto) {
@@ -233,8 +220,8 @@ async function handleDisable(record: FlowDefinitionDto) {
     message.success(`「${record.flowName}」已停用`)
     await loadData()
   } catch (e) {
+    // 拦截器已弹出后端具体原因，避免二次泛化报错
     console.error('[FlowDefinition] 停用失败:', e)
-    message.error('停用失败')
   }
 }
 
@@ -245,7 +232,6 @@ async function handleEnable(record: FlowDefinitionDto) {
     await loadData()
   } catch (e) {
     console.error('[FlowDefinition] 启用失败:', e)
-    message.error('启用失败')
   }
 }
 
@@ -270,19 +256,19 @@ function handleArchive(record: FlowDefinitionDto) {
 
 function handleDeleteDraft(record: FlowDefinitionDto) {
   Modal.confirm({
-    title: '确认删除？',
+    title: `确认删除「${record.flowName}」？`,
     icon: h(ExclamationCircleOutlined),
-    content: '此操作不可恢复。',
+    content: '将彻底删除该草稿流程及其版本、节点配置，此操作不可恢复。',
     okText: '删除',
     okType: 'danger',
     async onOk() {
       try {
-        // 复用归档接口下线（后端暂未提供 delete-definition）
-        await archiveFlowDefinition(record.id)
+        await deleteFlowDefinition(record.id)
         message.success('已删除')
         loadData()
-      } catch {
-        message.error('删除失败')
+      } catch (e) {
+        // 拦截器已弹出后端拒绝原因（存在卡片/已发布版本等）
+        console.error('[FlowDefinition] 删除失败:', e)
       }
     },
   })
@@ -353,10 +339,19 @@ async function handleSaveAsTemplate(record: FlowDefinitionDto) {
 
 async function handleBatchPublish() {
   if (!hasSelection.value) return
-  const ids = [...selectedRowKeys.value]
+  const selectedSet = new Set(selectedRowKeys.value)
+  // 已归档的流程后端不允许发布，选中里剔除并提示
+  const publishable = dataSource.value.filter(it => selectedSet.has(it.id) && statusOf(it) !== 'archived')
+  const skipped = selectedSet.size - publishable.length
+  if (!publishable.length) {
+    message.warning('选中的流程均已归档，不能发布')
+    return
+  }
+  const ids = publishable.map(it => it.id)
   Modal.confirm({
     title: `批量发布 ${ids.length} 条流程？`,
     icon: h(ExclamationCircleOutlined),
+    content: skipped > 0 ? `已跳过 ${skipped} 条已归档流程。发布后各流程草稿将成为新版本并立即生效。` : '发布后各流程草稿将成为新版本并立即生效。',
     okText: '发布',
     async onOk() {
       const results = await Promise.allSettled(ids.map(id => publishFlowDefinition(id)))

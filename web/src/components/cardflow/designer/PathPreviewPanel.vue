@@ -1,24 +1,47 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { previewFlowDraftPath } from '@/api/cardflow'
-import type { CardFlowPathPreviewDto } from '@/types/cardflow'
+import type { CardFlowPathPreviewDto, SchemaFieldDefinition } from '@/types/cardflow'
 
 const props = defineProps<{
   flowDefinitionId?: number | null
   previewApi?: typeof previewFlowDraftPath
   disabled?: boolean
+  /** 流程卡片字段：样例表单按它动态生成，路由条件才能供到值 */
+  fields?: SchemaFieldDefinition[]
 }>()
 
 const sample = reactive({
   initiatorId: undefined as number | undefined,
   orgId: undefined as number | undefined,
-  amount: 5000,
-  feeType: '差旅费',
-  hasExpenseRequest: false,
-  hasLoan: false,
-  cardStatus: 'draft',
 })
+
+// 样例卡片数据：按流程真实 cardSchema 动态生成（此前硬编码 5 个字段，
+// 条件引用其他字段的流程供不到值，预演永远落默认分支）
+const sampleData = reactive<Record<string, any>>({})
+
+function defaultValueOf(field: SchemaFieldDefinition): any {
+  if (field.type === 'money' || String(field.type) === 'number') return 1000
+  if (field.type === 'enum') return field.options?.[0] ?? undefined
+  if (field.type === 'date') return undefined
+  return undefined
+}
+
+/** 参与条件求值有意义的字段类型（人/组织/附件走 initiator./source. 等运行时前缀，不在此模拟） */
+const previewFields = computed(() =>
+  (props.fields || []).filter(field => ['text', 'money', 'number', 'enum', 'date'].includes(String(field.type)))
+)
+
+watch(previewFields, (fields) => {
+  const keys = new Set(fields.map(field => field.key))
+  for (const key of Object.keys(sampleData)) {
+    if (!keys.has(key)) delete sampleData[key]
+  }
+  for (const field of fields) {
+    if (!(field.key in sampleData)) sampleData[field.key] = defaultValueOf(field)
+  }
+}, { immediate: true, deep: true })
 
 const loading = ref(false)
 const result = ref<CardFlowPathPreviewDto | null>(null)
@@ -39,13 +62,11 @@ async function runPreview() {
   }
   loading.value = true
   try {
-    const dataJson = JSON.stringify({
-      amount: sample.amount,
-      feeType: sample.feeType,
-      hasExpenseRequest: sample.hasExpenseRequest,
-      hasLoan: sample.hasLoan,
-      cardStatus: sample.cardStatus,
-    })
+    const payload: Record<string, any> = {}
+    for (const [key, value] of Object.entries(sampleData)) {
+      if (value !== undefined && value !== null && value !== '') payload[key] = value
+    }
+    const dataJson = JSON.stringify(payload)
     const api = props.previewApi || previewFlowDraftPath
     result.value = await api(props.flowDefinitionId, {
       dataJson,
@@ -54,8 +75,9 @@ async function runPreview() {
       orgId: sample.orgId || null,
       maxSteps: 20,
     })
-  } catch {
-    message.error('路径预演失败')
+  } catch (e) {
+    // 拦截器已弹出后端具体原因（如"没有可预演的流程版本"），此处不重复弹泛化提示
+    console.error('[PathPreview] 预演失败:', e)
   } finally {
     loading.value = false
   }
@@ -83,30 +105,38 @@ async function runPreview() {
         <span>组织</span>
         <a-input-number v-model:value="sample.orgId" :disabled="disabled" placeholder="组织ID" style="width: 100%" />
       </label>
-      <label>
-        <span>金额</span>
-        <a-input-number v-model:value="sample.amount" :disabled="disabled" :min="0" style="width: 100%" />
+      <label v-for="field in previewFields" :key="field.key">
+        <span>{{ field.label || field.key }}</span>
+        <a-input-number
+          v-if="field.type === 'money' || String(field.type) === 'number'"
+          v-model:value="sampleData[field.key]"
+          :disabled="disabled"
+          style="width: 100%"
+        />
+        <a-select
+          v-else-if="field.type === 'enum'"
+          v-model:value="sampleData[field.key]"
+          :options="(field.options || []).map(opt => ({ value: opt, label: opt }))"
+          :disabled="disabled"
+          allow-clear
+          style="width: 100%"
+        />
+        <a-date-picker
+          v-else-if="field.type === 'date'"
+          v-model:value="sampleData[field.key]"
+          value-format="YYYY-MM-DD"
+          :disabled="disabled"
+          style="width: 100%"
+        />
+        <a-input
+          v-else
+          v-model:value="sampleData[field.key]"
+          :disabled="disabled"
+          :placeholder="field.placeholder || ''"
+        />
       </label>
-      <label>
-        <span>费用类型</span>
-        <a-select v-model:value="sample.feeType" :disabled="disabled" style="width: 100%">
-          <a-select-option value="差旅费">差旅费</a-select-option>
-          <a-select-option value="招待费">招待费</a-select-option>
-          <a-select-option value="办公费">办公费</a-select-option>
-          <a-select-option value="其他">其他</a-select-option>
-        </a-select>
-      </label>
-      <label>
-        <span>卡片状态</span>
-        <a-select v-model:value="sample.cardStatus" :disabled="disabled" style="width: 100%">
-          <a-select-option value="draft">草稿</a-select-option>
-          <a-select-option value="active">审批中</a-select-option>
-          <a-select-option value="completed">已完成</a-select-option>
-        </a-select>
-      </label>
-      <div class="cf-path-preview__checks">
-        <a-checkbox v-model:checked="sample.hasExpenseRequest" :disabled="disabled">引用请款</a-checkbox>
-        <a-checkbox v-model:checked="sample.hasLoan" :disabled="disabled">引用借款</a-checkbox>
+      <div v-if="!previewFields.length" class="cf-path-preview__no-fields">
+        流程还没有可模拟的卡片字段（文本 / 金额 / 数字 / 枚举 / 日期）。
       </div>
     </div>
 
@@ -183,11 +213,14 @@ async function runPreview() {
   }
 }
 
-.cf-path-preview__checks {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding-top: 22px;
+.cf-path-preview__no-fields {
+  grid-column: 1 / -1;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: center;
 }
 
 .cf-path-preview__path {

@@ -18,7 +18,7 @@ import {
 import draggable from 'vuedraggable'
 import type { SchemaFieldDefinition, SchemaFieldType } from '@/types/cardflow'
 import { getFlowDefinitions } from '@/api/cardflow'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
 
 const props = defineProps<{
   modelValue: SchemaFieldDefinition[]
@@ -133,9 +133,15 @@ function openEditor(index: number, isNew = false) {
 }
 
 function cancelEditor() {
+  // 新建字段在 pickType 时已先入列（供实时预览），取消编辑必须把它移除，否则残留"新字段"垃圾数据
+  if (editingIsNew.value && editingIndex.value >= 0) {
+    fields.value.splice(editingIndex.value, 1)
+    emitUpdate()
+  }
   drawerOpen.value = false
   draft.value = null
   editingIndex.value = -1
+  editingIsNew.value = false
 }
 
 function commitEditor() {
@@ -147,12 +153,24 @@ function commitEditor() {
   if (dup) { message.warning(`字段标识「${key}」已存在`); return }
   fields.value[editingIndex.value] = clone(draft.value)
   emitUpdate()
+  // 提交成功后清除"新建"标记再关闭，避免 cancelEditor 误删已提交字段
+  editingIsNew.value = false
   cancelEditor()
 }
 
 function removeField(index: number) {
-  fields.value.splice(index, 1)
-  emitUpdate()
+  const field = fields.value[index]
+  Modal.confirm({
+    title: `删除字段「${field?.label || field?.key || ''}」？`,
+    content: '若该字段被节点权限、摘要、进入条件或流转条件引用，引用会失效并在发布校验中报错。',
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    onOk() {
+      fields.value.splice(index, 1)
+      emitUpdate()
+    },
+  })
 }
 
 function onDragEnd() {

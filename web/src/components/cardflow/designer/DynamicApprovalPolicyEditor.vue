@@ -48,6 +48,8 @@ const fieldOptions = computed<FieldOption[]>(() =>
     key: field.key,
     label: field.label || field.key,
     type: field.type,
+    // enum 字段可选值透传给条件构建器，否则值选择器是零选项死下拉
+    options: field.options || undefined,
   })),
 )
 
@@ -128,6 +130,25 @@ function parseCondition(json?: string | null): ConditionGroup {
 
 function patch(policy: DynamicStagePolicyRequest, partial: Partial<DynamicStagePolicyRequest>) {
   emitPolicies({ ...policy, ...partial })
+}
+
+/** 各策略模板的初始配置——切换模板时整体重置，避免旧模板字段残留造成运行时解析不到处理人 */
+function defaultStrategyConfig(strategyType: string): Record<string, any> {
+  switch (strategyType) {
+    case 'amountMatrix': return { amountField: amountFieldOptions.value[0]?.value || 'amount', ranges: [] }
+    case 'fixedUsers': return { userIds: [] }
+    case 'fieldUsers': return { fieldKey: '' }
+    case 'role': return { roleCode: '' }
+    case 'feeTypeBp': return { mapping: [] }
+    default: return {}
+  }
+}
+
+function changeStrategyType(policy: DynamicStagePolicyRequest, strategyType: string) {
+  patch(policy, {
+    strategyType,
+    strategyConfigJson: JSON.stringify(defaultStrategyConfig(strategyType)),
+  })
 }
 
 function getConfig(policy: DynamicStagePolicyRequest) {
@@ -242,7 +263,7 @@ function numericTagsToArray(value: string[] | number[] | undefined) {
             :value="policy.strategyType"
             :options="STRATEGY_OPTIONS"
             style="width: 100%"
-            @change="(value: any) => patch(policy, { strategyType: value })"
+            @change="(value: any) => changeStrategyType(policy, value)"
           />
         </label>
         <label>
@@ -264,11 +285,18 @@ function numericTagsToArray(value: string[] | number[] | undefined) {
           />
         </label>
         <label>
-          <span>继续节点</span>
+          <span>
+            继续节点
+            <em
+              v-if="(policy.triggerTiming || 'afterRouteBeforeTarget') === 'afterRouteBeforeTarget'"
+              class="cf-policy-required"
+            >*必填（该触发时机下发布要求配置）</em>
+          </span>
           <a-select
             :value="policy.continuationStageKey ?? undefined"
             :options="stageOptions"
             allow-clear
+            :status="(policy.triggerTiming || 'afterRouteBeforeTarget') === 'afterRouteBeforeTarget' && !policy.continuationStageKey ? 'error' : undefined"
             style="width: 100%"
             @change="(value: any) => patch(policy, { continuationStageKey: value || null })"
           />
@@ -529,6 +557,13 @@ function numericTagsToArray(value: string[] | number[] | undefined) {
   grid-template-columns: 1fr 1fr 1fr auto;
   gap: 8px;
   align-items: center;
+}
+
+.cf-policy-required {
+  margin-left: 4px;
+  color: var(--color-danger);
+  font-size: 11px;
+  font-style: normal;
 }
 
 .cf-dynamic-policy-card__fallback {

@@ -44,6 +44,7 @@ import type {
   CardBalanceDto,
   CardListDto,
   SchemaFieldDefinition,
+  UpdateCardDetailRequest,
 } from '@/types/cardflow'
 import { parseCardSchemaFields, parseDetailSchemaFields } from '@/utils/cardflowSchema'
 
@@ -131,8 +132,12 @@ function parseSettings(json?: string | null): Record<string, any> {
   }
 }
 
+// 行ID → 明细表键，回传时保留原表归属（新增行落 default）
+const detailTableKeys = new Map<string, string>()
+
 function buildDetailRows(): DetailRow[] {
   if (!card.value?.details?.length) return []
+  detailTableKeys.clear()
   return card.value.details.map((d, idx) => {
     let parsed: Record<string, any> = {}
     try {
@@ -140,8 +145,10 @@ function buildDetailRows(): DetailRow[] {
     } catch {
       parsed = {}
     }
+    const rowId = String(d.id || `row_${idx}`)
+    detailTableKeys.set(rowId, d.detailTableKey)
     return {
-      _id: String(d.id || `row_${idx}`),
+      _id: rowId,
       ...parsed,
     } as DetailRow
   })
@@ -237,12 +244,20 @@ async function onRefresh() {
 
 // ==================== 自动保存 ====================
 
-function buildPersistData(): string {
-  const payload = {
-    ...formData.value,
-    __details: detailRows.value.map(r => ({ ...r })),
+// 明细必须走 UpdateCardRequest.details 顶层字段（全量替换，后端据此汇总 amount 回写主表单）；
+// 内嵌进 dataJson 的明细后端零消费，审批端不可见
+function buildUpdatePayload(): { dataJson: string; details: UpdateCardDetailRequest[] } {
+  return {
+    dataJson: JSON.stringify(formData.value),
+    details: detailRows.value.map((row, idx) => {
+      const { _id, ...data } = row
+      return {
+        detailTableKey: detailTableKeys.get(String(_id)) || 'default',
+        sortOrder: idx,
+        dataJson: JSON.stringify(data),
+      }
+    }),
   }
-  return JSON.stringify(payload)
 }
 
 function cacheOffline() {
@@ -283,9 +298,8 @@ async function autoSave() {
 
   saveState.value = 'saving'
   try {
-    const dataJson = buildPersistData()
     const res = await updateCard(cardId.value, {
-      dataJson,
+      ...buildUpdatePayload(),
       concurrencyStamp: card.value?.concurrencyStamp || undefined,
     })
     if (card.value) {
@@ -406,9 +420,8 @@ async function handleSaveDraft() {
   submitting.value = true
   saveState.value = 'saving'
   try {
-    const dataJson = buildPersistData()
     const res = await updateCard(cardId.value, {
-      dataJson,
+      ...buildUpdatePayload(),
       concurrencyStamp: card.value?.concurrencyStamp || undefined,
     })
     if (card.value) {
@@ -444,9 +457,8 @@ async function handleSubmit() {
   saveState.value = 'saving'
   try {
     // 先保存
-    const dataJson = buildPersistData()
     const updRes = await updateCard(cardId.value, {
-      dataJson,
+      ...buildUpdatePayload(),
       concurrencyStamp: card.value?.concurrencyStamp || undefined,
     })
     if (card.value) {

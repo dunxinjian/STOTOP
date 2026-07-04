@@ -4,19 +4,16 @@
  *
  * 双行工具栏 + 可点选统计卡片 + 实例列表（可展开）+ 30 秒轮询 + 超时告警 + CSV 导出。
  */
-import { ref, reactive, computed, onMounted, onUnmounted, h } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { message, Modal } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
 import { isRedirectingToLogin } from '@/api/request'
 import type { TableColumnsType, TableProps } from 'ant-design-vue'
 import {
   SearchOutlined,
   EyeOutlined,
-  StopOutlined,
   BellOutlined,
-  SwapOutlined,
   ExportOutlined,
-  ExclamationCircleOutlined,
   WarningFilled,
   ClockCircleOutlined,
 } from '@ant-design/icons-vue'
@@ -26,9 +23,7 @@ import {
   getCards,
   getCard,
   getFlowDefinitions,
-  voidCard,
   urgeCard,
-  transferCard,
 } from '@/api/cardflow'
 import type {
   CardListDto,
@@ -319,24 +314,8 @@ function handleView(record: any) {
   router.push({ path: `/cardflow/cards/${record.id}` })
 }
 
-function handleVoid(record: any) {
-  Modal.confirm({
-    title: '确认强制终止？',
-    icon: h(ExclamationCircleOutlined),
-    content: '相关待办将被取消，该操作不可恢复。',
-    okText: '强制终止',
-    okType: 'danger',
-    async onOk() {
-      try {
-        await voidCard(record.id, '管理员强制终止')
-        message.success('已强制终止')
-        fetchAll()
-      } catch {
-        message.error('操作失败')
-      }
-    },
-  })
-}
+// 注：原"强制终止"/"管理员转办"为引擎权限模型不支持的假功能（VoidAsync 仅发起人、
+// TransferAsync 仅当前节点 pending 处理人），恒失败，已移除；催办为真功能予以保留。
 
 // ===== 催办 Modal =====
 const urgeModal = reactive({ visible: false, cardId: 0, reason: '请尽快处理', processing: false })
@@ -361,43 +340,6 @@ async function doUrge() {
     message.error('催办失败')
   } finally {
     urgeModal.processing = false
-  }
-}
-
-// ===== 转办 Modal =====
-const transferModal = reactive({
-  visible: false,
-  cardId: 0,
-  newUserId: undefined as number | undefined,
-  opinion: '',
-  processing: false,
-})
-
-function handleTransfer(record: any) {
-  transferModal.cardId = record.id
-  transferModal.newUserId = undefined
-  transferModal.opinion = ''
-  transferModal.visible = true
-}
-
-async function doTransfer() {
-  if (!transferModal.newUserId) {
-    message.warning('请选择目标人 (用户ID)')
-    return
-  }
-  transferModal.processing = true
-  try {
-    await transferCard(transferModal.cardId, {
-      newUserId: transferModal.newUserId,
-      opinion: transferModal.opinion || '管理员转办',
-    })
-    message.success('转办成功')
-    transferModal.visible = false
-    fetchAll()
-  } catch {
-    message.error('转办失败')
-  } finally {
-    transferModal.processing = false
   }
 }
 
@@ -700,23 +642,6 @@ onUnmounted(() => {
               >
                 <BellOutlined /> 催办
               </a-button>
-              <a-button
-                v-if="record.status === 'active'"
-                type="link"
-                size="small"
-                @click="handleTransfer(record)"
-              >
-                <SwapOutlined /> 转办
-              </a-button>
-              <a-button
-                v-if="record.status === 'active'"
-                type="link"
-                size="small"
-                danger
-                @click="handleVoid(record)"
-              >
-                <StopOutlined /> 强制终止
-              </a-button>
             </div>
           </template>
         </template>
@@ -794,32 +719,6 @@ onUnmounted(() => {
       </a-form>
     </a-modal>
 
-    <!-- 转办 Modal -->
-    <a-modal
-      v-model:open="transferModal.visible"
-      title="转办"
-      :confirm-loading="transferModal.processing"
-      :width="440"
-      @ok="doTransfer"
-    >
-      <a-form layout="vertical" style="margin-top: 8px;">
-        <a-form-item label="目标人 (用户ID)" required>
-          <a-input-number
-            v-model:value="transferModal.newUserId"
-            placeholder="请输入目标用户ID"
-            style="width: 100%"
-            :min="1"
-          />
-        </a-form-item>
-        <a-form-item label="转办说明">
-          <a-textarea
-            v-model:value="transferModal.opinion"
-            :rows="3"
-            placeholder="请输入转办说明（可选）"
-          />
-        </a-form-item>
-      </a-form>
-    </a-modal>
   </div>
 </template>
 

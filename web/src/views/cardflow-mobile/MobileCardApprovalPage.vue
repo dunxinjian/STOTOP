@@ -43,6 +43,7 @@ import {
   urgeCard,
   submitCard,
   updateCard,
+  resubmitCard,
 } from '@/api/cardflow'
 import { useUserStore } from '@/stores/user'
 import type {
@@ -51,6 +52,7 @@ import type {
   SchemaFieldDefinition,
   StageInstanceDto,
   StageDefinitionDto,
+  UpdateCardDetailRequest,
 } from '@/types/cardflow'
 import { parseCardSchemaFields, parseDetailSchemaFields } from '@/utils/cardflowSchema'
 
@@ -76,6 +78,8 @@ const stageDefinitions = ref<StageDefinitionDto[]>([])
 
 const cardData = ref<Record<string, unknown>>({})
 const detailRows = ref<Array<Record<string, unknown> & { _id: string }>>([])
+// 行ID → 明细表键，回传时保留原表归属（新增行落 default）
+const detailTableKeys = new Map<string, string>()
 const stageFieldsData = reactive<Record<string, unknown>>({})
 
 // 底部操作面板：default(默认两键) | reject(展开退回) | approve(展开通过) | fill(填写态)
@@ -128,11 +132,13 @@ const isInitiator = computed(() =>
 const isAssignee = computed(() =>
   currentUserId.value !== null && currentAssigneeIds.value.includes(currentUserId.value))
 
-/** 视图模式：fill | approve | readonly */
-const viewMode = computed<'fill' | 'approve' | 'readonly'>(() => {
+/** 视图模式：fill | resubmit | approve | readonly */
+const viewMode = computed<'fill' | 'resubmit' | 'approve' | 'readonly'>(() => {
   if (!card.value) return 'readonly'
   const s = card.value.status
-  if ((s === 'draft' || s === 'returned') && isInitiator.value) return 'fill'
+  if (s === 'draft' && isInitiator.value) return 'fill'
+  // 后端 UpdateAsync 仅接受 draft，退回件只能原样重提（resubmit），不可再编辑
+  if (s === 'returned' && isInitiator.value) return 'resubmit'
   if (s === 'active' && isAssignee.value) return 'approve'
   return 'readonly'
 })
@@ -249,9 +255,11 @@ async function loadAll() {
     })()
 
     // detail rows
+    detailTableKeys.clear()
     detailRows.value = (c?.details || []).map(d => {
       let obj: Record<string, unknown> = {}
       try { obj = d.dataJson ? JSON.parse(d.dataJson) : {} } catch { obj = {} }
+      detailTableKeys.set(String(d.id), d.detailTableKey)
       return { _id: String(d.id), ...obj }
     })
 
@@ -301,7 +309,7 @@ const effectiveDetailSchema = computed<SchemaFieldDefinition[]>(() => {
 
 function onClickBack() {
   if (window.history.length > 1) router.back()
-  else router.push('/cardflow/upload')
+  else router.push('/cardflow/upload-center')
 }
 
 const stageAllowedActions = computed(() => stageWorkView.value?.actionPolicy?.allowedActions ?? null)
@@ -367,12 +375,25 @@ async function handleReject() {
   finally { submitting.value = false }
 }
 
+// 后端 UpdateAsync 对 details 为全量替换：必须回传完整明细集（含未改动行），否则旧明细被清空
+function buildDetailsPayload(): UpdateCardDetailRequest[] {
+  return detailRows.value.map((row, idx) => {
+    const { _id, ...data } = row
+    return {
+      detailTableKey: detailTableKeys.get(_id) || 'default',
+      sortOrder: idx,
+      dataJson: JSON.stringify(data),
+    }
+  })
+}
+
 async function handleSaveDraft() {
   if (!card.value) return
   submitting.value = true
   try {
     await updateCard(card.value.id, {
       dataJson: JSON.stringify(cardData.value),
+      details: buildDetailsPayload(),
       concurrencyStamp: card.value.concurrencyStamp,
     })
     showToast({ message: '已暂存', type: 'success' })
@@ -391,6 +412,7 @@ async function handleSubmit() {
     // 先保存
     await updateCard(card.value.id, {
       dataJson: JSON.stringify(cardData.value),
+      details: buildDetailsPayload(),
       concurrencyStamp: card.value.concurrencyStamp,
     })
     const r = await submitCard(card.value.id)
@@ -402,6 +424,26 @@ async function handleSubmit() {
   finally { submitting.value = false }
 }
 
+async function handleResubmit() {
+  if (!card.value) return
+  try {
+    await showDialog({
+      title: '重新提交',
+      message: '将按原内容重新提交，进入新一轮审批，是否继续？',
+      showCancelButton: true,
+    })
+  } catch { return }
+  submitting.value = true
+  try {
+    const r = await resubmitCard(card.value.id)
+    if (r.success) {
+      showToast({ message: '已重新提交', type: 'success' })
+      await loadAll()
+    } else { showToast({ message: r.message || '操作失败', type: 'fail' }) }
+  } catch { showToast({ message: '操作失败', type: 'fail' }) }
+  finally { submitting.value = false }
+}
+
 // ===== more menu =====
 
 const moreActions = computed(() => [
@@ -410,7 +452,10 @@ const moreActions = computed(() => [
   { name: '后加签', value: 'countersign-after', action: 'addSignAfter', subname: '本人通过后邀请他人' },
   { name: '抄送', value: 'cc', action: 'cc', subname: '通知相关人员' },
   { name: '催办', value: 'urge', action: 'urge', subname: '提醒处理人' },
-].filter(item => canStageAction(item.action)))
+].filter(item => item.value === 'urge'
+  // 后端 UrgeAsync 不做动作策略校验且默认策略不含 urge：卡片进行中即可催办
+  ? card.value?.status === 'active'
+  : canStageAction(item.action)))
 
 function onMoreSelect(item: { value: string }) {
   showMoreSheet.value = false
@@ -651,6 +696,14 @@ watch(() => card.value?.id, () => nextTick(syncBottomMode))
         <div class="m-bar__row">
           <VanButton class="m-btn m-btn--ghost" :loading="submitting" @click="handleSaveDraft">暂存</VanButton>
           <VanButton class="m-btn m-btn--primary" :loading="submitting" @click="handleSubmit">提交</VanButton>
+        </div>
+      </template>
+
+      <!-- 已退回（发起人）：仅原样重提 -->
+      <template v-else-if="viewMode === 'resubmit'">
+        <div class="m-bar__hint">卡片已退回：将按原内容重新提交，进入新一轮审批</div>
+        <div class="m-bar__row">
+          <VanButton class="m-btn m-btn--primary" :loading="submitting" @click="handleResubmit">重新提交</VanButton>
         </div>
       </template>
 
@@ -920,6 +973,11 @@ $ok:        var(--color-success);
     font-size: 13px; color: $ink-3; cursor: pointer;
     padding: 2px 6px;
     &:active { color: $brand; }
+  }
+  &__hint {
+    padding: 2px 4px 8px;
+    font-size: 12px;
+    color: $ink-2;
   }
   &__textarea {
     border-radius: 10px;

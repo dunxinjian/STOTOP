@@ -20,16 +20,22 @@ interface HealthItem {
 
 const stageKeys = computed(() => new Set(props.stages.map(stage => stage.id)))
 const fieldMap = computed(() => new Map(props.fields.map(field => [field.key, field])))
+// 后端只对 active 路由做校验与运行时求值（FlowDefinitionService.ValidateRouteRulesAsync）
+const activeRoutes = computed(() => props.routes.filter(route => (route.status ?? 'active') === 'active'))
+// 规则模式判定：版本存在任一 active 路由即进入规则模式，否则按 sortOrder 线性推进
+const isRuleMode = computed(() => activeRoutes.value.length > 0)
 
 const items = computed<HealthItem[]>(() => {
   const result: HealthItem[] = []
+  result.push(...checkDanglingRefs())
   result.push(...checkDefaultRoutes())
+  result.push(...checkRouteCompleteness())
   result.push(...checkOverlap())
   result.push(...checkGraph())
   result.push(...checkHandlers())
   result.push(...checkTypeMismatch())
   if (!result.length) {
-    result.push({ level: 'ok', title: '规则健康', detail: '默认分支、规则重叠、死路节点、循环路径、无法到达节点和处理人策略均未发现明显问题。' })
+    result.push({ level: 'ok', title: '规则健康', detail: '默认分支、条件完整性、死路节点、循环路径、无法到达节点和处理人策略均未发现明显问题。' })
   }
   return result
 })
@@ -38,15 +44,72 @@ function stageName(stageKey: string) {
   return props.stages.find(stage => stage.id === stageKey)?.name || stageKey
 }
 
+function checkDanglingRefs(): HealthItem[] {
+  const result: HealthItem[] = []
+  props.routes.forEach(route => {
+    if (!stageKeys.value.has(route.fromStageKey) || !stageKeys.value.has(route.toStageKey)) {
+      result.push({
+        level: 'error',
+        title: '流转规则引用失效',
+        detail: `「${route.routeName}」引用了已删除的节点，保存草稿会被后端拒绝。`,
+      })
+    }
+  })
+  props.dynamicPolicies.forEach(policy => {
+    if (!stageKeys.value.has(policy.sourceStageKey)) {
+      result.push({
+        level: 'error',
+        title: '动态策略引用失效',
+        detail: `「${policy.policyName}」的来源节点已删除。`,
+      })
+    }
+  })
+  return result
+}
+
 function checkDefaultRoutes(): HealthItem[] {
   const result: HealthItem[] = []
-  const fromKeys = new Set(props.routes.map(route => route.fromStageKey))
+  const fromKeys = new Set(activeRoutes.value.map(route => route.fromStageKey))
   fromKeys.forEach(fromStageKey => {
-    if (!props.routes.some(route => route.fromStageKey === fromStageKey && route.isDefault)) {
+    const defaults = activeRoutes.value.filter(route => route.fromStageKey === fromStageKey && route.isDefault)
+    if (defaults.length === 0) {
       result.push({
         level: 'error',
         title: '缺少默认分支',
         detail: `节点「${stageName(fromStageKey)}」配置了条件流转，但没有“其他情况”默认分支。`,
+      })
+    } else if (defaults.length > 1) {
+      result.push({
+        level: 'error',
+        title: '默认分支重复',
+        detail: `节点「${stageName(fromStageKey)}」有 ${defaults.length} 条默认分支，发布要求恰好一条。`,
+      })
+    }
+  })
+  return result
+}
+
+function checkRouteCompleteness(): HealthItem[] {
+  const result: HealthItem[] = []
+  activeRoutes.value.forEach(route => {
+    if (!route.isDefault && !route.conditionJson) {
+      result.push({
+        level: 'error',
+        title: '分支缺少条件',
+        detail: `「${route.routeName}」不是默认分支但未配置流转条件，发布会被拒绝。`,
+      })
+    }
+  })
+  const byFrom = new Map<string, number[]>()
+  activeRoutes.value.forEach(route => {
+    byFrom.set(route.fromStageKey, [...(byFrom.get(route.fromStageKey) || []), route.priority])
+  })
+  byFrom.forEach((priorities, fromStageKey) => {
+    if (new Set(priorities).size !== priorities.length) {
+      result.push({
+        level: 'warning',
+        title: '优先级重复',
+        detail: `节点「${stageName(fromStageKey)}」的条件分支存在重复优先级（保存时会自动按序重编）。`,
       })
     }
   })
@@ -69,7 +132,7 @@ function flattenConditions(condition: any): any[] {
 function checkOverlap(): HealthItem[] {
   const result: HealthItem[] = []
   const groups = new Map<string, StageRouteRuleRequest[]>()
-  props.routes.filter(route => !route.isDefault).forEach(route => {
+  activeRoutes.value.filter(route => !route.isDefault).forEach(route => {
     groups.set(route.fromStageKey, [...(groups.get(route.fromStageKey) || []), route])
   })
   groups.forEach(routes => {
@@ -93,17 +156,21 @@ function checkOverlap(): HealthItem[] {
 }
 
 function checkGraph(): HealthItem[] {
+  // 线性模式（无 active 路由）下运行时按 sortOrder 顺序推进，不存在死路/不可达问题，
+  // 此前未做门控导致纯线性流程被全量误报"无法到达"
+  if (!isRuleMode.value) return []
+
   const result: HealthItem[] = []
   const outgoing = new Map<string, string[]>()
-  props.routes.forEach(route => {
+  activeRoutes.value.forEach(route => {
     outgoing.set(route.fromStageKey, [...(outgoing.get(route.fromStageKey) || []), route.toStageKey])
   })
   props.stages.slice(0, -1).forEach(stage => {
-    if (props.routes.length > 0 && !outgoing.has(stage.id)) {
+    if (!outgoing.has(stage.id)) {
       result.push({
         level: 'warning',
         title: '死路节点',
-        detail: `节点「${stage.name || stage.id}」没有后续条件边，运行时可能停在该节点。`,
+        detail: `节点「${stage.name || stage.id}」没有后续条件边，规则模式下运行到此会直接结束。`,
       })
     }
   })
@@ -127,9 +194,10 @@ function checkGraph(): HealthItem[] {
     props.stages.forEach(stage => {
       if (!visited.has(stage.id)) {
         result.push({
-          level: 'warning',
+          // 后端 RouteGraphValidator 将不可达视为发布阻断错误，与其保持一致
+          level: 'error',
           title: '无法到达',
-          detail: `节点「${stage.name || stage.id}」不在当前条件边可达路径上。`,
+          detail: `节点「${stage.name || stage.id}」不在起点可达路径上，发布会被拒绝。`,
         })
       }
     })
@@ -148,6 +216,14 @@ function checkHandlers(): HealthItem[] {
         detail: `动态策略「${policy.policyName}」没有 fallback，处理人解析失败时无法安全兜底。`,
       })
     }
+    // 后端发布校验：afterRouteBeforeTarget 时机必须配置续接节点
+    if ((policy.triggerTiming || 'afterRouteBeforeTarget') === 'afterRouteBeforeTarget' && !policy.continuationStageKey) {
+      result.push({
+        level: 'error',
+        title: '缺少继续节点',
+        detail: `动态策略「${policy.policyName}」触发时机为"路由后、目标前"，必须选择继续节点，否则发布会被拒绝。`,
+      })
+    }
   })
   props.stages.filter(stage => stage.type === 'manual').forEach(stage => {
     if (!stage.assigneeStrategy) {
@@ -164,19 +240,26 @@ function checkHandlers(): HealthItem[] {
 function checkTypeMismatch(): HealthItem[] {
   const result: HealthItem[] = []
   const numericOperators = new Set(['gt', 'gte', 'lt', 'lte'])
+  // 后端 ConditionRuleEvaluator 的合法寻址前缀，这些字段不在卡片 schema 里但运行时可解析
+  const runtimePrefixes = ['detailSummary.', 'source.', 'initiator.', 'orgChain', 'roles.']
   const inspect = (owner: string, json?: string | null) => {
     flattenConditions(parseCondition(json)).forEach(condition => {
-      const field = fieldMap.value.get(condition.field)
+      const rawField = String(condition.field || '')
+      if (runtimePrefixes.some(prefix => rawField.startsWith(prefix))) return
+      // card. 前缀与裸字段名等价，剥掉前缀后查 schema
+      const key = rawField.startsWith('card.') ? rawField.slice(5) : rawField
+      const field = fieldMap.value.get(key)
       if (!field) {
-        result.push({ level: 'error', title: '字段不存在', detail: `${owner} 引用了不存在的字段「${condition.field}」。` })
+        result.push({ level: 'error', title: '字段不存在', detail: `${owner} 引用了不存在的字段「${rawField}」。` })
         return
       }
-      if (numericOperators.has(condition.operator) && !['money', 'number'].includes(field.type)) {
-        result.push({ level: 'error', title: '字段类型不匹配', detail: `${owner} 使用 ${condition.operator} 比较非金额/数字字段「${field.label}」。` })
+      // 后端 CompareOrdered 同时支持数值与日期比较
+      if (numericOperators.has(condition.operator) && !['money', 'number', 'date'].includes(field.type)) {
+        result.push({ level: 'error', title: '字段类型不匹配', detail: `${owner} 使用 ${condition.operator} 比较非金额/数字/日期字段「${field.label}」。` })
       }
     })
   }
-  props.routes.forEach(route => inspect(`流转规则「${route.routeName}」`, route.conditionJson))
+  activeRoutes.value.forEach(route => inspect(`流转规则「${route.routeName}」`, route.conditionJson))
   props.dynamicPolicies.forEach(policy => inspect(`动态策略「${policy.policyName}」`, policy.conditionJson))
   return result
 }

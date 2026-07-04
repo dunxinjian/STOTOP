@@ -12,6 +12,7 @@ import type {
   CardFlowPathPreviewDto,
   CardListDto,
   CardDetailDto,
+  CardFileValue,
   CardQueryRequest,
   CreateCardRequest,
   UpdateCardRequest,
@@ -80,6 +81,11 @@ export function updateFlowDefinition(id: number, data: UpdateFlowDefinitionReque
   return put<FlowDefinitionDto>(`/cardflow/definitions/${id}`, data)
 }
 
+/** 删除流程定义（仅草稿状态、无版本发布记录、无卡片/批次引用） */
+export function deleteFlowDefinition(id: number) {
+  return del(`/cardflow/definitions/${id}`)
+}
+
 /** 发布流程定义 */
 export function publishFlowDefinition(id: number) {
   return post(`/cardflow/definitions/${id}/publish`)
@@ -144,6 +150,11 @@ export function saveFlowDraftVersion(id: number, data: SaveDraftVersionRequest) 
 /** 获取草稿版本 */
 export function getFlowDraftVersion(id: number) {
   return get<FlowVersionDetailDto>(`/cardflow/definitions/${id}/draft-version`)
+}
+
+/** 放弃（删除）草稿版本 */
+export function discardFlowDraftVersion(id: number) {
+  return del(`/cardflow/definitions/${id}/draft-version`)
 }
 
 /** 预演草稿流程路径 */
@@ -422,6 +433,15 @@ export function handleNotificationCallback(channel: string, body: string) {
 
 // ===== 批次管理 API =====
 
+/** 上传卡片附件（multipart/form-data），返回可写入卡片 dataJson 的 CardFileValue */
+export function uploadCardAttachment(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return service.post<any, CardFileValue>('/cardflow/cards/attachments', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+
 /** 上传文件创建批次（multipart/form-data） */
 export function uploadBatch(data: FormData) {
   return service.post<any, CfBatch>('/cardflow/batches/upload', data, {
@@ -650,6 +670,8 @@ export interface BatchDeletePreCheck {
   hasClosedPeriod: boolean
   affectedVoucherCount: number
   affectedRowCount: number
+  /** 在途卡片数（draft/active/returned，撤销时被级联取消，仅知情提示不阻止） */
+  activeCardCount: number
   blockReason?: string
 }
 
@@ -725,9 +747,6 @@ export const batchDeleteStaging = (sourceType: string, ids: number[]) =>
 
 export const batchUpdateStagingStatus = (sourceType: string, data: { ids: number[]; newStatus: number }) =>
   post(`/cardflow/staging/${sourceType}/batch-update-status`, data)
-
-export const reprocessStaging = (sourceType: string, data: { ids: number[] }) =>
-  post(`/cardflow/staging/${sourceType}/reprocess`, data)
 
 export const getStagingStats = (sourceType: string) =>
   get(`/cardflow/staging/${sourceType}/stats`)
@@ -934,38 +953,47 @@ export interface PipelineDetailDto extends PipelineDto {
 export const getPipelines = () =>
   get<PipelineDto[]>('/cardflow/pipeline')
 
+/** @deprecated 后端无此端点（CfPipelineController 仅保留只读查询），调用即 404；孤儿组件引用待清理 */
 export const getPipeline = (id: number) =>
   get<PipelineDetailDto>(`/cardflow/pipeline/${id}`)
 
+/** @deprecated 后端无此端点（CfPipelineController 仅保留只读查询），调用即 404；孤儿组件引用待清理 */
 export const createPipeline = (data: any) =>
   post('/cardflow/pipeline', data)
 
+/** @deprecated 后端无此端点（CfPipelineController 仅保留只读查询），调用即 404；孤儿组件引用待清理 */
 export const updatePipeline = (id: number, data: any) =>
   put(`/cardflow/pipeline/${id}`, data)
 
+/** @deprecated 后端无此端点（CfPipelineController 仅保留只读查询），调用即 404；孤儿组件引用待清理 */
 export const deletePipeline = (id: number) =>
   del(`/cardflow/pipeline/${id}`)
 
+/** @deprecated 后端无此端点（CfPipelineController 仅保留只读查询），调用即 404；孤儿组件引用待清理 */
 export const getPipelineAutoPlugins = (pipelineId: number) =>
   get<PipelineAutoPluginDto[]>(`/cardflow/pipeline/${pipelineId}/auto-plugins`)
 
+/** @deprecated 后端无此端点（CfPipelineController 仅保留只读查询），调用即 404；孤儿组件引用待清理 */
 export const createPipelineAutoPlugin = (pipelineId: number, data: any) =>
   post(`/cardflow/pipeline/${pipelineId}/auto-plugins`, data)
 
+/** @deprecated 后端无此端点（CfPipelineController 仅保留只读查询），调用即 404；孤儿组件引用待清理 */
 export const updatePipelineAutoPlugin = (autoPluginId: number, data: any) =>
   put(`/cardflow/pipeline/auto-plugins/${autoPluginId}`, data)
 
+/** @deprecated 后端无此端点（CfPipelineController 仅保留只读查询），调用即 404；孤儿组件引用待清理 */
 export const deletePipelineAutoPlugin = (autoPluginId: number) =>
   del(`/cardflow/pipeline/auto-plugins/${autoPluginId}`)
 
+/** @deprecated 后端无此端点（CfPipelineController 仅保留只读查询），调用即 404；孤儿组件引用待清理 */
 export const reorderPipelineAutoPlugins = (pipelineId: number, items: { autoPluginId: number; sortOrder: number }[]) =>
   post(`/cardflow/pipeline/${pipelineId}/auto-plugins/reorder`, items)
 
-/** 克隆管道到当前组织 */
+/** @deprecated 后端无此端点（CfPipelineController 仅保留只读查询），调用即 404；孤儿组件引用待清理 */
 export const clonePipeline = (id: number) =>
   post(`/cardflow/pipeline/${id}/clone`)
 
-/** 获取指定组织的管道列表 */
+/** @deprecated 后端无此端点（CfPipelineController 仅保留只读查询），调用即 404；孤儿组件引用待清理 */
 export const getPipelinesForOrg = (orgId: number) =>
   get<PipelineDto[]>('/cardflow/pipelines', { orgId })
 
@@ -1020,9 +1048,11 @@ export interface RollbackResult {
 export const getBatchAutoPluginTrail = (batchId: number) =>
   get<AutoPluginTrailDto>(`/cardflow/pipeline/${batchId}/auto-plugin-trail`)
 
+/** @deprecated 后端无此端点（CfPipelineController 仅保留只读查询），调用即 404；孤儿组件引用待清理 */
 export const getBatchSnapshots = (batchId: number) =>
   get<BatchSnapshotDto[]>(`/cardflow/pipeline/${batchId}/snapshots`)
 
+/** @deprecated 后端无此端点（CfPipelineController 仅保留只读查询），调用即 404；孤儿组件引用待清理 */
 export const rollbackBatch = (batchId: number, targetPluginIndex: number) =>
   post<RollbackResult>(`/cardflow/pipeline/${batchId}/rollback`, { targetPluginIndex })
 

@@ -371,27 +371,9 @@
       </a-spin>
     </a-drawer>
 
-    <!-- ===== 分配/转交弹窗 ===== -->
-    <a-modal
-      v-model:open="assignModalVisible"
-      :title="`${assignAction}处理人`"
-      :ok-text="`确认${assignAction}`"
-      cancel-text="取消"
-      @ok="confirmAssign"
-      :width="400"
-    >
-      <div class="assign-modal-body">
-        <p>文件：{{ assignTarget?.fileName }}</p>
-        <p v-if="assignTarget?.assigneeName && assignTarget.assigneeName !== '系统自动'" style="color: var(--text-3)">
-          当前处理人：{{ assignTarget.assigneeName }}
-        </p>
-        <a-select v-model:value="assignTo" placeholder="请选择处理人" style="width: 100%; margin-top: 12px">
-          <a-select-option v-for="u in assignUserOptions" :key="u" :value="u">{{ u }}</a-select-option>
-        </a-select>
-      </div>
-    </a-modal>
+    <!-- 分配/转交/催办弹窗已移除：待后端支持（无对应 API），原实现为硬编码人名的纯前端假交互 -->
 
-    <!-- ===== 流程选择弹窗（未匹配流程时） ===== -->
+    <!-- ===== 流程选择弹窗（未匹配流程 / 手动指定） ===== -->
     <a-modal
       v-model:open="flowSelectVisible"
       title="选择流程定义"
@@ -424,7 +406,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
 import {
   UploadOutlined, FileExcelOutlined, DeleteOutlined, LoadingOutlined, WarningOutlined,
   AppstoreOutlined, ThunderboltOutlined,
@@ -432,8 +414,7 @@ import {
 import PageHeader from '@/components/PageHeader.vue'
 import { usePermission, CardFlowPermissions } from '@/utils/permission'
 import { useUploadCenter } from './composables/useUploadCenter'
-import type { BatchItem, RoleType } from './composables/useUploadCenter'
-import { getFlowDefinitionCandidates, assignPipeline, uploadAutoBatch } from '@/api/cardflow'
+import { getFlowDefinitionCandidates, assignPipeline, processBatch, uploadAutoBatch } from '@/api/cardflow'
 import type { FlowDefinitionCandidateDto, UploadAutoResult } from '@/api/cardflow'
 
 import UploadDropZone from './components/UploadDropZone.vue'
@@ -453,7 +434,6 @@ const {
   currentRole,
   viewMode,
   uploadCollapsed,
-  currentUserName,
   roleKpi,
   filteredBatches,
   displayBatches,
@@ -535,53 +515,30 @@ const kanbanColumns = computed(() => {
   ]
 })
 
-// ===== 分配/转交 =====
-const assignModalVisible = ref(false)
-const assignTarget = ref<BatchItem | null>(null)
-const assignTo = ref('')
-const assignAction = ref('分配')
-const assignUserOptions = ['李会计', '张运营', '王文员', '赵经理'] // TODO: 从后端获取
-
-function openAssignModal(batch: BatchItem, action: string) {
-  assignTarget.value = batch
-  assignTo.value = ''
-  assignAction.value = action
-  assignModalVisible.value = true
-}
-
-function confirmAssign() {
-  if (!assignTo.value) {
-    message.warning('请选择处理人')
-    return
-  }
-  if (assignTarget.value) {
-    assignTarget.value.assigneeName = assignTo.value
-    message.success(`已${assignAction.value}给${assignTo.value}`)
-  }
-  assignModalVisible.value = false
-}
-
-// ===== 流程选择弹窗（未匹配流程时） =====
+// ===== 流程选择弹窗（未匹配流程 / 待认领批次手动指定） =====
 const flowSelectVisible = ref(false)
 const flowSelectLoading = ref(false)
 const flowCandidates = ref<FlowDefinitionCandidateDto[]>([])
 const selectedFlowId = ref<number | null>(null)
 const unmatchedBatchInfo = ref<{ batchId: number; fileName: string } | null>(null)
 
-// 监听 onUnmatchedBatch 事件
+function openFlowSelect(batchId: number, fileName?: string) {
+  const target = batches.value.find(b => b.id === batchId)
+  unmatchedBatchInfo.value = { batchId, fileName: fileName || target?.fileName || `批次 #${batchId}` }
+  selectedFlowId.value = null
+  flowSelectVisible.value = true
+  // 加载候选流程列表（后端 flow-definition-candidates 仅返回已发布可选流程）
+  getFlowDefinitionCandidates().then((list) => {
+    flowCandidates.value = list || []
+  }).catch(() => {
+    flowCandidates.value = []
+    message.error('获取流程列表失败')
+  })
+}
+
+// 监听 onUnmatchedBatch 事件（上传后未匹配到流程）
 watch(onUnmatchedBatch, (val) => {
-  if (val) {
-    unmatchedBatchInfo.value = val
-    selectedFlowId.value = null
-    flowSelectVisible.value = true
-    // 加载候选流程列表
-    getFlowDefinitionCandidates().then((list) => {
-      flowCandidates.value = list || []
-    }).catch(() => {
-      flowCandidates.value = []
-      message.error('获取流程列表失败')
-    })
-  }
+  if (val) openFlowSelect(val.batchId, val.fileName)
 })
 
 async function confirmFlowSelect() {
@@ -597,11 +554,31 @@ async function confirmFlowSelect() {
     message.success('已指定流程，开始处理')
     flowSelectVisible.value = false
     onUnmatchedBatch.value = null
+    loadBatches()
   } catch (e: any) {
     message.error(e?.message || '指定流程失败')
   } finally {
     flowSelectLoading.value = false
   }
+}
+
+// ===== 确认展开（已暂存批次 → 按流程定义展开卡片并进入流转） =====
+function confirmProcessBatch(batchId: number) {
+  Modal.confirm({
+    title: '确认展开',
+    content: '将按流程定义展开卡片并进入流转，确定继续？',
+    okText: '确认',
+    cancelText: '取消',
+    async onOk() {
+      try {
+        await processBatch(batchId)
+        message.success('已提交展开，批次进入流转')
+        loadBatches()
+      } catch (e: any) {
+        message.error(e?.response?.data?.message || e?.message || '确认展开失败')
+      }
+    },
+  })
 }
 
 // ===== 上传按钮 =====
@@ -664,21 +641,9 @@ async function startAutoImport() {
 }
 
 // ===== 批次操作分发 =====
+// 注：urge/assign/transfer/addComment/viewVoucher/ignoreError/fixError 已移除——
+// 均为无后端 API 的假交互（硬编码人名/本地数组/「开发中」toast），待后端支持后再恢复入口
 function handleBatchAction(payload: { type: string; batchId: number; errorId?: number; text?: string }) {
-  // 对于仅需 batchId 的操作（delete/retry 等），无需查找 batch 对象即可执行
-  // 对于需要 batch 对象的操作（urge/assign/addComment），需要查找
-  const needsBatchObject = ['urge', 'assign', 'transfer', 'addComment'].includes(payload.type)
-
-  let batch: (typeof batches.value)[number] | undefined
-  if (needsBatchObject) {
-    batch = batches.value.find(b => b.id === payload.batchId)
-    if (!batch) {
-      console.warn('[UploadCenter] handleBatchAction: 找不到批次', payload.batchId, '当前批次数:', batches.value.length)
-      message.warning('操作失败：找不到对应批次，请刷新页面重试')
-      return
-    }
-  }
-
   switch (payload.type) {
     case 'retry':
       handleRetry(payload.batchId)
@@ -694,43 +659,16 @@ function handleBatchAction(payload: { type: string; batchId: number; errorId?: n
       // 取消上传本质上就是删除卡片，复用现有删除流程
       handleDelete(payload.batchId)
       break
-    case 'viewErrors':
-      // 卡片不再支持展开/折叠，无操作
+    case 'process':
+      // 已暂存批次：确认后按流程定义展开卡片
+      confirmProcessBatch(payload.batchId)
       break
-    case 'viewVoucher':
-      message.info('查看凭证功能开发中')
+    case 'assignPipeline':
+      // 待认领批次：手动指定流程定义
+      openFlowSelect(payload.batchId)
       break
     case 'validateCalculation':
       router.push({ path: `/cardflow/import-validation/${payload.batchId}` })
-      break
-    case 'urge': {
-      const handler = batch!.assigneeName && batch!.assigneeName !== '系统自动' ? batch!.assigneeName : '处理人'
-      message.success(`已向${handler}发送催办通知`)
-      break
-    }
-    case 'assign':
-      openAssignModal(batch!, '分配')
-      break
-    case 'transfer':
-      openAssignModal(batch!, '转交')
-      break
-    case 'addComment':
-      if (payload.text && batch) {
-        const now = new Date()
-        const time = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`
-        batch.comments ??= []
-        batch.comments.push({
-          author: currentUserName.value,
-          time,
-          text: payload.text,
-        })
-      }
-      break
-    case 'ignoreError':
-      message.info('忽略异常功能开发中')
-      break
-    case 'fixError':
-      message.info('修正异常功能开发中')
       break
   }
 }
@@ -873,15 +811,6 @@ function handleBatchAction(payload: { type: string; batchId: number; errorId?: n
   font-size: 12px;
   color: var(--text-3);
   &.warning { color: var(--color-danger-text); font-weight: 600; }
-}
-
-// 分配弹窗
-.assign-modal-body {
-  p {
-    font-size: 13px;
-    color: var(--text-2);
-    margin-bottom: 4px;
-  }
 }
 
 .inline-upload {

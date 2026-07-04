@@ -18,6 +18,7 @@ import {
   getFlowVersionDetail,
   saveFlowDraftVersion,
   publishFlowDefinition,
+  discardFlowDraftVersion,
 } from '@/api/cardflow'
 import type {
   FlowVersionDto,
@@ -161,16 +162,19 @@ async function handleCompare(record: FlowVersionDto) {
 function handleRollback(record: FlowVersionDto) {
   Modal.confirm({
     title: '确认回滚',
-    content: `确认将 V${record.versionNumber} 内容复制为新版本并发布？在途卡片不受影响。`,
+    content: `确认将 V${record.versionNumber} 内容复制为新版本并发布？在途卡片不受影响。注意：若当前存在未发布的草稿，草稿内容将被该版本覆盖。`,
     okText: '确认回滚',
     cancelText: '取消',
     async onOk() {
       try {
         const detail = (await getFlowVersionDetail(flowId.value, record.id)) as FlowVersionDetailDto
         const stages: StageDefinitionRequest[] = (detail.stages || []).map((s: StageDefinitionDto) => ({
+          // 后端保存要求稳定 StageKey，缺失（远古数据）时按版本节点 ID 派生
+          stageKey: s.stageKey || `stg_${s.id}`,
           name: s.stageName,
           type: s.type,
           sortOrder: s.sortOrder,
+          processingGranularity: s.processingGranularity,
           approvalMode: s.approvalMode,
           assigneeStrategy: s.assigneeStrategy,
           assigneeConfigJson: s.assigneeConfigJson,
@@ -222,8 +226,10 @@ function handleRollback(record: FlowVersionDto) {
         message.success(`已回滚到 V${record.versionNumber} 并发布为新版本`)
         selectedRowKeys.value = []
         loadVersions()
-      } catch {
-        message.error('回滚失败')
+      } catch (e) {
+        // 拦截器已弹出后端具体原因；此处补充半程失败提示（草稿可能已被覆盖但未发布）
+        console.error('[VersionHistory] 回滚失败:', e)
+        message.warning('回滚未完成，草稿可能已被目标版本覆盖，请进入编辑页确认后重新发布')
       }
     },
   })
@@ -248,13 +254,18 @@ function handleRollbackSelected() {
 function handleDeleteDraft(record: FlowVersionDto) {
   Modal.confirm({
     title: '删除草稿版本',
-    content: `确认删除草稿 V${record.versionNumber}？`,
+    content: `确认删除草稿 V${record.versionNumber}？未发布的修改将全部丢弃，下次编辑将基于当前发布版本重新生成草稿。`,
     okText: '删除',
     okType: 'danger',
     cancelText: '取消',
-    onOk() {
-      // 草稿版本由后端编辑器自动管理，未提供独立删除接口
-      message.info('草稿版本由编辑器统一管理，请进入流程编辑页清空草稿后保存')
+    async onOk() {
+      try {
+        await discardFlowDraftVersion(flowId.value)
+        message.success('草稿已删除')
+        loadVersions()
+      } catch (e) {
+        console.error('[VersionHistory] 删除草稿失败:', e)
+      }
     },
   })
 }

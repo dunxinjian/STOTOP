@@ -27,15 +27,20 @@ function setAccess(componentId: string, access: string) {
   next[componentId] = {
     ...(next[componentId] || {}),
     access,
-    required: access === 'required' ? true : next[componentId]?.required,
+    // required 只在 access==='required' 时成立；切到其他权限必须清掉，
+    // 否则产生"只读 + 必填"矛盾规则且勾选框显示与权限不符
+    required: access === 'required',
   }
   emit('update:modelValue', next)
 }
 
 function setRequired(componentId: string, required: boolean) {
   const next = { ...(props.modelValue || {}) }
+  const current = currentAccess(componentId)
   next[componentId] = {
-    ...(next[componentId] || { access: currentAccess(componentId) }),
+    ...(next[componentId] || {}),
+    // 勾必填 → 权限升为必填；取消必填 → 必填权限降级为可编辑（否则勾选框因 access 仍是 required 而立即回弹）
+    access: required ? 'required' : (current === 'required' ? 'editable' : current),
     required,
   }
   emit('update:modelValue', next)

@@ -54,24 +54,30 @@ const routeCountBySource = computed(() => {
   return map
 })
 
+// 规则模式判定：版本存在任一 active 路由时，运行时不再按 sortOrder 顺延，
+// 此时"默认顺序"线性边是误导（无出边的节点会直接终止），不再绘制
+const isRuleMode = computed(() => props.routes.some(route => (route.status ?? 'active') === 'active'))
+
 const linearEdges = computed(() =>
-  props.stages.slice(0, -1).map((stage, index) => {
-    const target = props.stages[index + 1]
-    return {
-      id: `linear_${stage.id}_${target.id}`,
-      source: stage.id,
-      target: target.id,
-      sourceHandle: 'next',
-      targetHandle: 'in',
-      type: 'smoothstep',
-      label: '默认顺序',
-      data: { kind: 'linear' },
-      class: 'cf-flow-graph-edge cf-flow-graph-edge--linear',
-      style: { stroke: CANVAS_COLORS.muted, strokeWidth: 2 },
-      labelBgStyle: { fill: CANVAS_COLORS.labelBg, fillOpacity: 0.9 },
-      labelStyle: { fill: CANVAS_COLORS.linearLabel, fontWeight: 600, fontSize: 12 },
-    } satisfies Edge
-  }),
+  isRuleMode.value
+    ? []
+    : props.stages.slice(0, -1).map((stage, index) => {
+      const target = props.stages[index + 1]
+      return {
+        id: `linear_${stage.id}_${target.id}`,
+        source: stage.id,
+        target: target.id,
+        sourceHandle: 'next',
+        targetHandle: 'in',
+        type: 'smoothstep',
+        label: '默认顺序',
+        data: { kind: 'linear' },
+        class: 'cf-flow-graph-edge cf-flow-graph-edge--linear',
+        style: { stroke: CANVAS_COLORS.muted, strokeWidth: 2 },
+        labelBgStyle: { fill: CANVAS_COLORS.labelBg, fillOpacity: 0.9 },
+        labelStyle: { fill: CANVAS_COLORS.linearLabel, fontWeight: 600, fontSize: 12 },
+      } satisfies Edge
+    }),
 )
 
 const routeEdges = computed(() =>
@@ -80,7 +86,10 @@ const routeEdges = computed(() =>
     .map(route => {
       const selected = props.selectedType === 'edge' && props.selectedKey === route.edgeKey
       const isDefault = route.isDefault
-      const stroke = selected ? CANVAS_COLORS.accent : isDefault ? CANVAS_COLORS.defaultEdge : CANVAS_COLORS.condition
+      const disabled = route.status === 'disabled'
+      const stroke = selected ? CANVAS_COLORS.accent
+        : disabled ? CANVAS_COLORS.muted
+        : isDefault ? CANVAS_COLORS.defaultEdge : CANVAS_COLORS.condition
       return {
         id: route.edgeKey,
         source: route.fromStageKey,
@@ -88,15 +97,15 @@ const routeEdges = computed(() =>
         sourceHandle: isDefault ? 'next' : 'branch',
         targetHandle: 'in',
         type: 'smoothstep',
-        animated: !isDefault,
-        label: `${route.routeName || (isDefault ? '默认分支' : '条件分支')} · ${isDefault ? '默认分支' : `优先级 ${route.priority}`}`,
-        data: { kind: isDefault ? 'default' : 'conditional' },
+        animated: !isDefault && !disabled,
+        label: `${route.routeName || (isDefault ? '默认分支' : '条件分支')} · ${disabled ? '已停用' : isDefault ? '默认分支' : `优先级 ${route.priority}`}`,
+        data: { kind: disabled ? 'disabled' : isDefault ? 'default' : 'conditional' },
         class: [
           'cf-flow-graph-edge',
-          isDefault ? 'cf-flow-graph-edge--default' : 'cf-flow-graph-edge--conditional',
+          disabled ? 'cf-flow-graph-edge--disabled' : isDefault ? 'cf-flow-graph-edge--default' : 'cf-flow-graph-edge--conditional',
           selected ? 'cf-flow-graph-edge--selected' : '',
         ].filter(Boolean).join(' '),
-        style: { stroke, strokeWidth: selected ? 3 : 2.5 },
+        style: { stroke, strokeWidth: selected ? 3 : 2.5, ...(disabled ? { strokeDasharray: '6 4' } : {}) },
         labelBgStyle: { fill: CANVAS_COLORS.labelBg, fillOpacity: 0.94 },
         labelStyle: { fill: stroke, fontWeight: 700, fontSize: 12 },
       } satisfies Edge

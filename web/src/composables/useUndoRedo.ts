@@ -79,11 +79,21 @@ export function useAutoCommit<T>(
   watch(getter, (val) => {
     if (suppress.value) return
     if (timer) clearTimeout(timer)
-    timer = setTimeout(() => history.commit(val), delay)
+    timer = setTimeout(() => { timer = null; history.commit(val) }, delay)
   }, { deep: true })
+
+  /** 立即提交防抖窗口内未入栈的编辑；undo/redo 前必须调用，否则最新编辑被跳过且无法 redo */
+  function flushPending() {
+    if (!timer) return
+    clearTimeout(timer)
+    timer = null
+    history.commit(getter())
+  }
 
   /** 在编程式回写状态时短暂关闭采集，避免 redo/undo 自身被记录 */
   async function silently(fn: () => void | Promise<void>) {
+    // 回写前丢弃采集窗口内的旧定时器，避免它在 suppress 释放后把回写前的状态误提交
+    if (timer) { clearTimeout(timer); timer = null }
     suppress.value = true
     try {
       await fn()
@@ -93,5 +103,5 @@ export function useAutoCommit<T>(
     }
   }
 
-  return { silently }
+  return { silently, flushPending }
 }

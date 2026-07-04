@@ -14,6 +14,8 @@ export interface FlowDefinitionDto {
   flowGroupId: number | null
   orgId: number
   createdTime: string
+  /** 导入匹配规则 JSON（如 {"fileNamePattern":"*韵达*"}），仅详情接口返回 */
+  matchPattern?: string | null
   currentVersion?: number | null
   lastPublishedTime?: string | null
   hasDraft?: boolean
@@ -24,8 +26,15 @@ export interface FlowDefinitionQueryRequest {
   page?: number
   pageSize?: number
   status?: string | null
+  /** 多状态筛选，逗号分隔（如 "draft,published"） */
+  statuses?: string | null
   orgId?: number | null
   keyword?: string | null
+  flowGroupId?: number | null
+  /** 排序字段白名单：flowName / createdTime / lastPublishedTime */
+  sortField?: string | null
+  /** asc / desc */
+  sortOrder?: string | null
 }
 
 export interface CreateFlowDefinitionRequest {
@@ -36,6 +45,7 @@ export interface CreateFlowDefinitionRequest {
   titleTemplate?: string | null
   allowedRolesJson?: string | null
   flowGroupId?: number | null
+  matchPattern?: string | null
   orgId?: number
 }
 
@@ -46,6 +56,7 @@ export interface UpdateFlowDefinitionRequest {
   titleTemplate?: string | null
   allowedRolesJson?: string | null
   flowGroupId?: number | null
+  matchPattern?: string | null
 }
 
 // ==================== 流程版本 (FlowVersion) ====================
@@ -390,6 +401,14 @@ export interface AssigneeDto {
   status: string
   opinion: string | null
   completedTime: string | null
+}
+
+/** file 字段值：只存元数据，url 指向授权下载端点，附件内容落盘在服务端 secure-uploads */
+export interface CardFileValue {
+  name: string
+  url: string
+  size?: number
+  mimeType?: string
 }
 
 export interface CardDetailRowDto {

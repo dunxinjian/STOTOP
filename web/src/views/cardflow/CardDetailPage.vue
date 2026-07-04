@@ -12,6 +12,8 @@ import {
   StopOutlined,
   LinkOutlined,
   ThunderboltFilled,
+  AuditOutlined,
+  RedoOutlined,
 } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import SchemaRenderer from '@/components/cardflow/SchemaRenderer.vue'
@@ -25,6 +27,7 @@ import {
   withdrawCard,
   urgeCard,
   voidCard,
+  resubmitCard,
 } from '@/api/cardflow'
 import { useUserStore } from '@/stores/user'
 import type {
@@ -56,7 +59,7 @@ const detailSchema = ref<SchemaFieldDefinition[]>([])
 interface StatusMeta {
   text: string
   color: string
-  tone: 'info' | 'success' | 'warn' | 'mute' | 'draft'
+  tone: 'info' | 'success' | 'warn' | 'mute' | 'draft' | 'danger'
 }
 
 const statusConfig: Record<string, StatusMeta> = {
@@ -65,6 +68,8 @@ const statusConfig: Record<string, StatusMeta> = {
   completed: { text: '已完成', color: 'success', tone: 'success' },
   returned: { text: '已退回', color: 'warning', tone: 'warn' },
   voided: { text: '已作废', color: 'default', tone: 'mute' },
+  exception: { text: '异常', color: 'error', tone: 'danger' },
+  cancelled: { text: '已取消', color: 'default', tone: 'mute' },
 }
 
 // ==================== Computed ====================
@@ -114,13 +119,6 @@ const currentStage = computed(() => {
   ) || null
 })
 
-const isFirstStage = computed(() => {
-  if (!card.value || !currentStage.value) return false
-  if (card.value.stageInstances.length === 0) return false
-  const sorted = [...card.value.stageInstances].sort((a, b) => a.id - b.id)
-  return sorted[0].id === currentStage.value.id
-})
-
 const hasAnyApproval = computed(() => {
   if (!currentStage.value) return false
   return currentStage.value.assignees.some(
@@ -132,11 +130,11 @@ const hasAnyApproval = computed(() => {
   )
 })
 
+// 后端 WithdrawAsync 仅要求 active + 发起人 + 当前节点无人已审（无"仅第一节点"限制）
 const canWithdraw = computed(
   () =>
     isInitiator.value &&
     card.value?.status === 'active' &&
-    isFirstStage.value &&
     !hasAnyApproval.value
 )
 
@@ -148,12 +146,23 @@ const canVoid = computed(
     card.value.status !== 'draft'
 )
 
+/** 当前用户是当前节点的 pending 处理人 → 可去处理 */
+const isPendingHandler = computed(() => {
+  const myId = userStore.userInfo?.id
+  if (!myId || !card.value || card.value.status !== 'active') return false
+  const stage = currentStage.value
+  return !!stage && stage.assignees.some((a) => a.userId === myId && a.status === 'pending')
+})
+
+const canResubmit = computed(
+  () => isInitiator.value && card.value?.status === 'returned'
+)
+
 const showToolbarUrge = computed(
   () => (isAdmin.value || isInitiator.value) && canUrge.value
 )
-const showToolbarVoid = computed(
-  () => (isAdmin.value || isInitiator.value) && canVoid.value
-)
+// 后端 VoidAsync 仅发起人可作废，管理员分支不再展示恒失败的按钮
+const showToolbarVoid = computed(() => isInitiator.value && canVoid.value)
 const showToolbarWithdraw = computed(() => isInitiator.value)
 
 const triggerRelations = computed(() =>
@@ -255,6 +264,30 @@ async function loadCard() {
 function handleBack() {
   if (window.history.length > 1) router.back()
   else router.push('/cardflow/cards')
+}
+
+function gotoApprove() {
+  router.push(`/cardflow/approve/${cardId.value}`)
+}
+
+function handleResubmit() {
+  if (!card.value) return
+  Modal.confirm({
+    title: '重新提交',
+    content: '将按原内容重新提交，进入新一轮审批，是否继续？',
+    okText: '重新提交',
+    cancelText: '取消',
+    async onOk() {
+      if (!card.value) return
+      try {
+        await resubmitCard(card.value.id)
+        message.success('已重新提交')
+        await loadCard()
+      } catch {
+        message.error('重新提交失败')
+      }
+    },
+  })
 }
 
 async function handleWithdraw() {
@@ -420,6 +453,16 @@ onMounted(() => {
 
     <template #actions>
       <template v-if="card">
+        <a-button v-if="isPendingHandler" type="primary" @click="gotoApprove">
+          <template #icon><AuditOutlined /></template>
+          去处理
+        </a-button>
+
+        <a-button v-if="canResubmit" type="primary" @click="handleResubmit">
+          <template #icon><RedoOutlined /></template>
+          重新提交
+        </a-button>
+
         <a-tooltip
           v-if="showToolbarWithdraw"
           :title="canWithdraw ? '' : '当前节点已开始处理，无法撤回'"
@@ -604,6 +647,8 @@ $tone-mute-fg: var(--text-3);
 $tone-mute-bg: color-mix(in srgb, var(--text-3) 10%, transparent);
 $tone-draft-fg: var(--text-2);
 $tone-draft-bg: color-mix(in srgb, var(--text-2) 8%, transparent);
+$tone-danger-fg: var(--color-danger);
+$tone-danger-bg: color-mix(in srgb, var(--color-danger) 10%, transparent);
 
 .cd-page {
   padding: 16px;
@@ -705,6 +750,11 @@ $tone-draft-bg: color-mix(in srgb, var(--text-2) 8%, transparent);
   background: $tone-draft-bg;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-2) 18%, transparent);
 }
+.pill--danger {
+  color: $tone-danger-fg;
+  background: $tone-danger-bg;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-danger) 20%, transparent);
+}
 
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -772,7 +822,8 @@ $tone-draft-bg: color-mix(in srgb, var(--text-2) 8%, transparent);
 .cd-page[data-tone='success'] .cd-col--left .cd-section:first-of-type::before,
 .cd-page[data-tone='warn'] .cd-col--left .cd-section:first-of-type::before,
 .cd-page[data-tone='mute'] .cd-col--left .cd-section:first-of-type::before,
-.cd-page[data-tone='draft'] .cd-col--left .cd-section:first-of-type::before {
+.cd-page[data-tone='draft'] .cd-col--left .cd-section:first-of-type::before,
+.cd-page[data-tone='danger'] .cd-col--left .cd-section:first-of-type::before {
   content: '';
   position: absolute;
   top: 0;
@@ -786,6 +837,7 @@ $tone-draft-bg: color-mix(in srgb, var(--text-2) 8%, transparent);
 .cd-page[data-tone='warn']    .cd-col--left .cd-section:first-of-type::before { background: $tone-warn-fg; }
 .cd-page[data-tone='mute']    .cd-col--left .cd-section:first-of-type::before { background: $tone-mute-fg; }
 .cd-page[data-tone='draft']   .cd-col--left .cd-section:first-of-type::before { background: $tone-draft-fg; }
+.cd-page[data-tone='danger']  .cd-col--left .cd-section:first-of-type::before { background: $tone-danger-fg; }
 
 // ===== Trigger banner =====
 .cd-trigger-banner {
