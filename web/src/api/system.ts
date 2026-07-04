@@ -11,6 +11,10 @@ import type {
   UpdateOrganizationRequest,
   AddUserToOrganizationRequest,
   UpdateUserOrganizationRequest,
+  SwitchTenantRequest,
+  SwitchTenantResponse,
+  TenantMembershipDto,
+  TenantInviteDto,
 } from '@/types/organization'
 
 // 重新导出组织架构相关类型
@@ -602,6 +606,28 @@ export function switchOrganization(data: SwitchOrganizationRequest) {
 
 export function getCurrentOrgContext() {
   return get('/system/org-context/current', undefined, { silent: true } as any)
+}
+
+// ===================== 多租户上下文（阶段4F·M9）=====================
+
+export function getMyTenants() {
+  return get<TenantMembershipDto[]>('/system/org-context/my-tenants', undefined, { silent: true } as any)
+}
+
+export function switchTenant(data: SwitchTenantRequest) {
+  return post<SwitchTenantResponse>('/system/org-context/switch-tenant', data)
+}
+
+export function getPendingTenantInvites() {
+  return get<TenantInviteDto[]>('/system/tenant-member/pending-invites', undefined, { silent: true } as any)
+}
+
+export function acceptTenantInvite(tenantId: number) {
+  return post('/system/tenant-member/accept', { tenantId })
+}
+
+export function rejectTenantInvite(tenantId: number) {
+  return post('/system/tenant-member/reject', { tenantId })
 }
 
 // ===================== 组织架构（扩展） =====================

@@ -227,6 +227,31 @@ export interface SwitchOrganizationResponse {
   menus: MenuDto[]
 }
 
+// ===== 多租户（阶段4F·M9）=====
+export interface TenantMembershipDto {
+  tenantId: number
+  tenantName: string
+  isPrimary: boolean
+}
+
+export interface SwitchTenantRequest {
+  tenantId: number
+}
+
+export interface SwitchTenantResponse {
+  tenantId: number
+  tenantName: string
+  organizations: UserOrganizationDto[]
+  context: SwitchOrganizationResponse | null
+}
+
+export interface TenantInviteDto {
+  tenantId: number
+  tenantName: string
+  invitedBy: number | null
+  createdAt: string | null
+}
+
 export interface MenuDto {
   id: number
   name: string

@@ -61,6 +61,7 @@ import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 import { useUserStore } from '@/stores/user'
 import { usePermissionStore } from '@/stores/permission'
 import { useOrgContextStore } from '@/stores/orgContext'
+import { useTenantContextStore } from '@/stores/tenantContext'
 import { useSidebarStore } from '@/stores/sidebar'
 import { useNotificationStore } from '@/stores/notification'
 import { resetRouter } from '@/router'
@@ -72,6 +73,7 @@ const route = useRoute()
 const userStore = useUserStore()
 const permissionStore = usePermissionStore()
 const orgContextStore = useOrgContextStore()
+const tenantContextStore = useTenantContextStore()
 const sidebarStore = useSidebarStore()
 const notificationStore = useNotificationStore()
 
@@ -117,6 +119,7 @@ async function logout() {
   await userStore.logout()
   permissionStore.reset()
   orgContextStore.clearOrgContext()
+  tenantContextStore.clearTenantContext()
   sidebarStore.reset?.()
   resetRouter()
   router.push('/login')

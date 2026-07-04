@@ -51,15 +51,18 @@ async function loadDynamicRoutes() {
   const { useUserStore } = await import('@/stores/user')
   const { usePermissionStore } = await import('@/stores/permission')
   const { useOrgContextStore } = await import('@/stores/orgContext')
+  const { useTenantContextStore } = await import('@/stores/tenantContext')
   const { useAccountSetStore } = await import('@/stores/accountSet')
 
   const userStore = useUserStore()
   const permissionStore = usePermissionStore()
   const orgContextStore = useOrgContextStore()
+  const tenantContextStore = useTenantContextStore()
   const accountSetStore = useAccountSetStore()
 
   // 惰性初始化：从 localStorage 恢复上次保存的状态
   orgContextStore.init()
+  tenantContextStore.init()
   accountSetStore.init()
 
   // 获取用户信息和菜单（带超时和重试）
@@ -71,6 +74,9 @@ async function loadDynamicRoutes() {
   if (!orgContextStore.currentOrgId) {
     await orgContextStore.fetchCurrentContext()
   }
+
+  // 加载可切换租户列表（多客户时 TenantSwitcher 显示；单客户为 1 个则切换器隐藏）。非阻塞。
+  tenantContextStore.fetchTenants()
 
   // 确保账套列表加载（无论 org context 是否从 localStorage 恢复）
   if (accountSetStore.accountSets.length === 0) {

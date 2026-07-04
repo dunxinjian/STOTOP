@@ -62,6 +62,15 @@ service.interceptors.request.use(
     } catch {
       // 忽略
     }
+    // 添加租户上下文请求头（多租户阶段4F；加性——与 X-Org-Context 并存，头缺失时后端回退单客户根租户）
+    try {
+      const tenantId = localStorage.getItem('stotop_current_tenant_id')
+      if (tenantId) {
+        config.headers['X-Tenant-Context'] = tenantId
+      }
+    } catch {
+      // 忽略
+    }
     // 添加账套上下文请求头
     try {
       const accountSetId = localStorage.getItem('currentAccountSetId')
@@ -145,6 +154,12 @@ service.interceptors.response.use(
               router.push({ name: 'Forbidden' })
             })
           }
+        }
+      } else if (status === 428) {
+        // 需先选择组织/租户（多组织无主 或 多租户无主，阶段4F·M9）。顶栏组织/租户切换器已可选；
+        // 此处提示不跳错误页（避免落到下方 generic "请求错误 428"）。强制选择的模态弹层留后续。
+        if (!silent) {
+          message.warning(error.response.data?.message || '请先选择组织或租户')
         }
       } else if (status === 404) {
         if (!silent) {

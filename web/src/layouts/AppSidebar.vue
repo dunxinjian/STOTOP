@@ -5,8 +5,9 @@
     :style="{ width: collapsed ? collapsedWidth + 'px' : sidebarStore.sidebarWidth + 'px' }"
     aria-label="主导航"
   >
-    <!-- 顶部：工作组织 + 折叠 -->
+    <!-- 顶部：租户(多客户时) + 工作组织 + 折叠 -->
     <div class="asb-head" :class="{ collapsed }">
+      <TenantSwitcher v-if="!collapsed" mode="dark" class="asb-tenant" />
       <OrgSwitcher v-if="!collapsed" mode="dark" class="asb-org" />
       <button
         type="button"
@@ -119,6 +120,7 @@ import { useSidebarStore } from '@/stores/sidebar'
 import { markNavSource } from '@/stores/navChain'
 import { useCommandPalette } from '@/composables/useCommandPalette'
 import OrgSwitcher from '@/components/OrgSwitcher.vue'
+import TenantSwitcher from '@/components/TenantSwitcher.vue'
 
 const router = useRouter()
 const route = useRoute()
