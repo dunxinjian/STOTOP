@@ -77,7 +77,8 @@ public class VoucherServiceTransactionTests
             new Repository<FinAccount>(db),
             new Repository<FinAccountPeriod>(db),
             opLog, changeTracking, http,
-            new VoucherServiceTestHarness.NoOpEventDispatcher(), db);
+            new VoucherServiceTestHarness.NoOpEventDispatcher(), db,
+            VoucherServiceTestHarness.BuildRuleService(db, http));
 
         var request = new CreateVoucherRequest
         {
@@ -134,7 +135,8 @@ public class VoucherServiceTransactionTests
             new Repository<FinAccount>(db),
             new Repository<FinAccountPeriod>(db),
             opLog, changeTracking, http,
-            new VoucherServiceTestHarness.NoOpEventDispatcher(), db);
+            new VoucherServiceTestHarness.NoOpEventDispatcher(), db,
+            VoucherServiceTestHarness.BuildRuleService(db, http));
 
         var updateReq = new CreateVoucherRequest
         {

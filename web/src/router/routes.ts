@@ -347,6 +347,12 @@ export const layoutRoute: RouteRecordRaw = {
       meta: { title: '辅助设置', icon: 'Grid', module: 'finance' },
     },
     {
+      path: 'finance/account-set-rules',
+      name: 'AccountSetRuleConfig',
+      component: () => import('@/views/finance/AccountSetRuleConfig.vue'),
+      meta: { title: '账套规则', icon: 'ControlOutlined', module: 'finance' },
+    },
+    {
       path: 'finance/auxiliary-aliases',
       name: 'AuxiliaryAliasConfig',
       component: () => import('@/views/finance/AuxiliaryAliasConfig.vue'),

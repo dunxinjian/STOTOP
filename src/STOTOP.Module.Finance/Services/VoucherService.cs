@@ -28,6 +28,7 @@ public class VoucherService : IVoucherService
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IEventDispatcher _eventDispatcher;
     private readonly STOTOPDbContext _context;
+    private readonly IAccountSetRuleService _accountSetRuleService;
 
     public VoucherService(
         IRepository<FinVoucher> voucherRepository,
@@ -38,7 +39,8 @@ public class VoucherService : IVoucherService
         ChangeTrackingService changeTrackingService,
         IHttpContextAccessor httpContextAccessor,
         IEventDispatcher eventDispatcher,
-        STOTOPDbContext context)
+        STOTOPDbContext context,
+        IAccountSetRuleService accountSetRuleService)
     {
         _voucherRepository = voucherRepository;
         _entryRepository = entryRepository;
@@ -49,6 +51,7 @@ public class VoucherService : IVoucherService
         _httpContextAccessor = httpContextAccessor;
         _eventDispatcher = eventDispatcher;
         _context = context;
+        _accountSetRuleService = accountSetRuleService;
     }
 
     /// <summary>
@@ -294,6 +297,13 @@ public class VoucherService : IVoucherService
     public async Task<VoucherDto> CreateAsync(CreateVoucherRequest request, string creator, long accountSetId = 0, bool enforceAuxContract = false)
     {
         ValidateVoucher(request);
+
+        // P0-3 凭证字须在账套启用集合内（服务端强制，防绕过前端下拉直接调 API）。
+        // 无配置回退全集；仅拦新建，编辑/草稿不校验（历史凭证字不回溯）。
+        var enabledWords = await _accountSetRuleService.GetEnabledVoucherWordsAsync(accountSetId);
+        if (!enabledWords.Contains(request.VoucherWord))
+            throw new InvalidOperationException($"凭证字只能是 {string.Join("/", enabledWords)}，当前值：\"{request.VoucherWord}\"");
+
         await ValidateEntriesAsync(request.Entries, enforceAuxContract);
 
         // 验证辅助核算JSON格式
@@ -550,6 +560,11 @@ public class VoucherService : IVoucherService
     {
         var voucher = await GetOwnedVoucherAsync(id);
         if (voucher == null) return false;
+
+        // P0-1 制单审核分离（账套规则开关，默认关=不校验）：制单人不可审核本人凭证
+        var rule = await _accountSetRuleService.GetByAccountSetAsync(voucher.FAccountSetId);
+        if (rule?.FRequireAuditSeparation == true && voucher.FCreator == auditor)
+            throw new InvalidOperationException("本账套已启用制单审核分离，制单人不可审核本人凭证");
 
         voucher.FStatus = 2; // 已审核
         voucher.FAuditor = auditor;
@@ -879,6 +894,7 @@ public class VoucherService : IVoucherService
     {
         int successCount = 0;
         int skipCount = 0;
+        int selfAuditSkipCount = 0; // P0-1 制单人自审被拦（与"已审核"跳过分开计数）
         var now = DateTime.Now;
 
         foreach (var id in voucherIds)
@@ -889,6 +905,18 @@ public class VoucherService : IVoucherService
             if (voucher.FStatus == 2)
             {
                 skipCount++;
+                continue;
+            }
+
+            // P0-1 制单审核分离：批量不整批失败，逐张跳过并留痕
+            var rule = await _accountSetRuleService.GetByAccountSetAsync(voucher.FAccountSetId);
+            if (rule?.FRequireAuditSeparation == true && voucher.FCreator == auditorName)
+            {
+                selfAuditSkipCount++;
+                await _operationLogService.LogAsync(
+                    voucher.FAccountSetId, "凭证", "批量审核跳过",
+                    $"制单审核分离拦截：{auditorName} 不可审核本人制单的凭证 {voucher.FVoucherWord}{voucher.FVoucherNo}",
+                    id, $"{voucher.FVoucherWord}{voucher.FVoucherNo}");
                 continue;
             }
 
@@ -905,9 +933,12 @@ public class VoucherService : IVoucherService
             successCount++;
         }
 
+        var message = $"成功审核 {successCount} 张，跳过 {skipCount} 张（已审核）";
+        if (selfAuditSkipCount > 0)
+            message += $"，{selfAuditSkipCount} 张（制单人不可自审）";
         return ApiResult<object>.Success(
-            new { successCount, skipCount },
-            $"成功审核 {successCount} 张，跳过 {skipCount} 张（已审核）");
+            new { successCount, skipCount, selfAuditSkipCount },
+            message);
     }
 
     public async Task<ApiResult<object>> CheckGapAsync(long accountSetId, int year, int periodNo)

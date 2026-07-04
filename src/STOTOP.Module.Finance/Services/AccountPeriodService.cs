@@ -27,6 +27,7 @@ public class AccountPeriodService : IAccountPeriodService
     private readonly IEventDispatcher _eventDispatcher;
     private readonly ILogger<AccountPeriodService> _logger;
     private readonly STOTOPDbContext _context;
+    private readonly IAccountSetRuleService _accountSetRuleService;
 
     public AccountPeriodService(
         IRepository<FinAccountPeriod> periodRepository,
@@ -40,7 +41,8 @@ public class AccountPeriodService : IAccountPeriodService
         IReportService reportService,
         IEventDispatcher eventDispatcher,
         ILogger<AccountPeriodService> logger,
-        STOTOPDbContext context)
+        STOTOPDbContext context,
+        IAccountSetRuleService accountSetRuleService)
     {
         _periodRepository = periodRepository;
         _voucherRepository = voucherRepository;
@@ -54,6 +56,7 @@ public class AccountPeriodService : IAccountPeriodService
         _eventDispatcher = eventDispatcher;
         _logger = logger;
         _context = context;
+        _accountSetRuleService = accountSetRuleService;
     }
 
     private long GetCurrentOrgId()
@@ -187,11 +190,12 @@ public class AccountPeriodService : IAccountPeriodService
             return (false, $"试算不平衡，借方合计 {trialBalance.TotalDebit}，贷方合计 {trialBalance.TotalCredit}，差额 {Math.Abs(trialBalance.TotalDebit - trialBalance.TotalCredit)}");
         }
 
-        // 2. 查找本年利润科目
+        // 2. 查找本年利润科目（P0-2 结转目标科目按账套规则读取，无配置回退 3103/310405）
+        var (profitCode, retainedCode) = await _accountSetRuleService.GetClosingAccountCodesAsync(accountSetId);
         var profitAccount = await _accountRepository.Query()
-            .FirstOrDefaultAsync(a => a.FCode == "3103" && a.FAccountSetId == accountSetId);
+            .FirstOrDefaultAsync(a => a.FCode == profitCode && a.FAccountSetId == accountSetId);
         if (profitAccount == null)
-            return (false, "未找到3103(本年利润)科目，无法结账");
+            return (false, $"未找到{profitCode}(本年利润)科目，无法结账");
 
         // 3. 查询所有损益类末级科目，汇总本期发生额并生成结转凭证
         var profitAndLossAccounts = await _accountRepository.Query()
@@ -311,7 +315,7 @@ public class AccountPeriodService : IAccountPeriodService
         if (period.FPeriodNo == 12)
         {
             var retainedAccount = await _accountRepository.Query()
-                .FirstOrDefaultAsync(a => a.FCode == "310405" && a.FAccountSetId == accountSetId);
+                .FirstOrDefaultAsync(a => a.FCode == retainedCode && a.FAccountSetId == accountSetId);
             if (retainedAccount != null)
             {
                 // 计算3103全年累计余额（贷-借的净额）
@@ -340,13 +344,13 @@ public class AccountPeriodService : IAccountPeriodService
                     var yearEndEntries = new List<FinVoucherEntry>();
                     if (yearProfit > 0) // 盈利：借本年利润，贷未分配利润
                     {
-                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 1, FSummary = "结转全年利润", FAccountId = profitAccount.FID, FAccountCode = "3103", FAccountName = "本年利润", FDebitAmount = yearProfit, FCreditAmount = 0, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
-                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 2, FSummary = "结转全年利润", FAccountId = retainedAccount.FID, FAccountCode = "310405", FAccountName = "利润分配-未分配利润", FDebitAmount = 0, FCreditAmount = yearProfit, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
+                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 1, FSummary = "结转全年利润", FAccountId = profitAccount.FID, FAccountCode = profitAccount.FCode, FAccountName = profitAccount.FName, FDebitAmount = yearProfit, FCreditAmount = 0, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
+                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 2, FSummary = "结转全年利润", FAccountId = retainedAccount.FID, FAccountCode = retainedAccount.FCode, FAccountName = retainedAccount.FName, FDebitAmount = 0, FCreditAmount = yearProfit, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
                     }
                     else // 亏损：借未分配利润，贷本年利润
                     {
-                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 1, FSummary = "结转全年亏损", FAccountId = retainedAccount.FID, FAccountCode = "310405", FAccountName = "利润分配-未分配利润", FDebitAmount = -yearProfit, FCreditAmount = 0, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
-                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 2, FSummary = "结转全年亏损", FAccountId = profitAccount.FID, FAccountCode = "3103", FAccountName = "本年利润", FDebitAmount = 0, FCreditAmount = -yearProfit, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
+                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 1, FSummary = "结转全年亏损", FAccountId = retainedAccount.FID, FAccountCode = retainedAccount.FCode, FAccountName = retainedAccount.FName, FDebitAmount = -yearProfit, FCreditAmount = 0, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
+                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 2, FSummary = "结转全年亏损", FAccountId = profitAccount.FID, FAccountCode = profitAccount.FCode, FAccountName = profitAccount.FName, FDebitAmount = 0, FCreditAmount = -yearProfit, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
                     }
 
                     var yearEndVoucher = new FinVoucher

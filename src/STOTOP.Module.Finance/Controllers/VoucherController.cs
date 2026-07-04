@@ -120,12 +120,20 @@ public class VoucherController : ControllerBase
     public async Task<ApiResult> Audit(long id)
     {
         var auditor = User.FindFirst(ClaimTypes.Name)?.Value ?? "system";
-        var result = await _voucherService.AuditAsync(id, auditor);
-        if (!result)
+        try
         {
-            return ApiResult.Fail("凭证不存在");
+            var result = await _voucherService.AuditAsync(id, auditor);
+            if (!result)
+            {
+                return ApiResult.Fail("凭证不存在");
+            }
+            return ApiResult.Ok("审核成功");
         }
-        return ApiResult.Ok("审核成功");
+        catch (InvalidOperationException ex)
+        {
+            // P0-1 制单审核分离拦截等业务错误
+            return ApiResult.Fail(ex.Message);
+        }
     }
 
     [HttpPost("{id}/unaudit")]

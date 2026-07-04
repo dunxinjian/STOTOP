@@ -63,10 +63,7 @@
       <div class="header-left">
         <span class="label">凭证字</span>
         <a-select v-model:value="form.voucherWord" style="width: 80px">
-          <a-select-option value="记">记</a-select-option>
-          <a-select-option value="收">收</a-select-option>
-          <a-select-option value="付">付</a-select-option>
-          <a-select-option value="转">转</a-select-option>
+          <a-select-option v-for="word in enabledVoucherWords" :key="word" :value="word">{{ word }}</a-select-option>
         </a-select>
         <div class="voucher-number-input-wrapper">
           <a-input-number
@@ -600,7 +597,8 @@ import {
   getAttachmentDownloadUrl,
   getLatestExchangeRate,
   getAccountBalanceByYearMonth,
-  completeVoucherRecord
+  completeVoucherRecord,
+  getEnabledVoucherWords
 } from '@/api/finance'
 import { get as httpGet } from '@/api/request'
 import { useAccountSetStore } from '@/stores/accountSet'
@@ -735,6 +733,26 @@ const form = ref({
   status: 0,
   entries: [] as any[]
 })
+
+// 当前账套启用的凭证字（P0-3 账套规则单一真源；加载前先给全集避免下拉闪空）
+const enabledVoucherWords = ref<string[]>(['记', '收', '付', '转'])
+
+async function loadEnabledVoucherWords() {
+  const accountSetId = accountSetStore.getCurrentAccountSetId()
+  if (!accountSetId) return
+  try {
+    const words = await getEnabledVoucherWords(accountSetId)
+    if (Array.isArray(words) && words.length > 0) {
+      enabledVoucherWords.value = words
+      // 仅新建模式下纠正默认值：当前选中字被停用则回退"记"（编辑历史凭证不动）
+      if (!form.value.id && !words.includes(form.value.voucherWord)) {
+        form.value.voucherWord = '记'
+      }
+    }
+  } catch (e) {
+    console.error('加载启用凭证字失败', e)
+  }
+}
 
 // 当前编辑行
 const currentRowIndex = ref(0)
@@ -1675,6 +1693,7 @@ onMounted(() => {
     loadPeriods()
     loadTemplates()
   }
+  loadEnabledVoucherWords()
   initEntries()
   
   const id = route.params.id
@@ -1691,7 +1710,7 @@ watch(() => accountSetStore.currentAccountSetId, async (newId) => {
   if (newId) {
     accountTree.value = []
     periodList.value = []
-    await Promise.all([loadAccounts(), loadPeriods(), loadTemplates()])
+    await Promise.all([loadAccounts(), loadPeriods(), loadTemplates(), loadEnabledVoucherWords()])
   }
 })
 

@@ -49,7 +49,19 @@ public static class VoucherServiceTestHarness
             changeTracking,
             http,
             new NoOpEventDispatcher(),
-            db);
+            db,
+            BuildRuleService(db, http));
+    }
+
+    /// <summary>账套规则服务（P0）：无规则行时全部回退现状，不影响既有测试行为。</summary>
+    public static AccountSetRuleService BuildRuleService(STOTOPDbContext db, IHttpContextAccessor http)
+    {
+        var opLog = new OperationLogService(
+            new Repository<FinOperationLog>(db), http, NullLogger<OperationLogService>.Instance);
+        return new AccountSetRuleService(
+            new Repository<FinAccountSetRule>(db),
+            new Repository<FinAccount>(db),
+            opLog);
     }
 
     // 注：FinAccount 实现 IAccountSetScoped（无 FOrgId 字段，组织归属由账套间接管理），

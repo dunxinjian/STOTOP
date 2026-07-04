@@ -53,6 +53,7 @@ public static class FinanceModuleExtensions
         services.AddScoped<VoucherExcelService>();
         services.AddScoped<AuxiliaryAliasService>();
         services.AddScoped<IAccountSetAuthorizationService, AccountSetAuthorizationService>();
+        services.AddScoped<IAccountSetRuleService, AccountSetRuleService>();
         services.AddScoped<MigrationMappingService>();
 
         // 事件处理器

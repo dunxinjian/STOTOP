@@ -50,8 +50,53 @@ public static class FinanceSeeder
             new(17, "阶段3B(M6): 从 SYS网点公司 1:1 物化派生 FIN经营单元(禁手工,公司停用联动) (2026-07-03)", MigrateV17),
             new(18, "阶段3C(M6): FIN经营单元 加 F来源类型/F来源业务单元ID 交叉引用列+索引; existing-DB 侧建桥(fresh-DB 因 aux 尚未播种,由 BasicData V1 补建) (2026-07-03)", MigrateV18),
             new(19, "阶段3C 修: 撤销 V18 对 business_unit aux 的反向来源标记(F来源类型=FIN经营单元)——曾冻结这些经营单元 aux 的改名,桥改为 OU 单向 (2026-07-04)", MigrateV19),
+            new(20, "账套规则P0: 建 FIN账套规则 表(一账套一行,制单审核分离/结转科目映射/启用凭证字,含 F租户ID 隔离键)+唯一账套索引+租户索引;只建空表不插行=零行为变更 (2026-07-04)", MigrateV20),
+            new(21, "账套规则P0 配套修: 清理模板3明细旧快照残留行(FID 20431-20903)——baseline 表节已重导为 V11 产物(FID 700001+),upsert-only 对齐不删旧行,V11后用旧JSON对齐过的库会双份 (2026-07-04)", MigrateV21),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>账套规则P0 配套修（规约审查 R1）·清理模板3明细旧快照残留：
+    /// baseline JSON 的 FIN科目模板_明细 表节已按"库为真源"重导为 V11 产物（FID=账套2科目FID，700001+），
+    /// 旧快照行（FID 20431–20903，共473行）从 JSON 移除；但 BaselineReferenceDataSeeder 只 upsert 不删除，
+    /// 凡在 V11(2026-06-19) 之后、本修复之前用旧 JSON 对齐过的库（含该窗口内 --init-database 的新库）
+    /// 会新旧并存=模板3每个科目双份，套模板初始化新账套即产出双份科目。此步幂等删除旧段；dev 已验证无残留（删0行）。</summary>
+    private static void MigrateV21(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        ExecSql(ctx, @"
+        DELETE FROM [FIN科目模板_明细]
+        WHERE [F模板ID] = 3 AND [FID] BETWEEN 20431 AND 20903;");
+    }
+
+    /// <summary>账套规则(P0)·建表：FIN账套规则 一账套一行(UNIQUE F账套ID)，承载账套级会计控制开关与结转科目映射。
+    /// 无行=无配置=全部回退写死行为(fail-safe)，故只建空表、不预置数据——上线瞬间行为与当前完全一致。
+    /// 实体 FinAccountSetRule 标 ITenantScoped(租户全局过滤器)+IAccountSetScoped(标记接口,查询手写 Where)。幂等。</summary>
+    private static void MigrateV20(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = N'FIN账套规则')
+        CREATE TABLE [FIN账套规则](
+            [FID] bigint IDENTITY(1,1) NOT NULL CONSTRAINT [PK_FIN账套规则] PRIMARY KEY,
+            [F账套ID] bigint NOT NULL,
+            [F租户ID] bigint NOT NULL CONSTRAINT [DF_FIN账套规则_F租户ID] DEFAULT 0,
+            [F组织ID] bigint NOT NULL CONSTRAINT [DF_FIN账套规则_F组织ID] DEFAULT 0,
+            [F制单审核分离] bit NOT NULL CONSTRAINT [DF_FIN账套规则_F制单审核分离] DEFAULT 0,
+            [F本年利润科目编码] nvarchar(20) NULL,
+            [F未分配利润科目编码] nvarchar(20) NULL,
+            [F启用凭证字] nvarchar(max) NULL,
+            [F状态] int NOT NULL CONSTRAINT [DF_FIN账套规则_F状态] DEFAULT 1,
+            [F创建时间] datetime2 NOT NULL CONSTRAINT [DF_FIN账套规则_F创建时间] DEFAULT SYSDATETIME(),
+            [F更新时间] datetime2 NOT NULL CONSTRAINT [DF_FIN账套规则_F更新时间] DEFAULT SYSDATETIME()
+        );");
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name=N'IX_FIN账套规则_账套ID' AND object_id=OBJECT_ID(N'FIN账套规则'))
+            CREATE UNIQUE INDEX [IX_FIN账套规则_账套ID] ON [FIN账套规则]([F账套ID]);");
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name=N'IX_FIN账套规则_租户ID' AND object_id=OBJECT_ID(N'FIN账套规则'))
+            CREATE INDEX [IX_FIN账套规则_租户ID] ON [FIN账套规则]([F租户ID]);");
     }
 
     /// <summary>阶段3C 修（终审 finding）·撤销反向来源标记：V18 曾把被桥 business_unit aux 反标 F来源类型='FIN经营单元'，

@@ -6,6 +6,7 @@ using NPOI.HSSF.UserModel;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.Finance.Constants;
 using STOTOP.Module.Finance.Entities;
+using STOTOP.Module.Finance.Services.Interfaces;
 
 namespace STOTOP.Module.Finance.Services;
 
@@ -25,6 +26,7 @@ public class VoucherImportError
 public class VoucherExcelService
 {
     private readonly STOTOPDbContext _context;
+    private readonly IAccountSetRuleService _accountSetRuleService;
 
     private static readonly string[] Headers = new[]
     {
@@ -32,9 +34,10 @@ public class VoucherExcelService
         "摘要", "科目编码", "科目名称", "借方金额", "贷方金额", "辅助核算"
     };
 
-    public VoucherExcelService(STOTOPDbContext context)
+    public VoucherExcelService(STOTOPDbContext context, IAccountSetRuleService accountSetRuleService)
     {
         _context = context;
+        _accountSetRuleService = accountSetRuleService;
     }
 
     /// <summary>导出凭证到Excel</summary>
@@ -243,6 +246,9 @@ public class VoucherExcelService
             if (result.Errors.Count > 0)
                 return result;
 
+            // P0-3 当前账套启用的凭证字（单一真源，无配置回退全集）——解析开始前取一次
+            var enabledWords = await _accountSetRuleService.GetEnabledVoucherWordsAsync(accountSetId);
+
             // 3. 构建科目编码->ID映射
             var accounts = await _context.Set<FinAccount>()
                 .Where(a => a.FAccountSetId == accountSetId)
@@ -294,9 +300,9 @@ public class VoucherExcelService
                 // 凭证字非空 → 新凭证
                 if (!string.IsNullOrEmpty(voucherWord))
                 {
-                    // 验证凭证字
-                    if (voucherWord != "记" && voucherWord != "收" && voucherWord != "付" && voucherWord != "转")
-                        errors.Add(new VoucherImportError { RowNumber = excelRow, Message = $"凭证字只能是 记/收/付/转，当前值: \"{voucherWord}\"" });
+                    // 验证凭证字（P0-3：读账套启用集合，保持"收集错误不阻断解析"风格）
+                    if (!enabledWords.Contains(voucherWord))
+                        errors.Add(new VoucherImportError { RowNumber = excelRow, Message = $"凭证字只能是 {string.Join("/", enabledWords)}，当前值: \"{voucherWord}\"" });
 
                     // 解析凭证号
                     int voucherNo = 0;
