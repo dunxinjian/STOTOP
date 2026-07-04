@@ -53,8 +53,60 @@ public static class FinanceSeeder
             new(20, "账套规则P0: 建 FIN账套规则 表(一账套一行,制单审核分离/结转科目映射/启用凭证字,含 F租户ID 隔离键)+唯一账套索引+租户索引;只建空表不插行=零行为变更 (2026-07-04)", MigrateV20),
             new(21, "账套规则P0 配套修: 清理模板3明细旧快照残留行(FID 20431-20903)——baseline 表节已重导为 V11 产物(FID 700001+),upsert-only 对齐不删旧行,V11后用旧JSON对齐过的库会双份 (2026-07-04)", MigrateV21),
             new(22, "阶段0收尾: FIN阿米巴手工数据.F损益项ID 放开为 NULL(对齐模型 long?—暂估行本就可空,库NOT NULL会拒插估算行) (2026-07-05)", MigrateV22),
+            new(23, "授权加固: 注册缺失的财务功能权限码(账套管理/模板/预算/资金计划)到 SYS功能权限,并授予 admin 及既有持 finance:account:manage 的角色——配套控制器新增 [RequirePermission],否则非admin恒403 (2026-07-05)", MigrateV23),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>授权加固（配套控制器补 [RequirePermission]）·注册缺失功能权限码：
+    /// AccountSet/AccountTemplate/Budget/BudgetControl/TreasuryPlan 控制器新增的功能级权限码
+    /// (finance:accountset:manage / template:manage / budget:* / budget-control:view / treasury:*)
+    /// 此前未在 baseline SYS功能权限 seed，若不注册则非 admin 用户命中这些端点恒 403（admin 旁路仍可用）。
+    /// 幂等：缺码才插；授予 admin(角色1) 及"已持 finance:account:manage 的所有角色"以保留既有财务用户访问。
+    /// 权限行按现有财务权限的父菜单挂靠(仅用于菜单归类，不影响权限校验)。</summary>
+    private static void MigrateV23(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        ExecSql(ctx, @"
+        DECLARE @ParentId BIGINT;
+        SELECT TOP 1 @ParentId = [F父ID] FROM [SYS功能权限] WHERE [F编码] = N'finance:account:manage';
+
+        DECLARE @codes TABLE (Name NVARCHAR(50), Code NVARCHAR(100));
+        INSERT INTO @codes VALUES
+            (N'账套管理',       N'finance:accountset:manage'),
+            (N'科目模板管理',   N'finance:template:manage'),
+            (N'预算查看',       N'finance:budget:view'),
+            (N'预算编辑',       N'finance:budget:edit'),
+            (N'预算审批',       N'finance:budget:approve'),
+            (N'预算映射',       N'finance:budget:mapping'),
+            (N'预算控制查看',   N'finance:budget-control:view'),
+            (N'资金计划查看',   N'finance:treasury:view'),
+            (N'资金计划编辑',   N'finance:treasury:edit');
+
+        IF @ParentId IS NOT NULL AND @ParentId > 0
+        BEGIN
+            INSERT INTO [SYS功能权限] ([F名称],[F编码],[F类型],[F父ID],[F排序],[F状态],[F是否可见])
+            SELECT c.Name, c.Code, N'按钮', @ParentId, 99, 1, 0
+            FROM @codes c
+            WHERE NOT EXISTS (SELECT 1 FROM [SYS功能权限] p WHERE p.[F编码] = c.Code);
+        END
+
+        -- 授予 admin(角色1) 及所有已持 finance:account:manage 的角色，保留既有财务用户访问
+        INSERT INTO [SYS角色权限] ([F角色ID],[F权限ID])
+        SELECT DISTINCT r.[F角色ID], p.[FID]
+        FROM [SYS功能权限] p
+        JOIN @codes c ON p.[F编码] = c.Code
+        CROSS APPLY (
+            SELECT CAST(1 AS BIGINT) AS [F角色ID]
+            UNION
+            SELECT rp.[F角色ID] FROM [SYS角色权限] rp
+            JOIN [SYS功能权限] fp ON rp.[F权限ID] = fp.[FID]
+            WHERE fp.[F编码] = N'finance:account:manage'
+        ) r
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [SYS角色权限] x WHERE x.[F角色ID] = r.[F角色ID] AND x.[F权限ID] = p.[FID]
+        );");
     }
 
     /// <summary>

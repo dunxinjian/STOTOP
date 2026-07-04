@@ -8,6 +8,9 @@ using STOTOP.Module.Finance.Entities;
 using STOTOP.Module.Finance.Services;
 using STOTOP.Module.Finance.Services.Interfaces;
 
+using STOTOP.Module.System.Filters;
+using STOTOP.Module.Finance.Filters;
+
 namespace STOTOP.Module.Finance.Controllers;
 
 [Authorize]
@@ -142,6 +145,7 @@ public class ReportController : ControllerBase
     }
 
     [HttpPost("recalculate/{periodId}")]
+    [RequireAccountSetPermission(AccountSetPermissions.ReportView)]
     public async Task<ApiResult> RecalculateBalance(long periodId, [FromQuery] long accountSetId = 0)
     {
         var result = await _reportService.RecalculateBalanceAsync(periodId, accountSetId);
@@ -363,6 +367,7 @@ public class ReportController : ControllerBase
 
     /// <summary>批量保存手工填报数据（UPSERT）</summary>
     [HttpPost("amoeba-report/manual-data")]
+    [RequirePermission(FinancePermissions.ReportView)]
     public async Task<ApiResult> SaveManualData([FromBody] SaveManualDataRequest request)
     {
         var effectiveOrgId = GetCurrentOrgId();
@@ -447,6 +452,7 @@ public class ReportController : ControllerBase
 
     /// <summary>保存暂估数据（UPSERT单条）</summary>
     [HttpPost("amoeba-report/estimate-data")]
+    [RequirePermission(FinancePermissions.ReportView)]
     public async Task<ApiResult> SaveEstimateData([FromBody] ManualDataDto dto)
     {
         var effectiveOrgId = GetCurrentOrgId();
@@ -458,6 +464,7 @@ public class ReportController : ControllerBase
 
     /// <summary>删除暂估数据</summary>
     [HttpDelete("amoeba-report/estimate-data/{id}")]
+    [RequirePermission(FinancePermissions.ReportView)]
     public async Task<ApiResult> DeleteEstimateData(long id)
     {
         await _amoebaPLService.DeleteEstimateDataAsync(id, GetCurrentOrgId());

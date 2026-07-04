@@ -6,6 +6,8 @@ using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Services;
 using global::System.Security.Claims;
 
+using STOTOP.Module.Finance.Filters;
+
 namespace STOTOP.Module.Finance.Controllers;
 
 [Authorize]
@@ -50,6 +52,7 @@ public class VoucherTemplateController : ControllerBase
 
     /// <summary>新增模板</summary>
     [HttpPost]
+    [RequireAccountSetPermission(AccountSetPermissions.VoucherCreate)]
     public async Task<ApiResult<VoucherTemplateDto>> Create([FromBody] VoucherTemplateCreateRequest request)
     {
         try
@@ -70,6 +73,7 @@ public class VoucherTemplateController : ControllerBase
 
     /// <summary>更新模板</summary>
     [HttpPut("{id}")]
+    [RequireAccountSetPermission(AccountSetPermissions.VoucherCreate)]
     public async Task<ApiResult<VoucherTemplateDto>> Update(long id, [FromBody] VoucherTemplateCreateRequest request)
     {
         try
@@ -92,6 +96,7 @@ public class VoucherTemplateController : ControllerBase
 
     /// <summary>删除模板</summary>
     [HttpDelete("{id}")]
+    [RequireAccountSetPermission(AccountSetPermissions.VoucherDelete)]
     public async Task<ApiResult<bool>> Delete(long id)
     {
         var ok = await _templateService.DeleteAsync(id);
@@ -100,6 +105,7 @@ public class VoucherTemplateController : ControllerBase
 
     /// <summary>从模板生成凭证</summary>
     [HttpPost("{id}/generate")]
+    [RequireAccountSetPermission(AccountSetPermissions.VoucherCreate)]
     public async Task<ApiResult<long>> Generate(long id, [FromBody] GenerateVoucherFromTemplateRequest request)
     {
         try

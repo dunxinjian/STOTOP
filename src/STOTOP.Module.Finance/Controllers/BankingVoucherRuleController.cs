@@ -4,6 +4,8 @@ using STOTOP.Core.Models;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Services.Interfaces;
 
+using STOTOP.Module.System.Filters;
+
 namespace STOTOP.Module.Finance.Controllers;
 
 [Authorize]
@@ -44,6 +46,7 @@ public class BankingVoucherRuleController : ControllerBase
     }
 
     [HttpPost]
+    [RequirePermission(FinancePermissions.VoucherRuleManage)]
     public async Task<ApiResult<VoucherRuleDto>> Create([FromBody] CreateVoucherRuleRequest request)
     {
         var operatorName = User.Identity?.Name;
@@ -52,6 +55,7 @@ public class BankingVoucherRuleController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [RequirePermission(FinancePermissions.VoucherRuleManage)]
     public async Task<ApiResult<VoucherRuleDto>> Update(long id, [FromBody] UpdateVoucherRuleRequest request)
     {
         var operatorName = User.Identity?.Name;
@@ -64,6 +68,7 @@ public class BankingVoucherRuleController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [RequirePermission(FinancePermissions.VoucherRuleManage)]
     public async Task<ApiResult> Delete(long id)
     {
         var result = await _voucherAutoService.DeleteRuleAsync(id);
@@ -75,6 +80,7 @@ public class BankingVoucherRuleController : ControllerBase
     }
 
     [HttpPost("generate-voucher-draft")]
+    [RequirePermission(FinancePermissions.VoucherRuleManage)]
     public async Task<ApiResult<VoucherGenerateResult>> GenerateVoucherDraft()
     {
         var operatorName = User.Identity?.Name;

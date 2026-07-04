@@ -4,6 +4,9 @@ using STOTOP.Core.Models;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Services.Interfaces;
 
+using STOTOP.Module.System.Filters;
+using STOTOP.Module.Finance.Filters;
+
 namespace STOTOP.Module.Finance.Controllers;
 
 [Authorize]
@@ -40,6 +43,7 @@ public class AccountTemplateController : ControllerBase
     }
 
     [HttpPost]
+    [RequirePermission(FinancePermissions.TemplateManage)]
     public async Task<ApiResult<object>> CreateTemplate([FromBody] CreateAccountTemplateRequest request)
     {
         try
@@ -54,6 +58,7 @@ public class AccountTemplateController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [RequirePermission(FinancePermissions.TemplateManage)]
     public async Task<ApiResult> UpdateTemplate(long id, [FromBody] UpdateAccountTemplateRequest request)
     {
         try
@@ -68,6 +73,7 @@ public class AccountTemplateController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [RequirePermission(FinancePermissions.TemplateManage)]
     public async Task<ApiResult> DeleteTemplate(long id)
     {
         try
@@ -96,6 +102,7 @@ public class AccountTemplateController : ControllerBase
     }
 
     [HttpPost("{id}/items")]
+    [RequirePermission(FinancePermissions.TemplateManage)]
     public async Task<ApiResult<AccountTemplateItemDto>> AddTemplateItem(long id, [FromBody] CreateTemplateItemRequest request)
     {
         try
@@ -110,6 +117,7 @@ public class AccountTemplateController : ControllerBase
     }
 
     [HttpPut("{id}/items/{itemId}")]
+    [RequirePermission(FinancePermissions.TemplateManage)]
     public async Task<ApiResult> UpdateTemplateItem(long id, long itemId, [FromBody] UpdateTemplateItemRequest request)
     {
         try
@@ -124,6 +132,7 @@ public class AccountTemplateController : ControllerBase
     }
 
     [HttpDelete("{id}/items/{itemId}")]
+    [RequirePermission(FinancePermissions.TemplateManage)]
     public async Task<ApiResult> DeleteTemplateItem(long id, long itemId)
     {
         try
@@ -138,6 +147,7 @@ public class AccountTemplateController : ControllerBase
     }
 
     [HttpPost("{id}/apply/{accountSetId}")]
+    [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
     public async Task<ApiResult> ApplyTemplate(long id, long accountSetId)
     {
         try

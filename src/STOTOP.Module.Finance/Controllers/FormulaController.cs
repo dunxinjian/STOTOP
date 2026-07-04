@@ -4,6 +4,8 @@ using STOTOP.Core.Models;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Services.Interfaces;
 
+using STOTOP.Module.System.Filters;
+
 namespace STOTOP.Module.Finance.Controllers;
 
 [Authorize]
@@ -34,6 +36,7 @@ public class FormulaController : ControllerBase
     /// 新建公式
     /// </summary>
     [HttpPost]
+    [RequirePermission(FinancePermissions.FormulaManage)]
     public async Task<ApiResult<FormulaDto>> CreateFormula([FromBody] CreateFormulaRequest request)
     {
         var result = await _formulaService.CreateAsync(request);
@@ -44,6 +47,7 @@ public class FormulaController : ControllerBase
     /// 修改公式
     /// </summary>
     [HttpPut("{id}")]
+    [RequirePermission(FinancePermissions.FormulaManage)]
     public async Task<ApiResult<FormulaDto>> UpdateFormula(long id, [FromBody] UpdateFormulaRequest request)
     {
         var result = await _formulaService.UpdateAsync(id, request);
@@ -56,6 +60,7 @@ public class FormulaController : ControllerBase
     /// 删除公式
     /// </summary>
     [HttpDelete("{id}")]
+    [RequirePermission(FinancePermissions.FormulaManage)]
     public async Task<ApiResult> DeleteFormula(long id)
     {
         var success = await _formulaService.DeleteAsync(id);
@@ -78,6 +83,7 @@ public class FormulaController : ControllerBase
     /// 初始化默认公式
     /// </summary>
     [HttpPost("init-defaults")]
+    [RequirePermission(FinancePermissions.FormulaManage)]
     public async Task<ApiResult<int>> InitDefaults([FromBody] InitDefaultFormulasRequest request)
     {
         var count = await _formulaService.InitDefaultFormulasAsync(request.ReportType, request.AccountSetId);
