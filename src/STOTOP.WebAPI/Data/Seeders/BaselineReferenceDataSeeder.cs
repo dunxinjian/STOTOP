@@ -2,6 +2,8 @@ using System.Data;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using STOTOP.Infrastructure.Data;
@@ -186,7 +188,8 @@ public static class BaselineReferenceDataSeeder
             """;
 
         using var command = CreateCommand(ctx, sql);
-        AddParameter(command, "@p_key", ConvertRowValue(GetRowValue(row, keyColumn.Name), keyColumn.DataType));
+        var keyValue = ConvertRowValue(GetRowValue(row, keyColumn.Name), keyColumn.DataType);
+        AddParameter(command, "@p_key", keyValue);
 
         for (var i = 0; i < updateColumns.Count; i++)
         {
@@ -198,7 +201,47 @@ public static class BaselineReferenceDataSeeder
             AddParameter(command, $"@i{i}", ConvertRowValue(GetRowValue(row, writableColumns[i].Name), writableColumns[i].DataType));
         }
 
-        command.ExecuteNonQuery();
+        try
+        {
+            command.ExecuteNonQuery();
+        }
+        catch (SqlException ex) when (ex.Number is 2601 or 2627)
+        {
+            throw new InvalidOperationException(
+                BuildUniqueKeyConflictMessage(tableName, keyColumn.Name, keyValue, ex.Message), ex);
+        }
+    }
+
+    /// <summary>
+    /// 构造唯一键冲突（SqlException 2601/2627）的诊断消息。
+    /// internal 供单测直接覆盖：SqlException 无公开构造函数，InMemory 也不执行原生 SQL。
+    /// </summary>
+    internal static string BuildUniqueKeyConflictMessage(string tableName, string keyColumnName, object? keyValue, string sqlErrorMessage)
+    {
+        var indexName = TryExtractConstraintName(sqlErrorMessage, tableName) ?? "（未能从 SQL 异常消息中解析索引名）";
+        return $"baseline 对齐表 [{tableName}] 时按 key 列 [{keyColumnName}] = {keyValue ?? "NULL"} 写入撞到唯一索引 [{indexName}]：" +
+            "baseline 快照的 FID 体系与库中不一致——库中该业务键的行可能已被模块 Seeder 用不同 FID 重建；" +
+            "请核对漂移方向后重生成 baseline 快照，而不是改 upsert 匹配键" +
+            "（业务键匹配会把旧快照静默盖回并悬空 F父ID 类自引用）。" +
+            $"本 seeder 全程单事务，异常后会整体回滚，库中不会留下部分写入的脏数据。原始错误：{sqlErrorMessage}";
+    }
+
+    private static string? TryExtractConstraintName(string sqlErrorMessage, string tableName)
+    {
+        // 2601/2627 的消息里索引/约束名以单引号包裹，但不同语言环境下与对象名的先后顺序不同
+        // （英文 2601 先对象后索引，中文 2601 先索引后对象），故取第一个不是表引用的引号项
+        foreach (Match match in Regex.Matches(sqlErrorMessage, "'([^']+)'"))
+        {
+            var candidate = match.Groups[1].Value;
+            var isTableReference = string.Equals(candidate, tableName, StringComparison.OrdinalIgnoreCase)
+                || candidate.EndsWith("." + tableName, StringComparison.OrdinalIgnoreCase);
+            if (!isTableReference)
+            {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     private static BaselineColumnSnapshot ResolveKeyColumn(BaselineTableSnapshot table)
