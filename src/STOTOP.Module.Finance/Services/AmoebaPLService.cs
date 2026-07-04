@@ -257,7 +257,7 @@ public class AmoebaPLService
         var periodFullScopePoints = new List<List<DataPoint>?>();
         // [阶段3C part-2] 区域上卷：把 Scope.Regions 展开成其网点公司经营单元 aux 集并折叠进 Units 维；
         // 之后 isSubReport/ApplyScopeFilter/派件件量 统一用 effectiveScope（deliver 仅读 Outlets，未受折叠影响=既有限制）。
-        var effectiveScope = await ExpandRegionScopeAsync(request.Scope);
+        var effectiveScope = await ExpandRegionScopeAsync(request.Scope, orgId);
         bool isSubReport = effectiveScope?.IsSubReport == true;
         // [批次5-S3] 各期的期间键(粒度前缀+期间)：manual 加载/去重与估算取数按此键
         var periodKeys = periods.Select(p => BuildPeriodKey(p, granularity)).ToList();
@@ -265,6 +265,13 @@ public class AmoebaPLService
         {
             // [批次5-S3] 按粒度选源(C1 互斥)：台账月/季/年=billing+voucher+depreciation；估算日/周=billing+estimate
             var all = await BuildPeriodDataPoints(periods[i], granularity, orgId, accountSetId, request.TemplateId, plItems, mappingRules);
+            // [阶段3C part-2 修] 单元/区域 scope(business_unit 维)下：billing/折旧点不带 BusinessUnitId(只有 voucher 带)，
+            // 须按映射规则派生 MappedUnitId，否则 ApplyScopeFilter 的 business_unit 过滤会把**全部出港计费营收**静默剔除。
+            // 镜像单期 GetReportAsync 的 MapToUnit 打标。**门控用 isSubReport 而非 Units**：使折叠进 all 的 MappedUnitId 对所有子报表
+            // 类型一致——否则全口径基线(periodFullScopePoints=isSubReport?all)会随子报表维度(Units vs 网点/方向)打标不一致，
+            // 让公共费分摊分子(经 business_unit 科目过滤的叶)随 scope 维漂移(终审复核 finding·潜在);全口径(非子报表)无基线不打标省开销。
+            if (isSubReport)
+                foreach (var p in all) p.MappedUnitId ??= MapToUnit(p, mappingRules);
             // [批次5-S2] scope 过滤前留存全口径基线：聚合无 SQL 级 scope，ApplyScopeFilter 返回新列表不动 all，
             // 故 all 即免费的全口径基线(纠正设计 §4.5 关于额外 DB 聚合的悲观假设)
             periodFullScopePoints.Add(isSubReport ? all : null);
@@ -1383,7 +1390,9 @@ public class AmoebaPLService
             {
                 "outlet" => dp.SiteCode ?? dp.AuxValues?.GetValueOrDefault("outlet"),
                 "express_brand" => dp.BrandCode ?? dp.AuxValues?.GetValueOrDefault("express_brand"),
-                "business_unit" => dp.BusinessUnitId?.ToString() ?? dp.AuxValues?.GetValueOrDefault("business_unit"),
+                // [阶段3C part-2 修] business_unit 取值：voucher 点带 BusinessUnitId；billing/折旧点无该字段,回落映射派生的 MappedUnitId
+                // (MapToUnit 结果),使区域/单元 scope 能命中出港计费营收；最后回落 AuxValues。
+                "business_unit" => dp.BusinessUnitId?.ToString() ?? dp.MappedUnitId?.ToString() ?? dp.AuxValues?.GetValueOrDefault("business_unit"),
                 "business_object" => dp.AuxValues?.GetValueOrDefault("business_object"),
                 // 方案B 源打标(B1)：方向/项目/部门显式化。business_direction 优先读 AuxValues(OUT/IN/CMB)，
                 // 回落 dp.Direction(批次3 后 Direction 统一为 OUT/IN/CMB，此 fallback 退役)。
@@ -2792,11 +2801,11 @@ public class AmoebaPLService
     /// 无 Regions 时原样返回。区域无对应网点公司经营单元 → Units 置不匹配哨兵(-1L)，使该区域出**空**报表而非退化成全口径。
     /// 最小过滤档：send/营收/成本按区域正确；deliver 派件件量仅读 Outlets 不受此折叠影响（既有限制，见 DTO 注释）。
     /// </summary>
-    private async Task<AmoebaReportScope?> ExpandRegionScopeAsync(AmoebaReportScope? scope)
+    private async Task<AmoebaReportScope?> ExpandRegionScopeAsync(AmoebaReportScope? scope, long orgId)
     {
         if (scope?.Regions is not { Count: > 0 }) return scope;
 
-        var regionAux = await ExpandRegionsToUnitAuxIdsAsync(scope.Regions);
+        var regionAux = await ExpandRegionsToUnitAuxIdsAsync(scope.Regions, orgId);
         var units = new List<long>(scope.Units ?? new List<long>());
         units.AddRange(regionAux);
         units = units.Distinct().ToList();
@@ -2814,37 +2823,38 @@ public class AmoebaPLService
     }
 
     /// <summary>
-    /// [阶段3C part-2] 区域公司组织节点 → 其下辖网点公司经营单元的 business_unit aux FID 集。
-    /// 链（BuildUnitRegionParentMapAsync 反向）：FIN经营单元(F来源业务单元ID!=null) → 网点公司(SysOutletCompany.FOrgNodeId)
-    /// → SYS组织闭包(该网点公司节点的祖先 ∈ 请求区域) → 收对应 aux。跨租户经 ITenantScoped 墙隔离(请求内租户上下文)。
+    /// [阶段3C part-2] 区域公司组织节点 → 其下辖网点公司在**本报表 org** 内的 business_unit aux FID 集。
+    /// 链：SYS组织闭包(后代节点祖先∈请求区域) → 网点公司(SysOutletCompany.FOrgNodeId) → 公司名去"子"(规范名) → **FOrgId==orgId** 的 business_unit aux。
+    /// **按 orgId 就近解析**(非用 org-agnostic 的 FinOperatingUnit.F来源业务单元ID 桥)：报表数据点/映射规则皆按 orgId 定 aux FID,
+    /// 同租户多区域公司(多 org)存在同名 aux 时,须在本 org 集合内解析,避免折叠出跨 org 的 aux(与本 org 数据点无一匹配→区域欠计)。
+    /// 跨租户/org 经 ITenantScoped+IOrgScoped 墙隔离(请求内租户+org 上下文)。规范名转换与 FinOperatingUnitDeriver 一致。
     /// </summary>
-    private async Task<HashSet<long>> ExpandRegionsToUnitAuxIdsAsync(IReadOnlyCollection<long> regionOrgNodeIds)
+    private async Task<HashSet<long>> ExpandRegionsToUnitAuxIdsAsync(IReadOnlyCollection<long> regionOrgNodeIds, long orgId)
     {
         var result = new HashSet<long>();
         if (regionOrgNodeIds.Count == 0) return result;
 
-        var ous = await _dbContext.Set<FinOperatingUnit>()
-            .Where(u => u.FStatus == 1 && u.FSourceLegacyAuxId != null)
-            .Select(u => new { u.FCompanyId, LegacyAuxId = u.FSourceLegacyAuxId!.Value })
-            .ToListAsync();
-        if (ous.Count == 0) return result;
-
-        var companyIds = ous.Select(o => o.FCompanyId).Distinct().ToList();
-        var companyToNode = await _dbContext.Set<SysOutletCompany>()
-            .Where(c => companyIds.Contains(c.FID))
-            .ToDictionaryAsync(c => c.FID, c => c.FOrgNodeId);
-        var nodeIds = companyToNode.Values.Distinct().ToList();
-
-        // 网点公司组织节点 → 其闭包祖先 ∈ 请求区域 的节点集
-        var nodesUnderRegion = (await _dbContext.Set<SysOrgClosure>()
-            .Where(cl => nodeIds.Contains(cl.FDescendantId) && regionOrgNodeIds.Contains(cl.FAncestorId))
+        // 请求区域下辖的所有组织节点(闭包祖先∈请求区域)；join 网点公司表天然只留网点公司节点
+        var companyNodeIds = await _dbContext.Set<SysOrgClosure>()
+            .Where(cl => regionOrgNodeIds.Contains(cl.FAncestorId))
             .Select(cl => cl.FDescendantId)
             .Distinct()
-            .ToListAsync()).ToHashSet();
+            .ToListAsync();
+        if (companyNodeIds.Count == 0) return result;
 
-        foreach (var ou in ous)
-            if (companyToNode.TryGetValue(ou.FCompanyId, out var node) && nodesUnderRegion.Contains(node))
-                result.Add(ou.LegacyAuxId);
+        var companyNames = await _dbContext.Set<SysOutletCompany>()
+            .Where(c => companyNodeIds.Contains(c.FOrgNodeId))
+            .Select(c => c.FName)
+            .ToListAsync();
+        if (companyNames.Count == 0) return result;
+
+        // 规范名(公司名去"子"：城区子公司→城区公司，与 Deriver 桥同口径) → 本 org 的 business_unit aux
+        var normalized = companyNames.Select(n => n.Replace("子公司", "公司")).Distinct().ToList();
+        var auxIds = await _dbContext.Set<FinAuxiliaryItem>()
+            .Where(a => a.FOrgId == orgId && a.FAuxType == "business_unit" && normalized.Contains(a.FName))
+            .Select(a => a.FID)
+            .ToListAsync();
+        foreach (var id in auxIds) result.Add(id);
         return result;
     }
 

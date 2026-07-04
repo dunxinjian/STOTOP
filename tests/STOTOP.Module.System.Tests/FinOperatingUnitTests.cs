@@ -72,11 +72,10 @@ public class FinOperatingUnitTests
         // 桥只覆盖网点公司级,出港业务(方向) aux 不被任何经营单元引用
         Assert.DoesNotContain(byCompany.Values, u => u.FSourceLegacyAuxId == 106L);
 
-        // 反向桥：被桥 aux 标记来源=经营单元；未桥 aux(出港业务) 保持不动
+        // 桥单向存于 OU 侧：**不**反标 business_unit aux 的来源(否则冻结其改名)——aux 侧应保持 null
         var auxById = ctx.Set<FinAuxiliaryItem>().IgnoreQueryFilters().ToDictionary(a => a.FID);
-        Assert.Equal("FIN经营单元", auxById[101].FSourceType);
-        Assert.Equal(byCompany[1].FID, auxById[101].FSourceId);
-        Assert.Null(auxById[106].FSourceType);
+        Assert.Null(auxById[101].FSourceType);
+        Assert.Null(auxById[101].FSourceId);
     }
 
     [Fact]
@@ -114,7 +113,8 @@ public class FinOperatingUnitTests
         FinOperatingUnitDeriver.SyncAllFromOutletCompanies(ctx);
         var ou = ctx.Set<FinOperatingUnit>().IgnoreQueryFilters().Single(u => u.FCompanyId == 1);
         Assert.Equal(101L, ou.FSourceLegacyAuxId);
-        Assert.Equal("FIN经营单元", ctx.Set<FinAuxiliaryItem>().IgnoreQueryFilters().Single(a => a.FID == 101).FSourceType);
+        // 桥单向:aux 侧不被反标(保可改名)
+        Assert.Null(ctx.Set<FinAuxiliaryItem>().IgnoreQueryFilters().Single(a => a.FID == 101).FSourceType);
     }
 
     [Fact]

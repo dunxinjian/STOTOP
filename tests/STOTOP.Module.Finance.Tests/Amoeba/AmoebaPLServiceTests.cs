@@ -145,17 +145,21 @@ public class AmoebaPLServiceTests
         Assert.True(new AmoebaReportScope { Regions = new() { 192 } }.IsSubReport);
         Assert.False(new AmoebaReportScope().IsSubReport);
 
-        // ExpandRegionScopeAsync 把 Regions 展开成网点公司经营单元 business_unit aux 集并折叠进 Units（展开链走 DB，已 dev 核对）。
-        // 此处以折叠结果(Units={2,4})验证下游过滤语义：命中 BusinessUnitId ∈ 集 的点，无单元点严格剔除。
+        // 生产数据形状(终审 finding)：billing/折旧点 BusinessUnitId 恒 null，单元归属在 MappedUnitId(MapToUnit 派生)；
+        // 仅 voucher 点带 BusinessUnitId。验证 ApplyScopeFilter 的 business_unit 维经 MappedUnitId 回落也能命中 billing——
+        // 修复前只认 BusinessUnitId → 区域子报表把全部出港计费营收静默丢弃。
         var points = new List<DataPoint>
         {
-            new() { Source = "billing", BusinessUnitId = 2, Amount = 10m },   // 城区(区域内·选中)
-            new() { Source = "billing", BusinessUnitId = 3, Amount = 20m },   // 南郊(区域内·本例未并入)
-            new() { Source = "billing", BusinessUnitId = 4, Amount = 30m },   // 浏河(区域内·选中)
-            new() { Source = "billing", Amount = 5m },                        // 无经营单元 → 严格剔除
+            new() { Source = "billing", MappedUnitId = 2, Amount = 10m },    // 城区 billing(靠 MappedUnitId)→ 命中
+            new() { Source = "billing", MappedUnitId = 3, Amount = 20m },    // 南郊 billing(Units 本例未含)→ 漏
+            new() { Source = "billing", MappedUnitId = 4, Amount = 30m },    // 浏河 billing → 命中
+            new() { Source = "voucher", BusinessUnitId = 2, Amount = 7m },   // voucher(靠 BusinessUnitId)→ 命中
+            new() { Source = "billing", Amount = 5m },                       // 无单元归属 → 严格剔除
         };
         var scoped = AmoebaPLService.ApplyScopeFilter(points, new AmoebaReportScope { Units = new() { 2, 4 } });
-        Assert.Equal(new[] { 2L, 4L }, scoped.Select(p => p.BusinessUnitId!.Value).OrderBy(x => x).ToArray());
+        Assert.Equal(3, scoped.Count);
+        Assert.Equal(47m, scoped.Sum(p => p.Amount));   // 10(城区billing)+30(浏河billing)+7(voucher)
+        Assert.DoesNotContain(scoped, p => p.Amount == 20m || p.Amount == 5m);
     }
 
     [Fact]

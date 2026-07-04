@@ -49,8 +49,20 @@ public static class FinanceSeeder
             new(16, "阶段3A(M6): FIN账套 加 F网点公司ID(可空,→SYS网点公司)+F账套绑定模式(NOT NULL DEFAULT 1=按区域公司) (2026-07-03)", MigrateV16),
             new(17, "阶段3B(M6): 从 SYS网点公司 1:1 物化派生 FIN经营单元(禁手工,公司停用联动) (2026-07-03)", MigrateV17),
             new(18, "阶段3C(M6): FIN经营单元 加 F来源类型/F来源业务单元ID 交叉引用列+索引; existing-DB 侧建桥(fresh-DB 因 aux 尚未播种,由 BasicData V1 补建) (2026-07-03)", MigrateV18),
+            new(19, "阶段3C 修: 撤销 V18 对 business_unit aux 的反向来源标记(F来源类型=FIN经营单元)——曾冻结这些经营单元 aux 的改名,桥改为 OU 单向 (2026-07-04)", MigrateV19),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>阶段3C 修（终审 finding）·撤销反向来源标记：V18 曾把被桥 business_unit aux 反标 F来源类型='FIN经营单元'，
+    /// 触发 AuxiliaryService.UpdateItemByAccountSetAsync 的"外部来源项不可改名"守卫→静默冻结城区/南郊/浏河/沙溪经营单元 aux 的改名。
+    /// 桥已改为 OU 单向(FinOperatingUnit.F来源业务单元ID)承载 provenance，故此处把这些 aux 的 F来源类型/F来源ID 清回 NULL(仅 existing-DB 有,fresh 库本就 null)。幂等。</summary>
+    private static void MigrateV19(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        ExecSql(ctx, @"
+        UPDATE [FIN辅助核算项目] SET [F来源类型] = NULL, [F来源ID] = NULL
+        WHERE [F辅助类型] = 'business_unit' AND [F来源类型] = N'FIN经营单元';");
     }
 
     /// <summary>阶段3C(M6)·经营单元交叉引用桥(schema + existing-DB 建桥)：把遗留 business_unit 记账维度与 FIN经营单元 建桥，保存量凭证/映射/KSF 对 aux id 的引用不断链。

@@ -6,7 +6,7 @@ using STOTOP.Module.System.Entities;
 namespace STOTOP.Module.Finance.Services;
 
 /// <summary>
-/// 经营单元派生器（M6/R2 多租户阶段3B/3C）。从 SYS网点公司 1:1 **物化派生** FIN经营单元(禁手工维护)+ 建到遗留 business_unit aux 的双向交叉引用桥。
+/// 经营单元派生器（M6/R2 多租户阶段3B/3C）。从 SYS网点公司 1:1 **物化派生** FIN经营单元(禁手工维护)+ 建到遗留 business_unit aux 的**单向**交叉引用桥(OU→aux,存 OU 侧)。
 /// 幂等:每网点公司 upsert 一条(按 FCompanyId)、名称/状态/租户随公司同步(公司停用→单元停用);公司已删的孤儿单元置停用(不硬删,保存量凭证/报表对 aux id 的引用不断链)。
 /// **调用时机(关键)**:交叉引用桥依赖 business_unit aux 已存在。aux 由 BasicDataSeeder(BasicData tier) 播种,**晚于** Finance tier——故:
 ///   ① FinanceSeeder V17/V18(Finance tier·平台作用域):建 OU + 试桥,但 fresh 库此时 aux 尚未播种→桥暂空(无害);
@@ -56,29 +56,9 @@ public static class FinOperatingUnitDeriver
             u.FUpdatedTime = DateTime.Now;
         }
 
-        ctx.SaveChanges();   // 先落 OU 侧桥(新 OU 拿到 FID)
-
-        // 反向回填被桥 business_unit aux 的来源标记(消 FSourceType 恒 null 缺口)。用 EF(兼 InMemory 可测),幂等。
-        var bridged = ctx.Set<FinOperatingUnit>().IgnoreQueryFilters()
-            .Where(u => u.FSourceLegacyAuxId != null)
-            .Select(u => new { AuxId = u.FSourceLegacyAuxId!.Value, OuId = u.FID })
-            .ToList();
-        if (bridged.Count == 0) return;
-
-        var ouByAux = bridged.GroupBy(b => b.AuxId).ToDictionary(g => g.Key, g => g.OrderBy(x => x.OuId).First().OuId);
-        var bridgedAuxIds = ouByAux.Keys.ToList();
-        var auxToTag = ctx.Set<FinAuxiliaryItem>().IgnoreQueryFilters()
-            .Where(a => bridgedAuxIds.Contains(a.FID))
-            .AsTracking().ToList();
-        var dirty = false;
-        foreach (var a in auxToTag)
-        {
-            if (!ouByAux.TryGetValue(a.FID, out var ouId)) continue;
-            if (a.FSourceType == "FIN经营单元" && a.FSourceId == ouId) continue;  // 幂等:已标则跳
-            a.FSourceType = "FIN经营单元";
-            a.FSourceId = ouId;
-            dirty = true;
-        }
-        if (dirty) ctx.SaveChanges();
+        // 桥单向存于 OU 侧(F来源业务单元ID)即足够:报表按此展开/上卷。
+        // **不**反标 business_unit aux 的 F来源类型——否则 AuxiliaryService.UpdateItemByAccountSetAsync 的"外部来源项不可改名"守卫会
+        // 静默冻结这 4 个经营单元 aux 的改名(且 OU 名随公司同步、aux 名冻结 → 漂移)。provenance 由 OU.F来源业务单元ID 单向承载即可。
+        ctx.SaveChanges();
     }
 }
