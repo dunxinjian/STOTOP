@@ -36,6 +36,23 @@ public class SwitchOrganizationRequest
     public long OrgId { get; set; }
 }
 
+// 切换租户请求（阶段4C·R6）
+public class SwitchTenantRequest
+{
+    public long TenantId { get; set; }
+}
+
+// 切换租户响应（阶段4C·R6）：校验成员后返回该租户内可切换组织；有主/单一组织则附带其重算上下文。
+public class SwitchTenantResponse
+{
+    public long TenantId { get; set; }
+    public string TenantName { get; set; } = string.Empty;
+    /// <summary>用户在该租户内可切换的组织列表（前端据此二级选组织并发 X-Org-Context）。</summary>
+    public List<UserOrganizationDto> Organizations { get; set; } = new();
+    /// <summary>自动选定组织（主组织/唯一组织）的重算上下文（角色/权限/菜单）；无法自动选时为 null。</summary>
+    public SwitchOrganizationResponse? Context { get; set; }
+}
+
 // 添加用户到组织请求
 public class AddUserToOrganizationRequest
 {

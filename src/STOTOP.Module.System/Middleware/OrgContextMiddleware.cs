@@ -67,9 +67,27 @@ public class OrgContextMiddleware
             return;
         }
 
-        // v2 多租户：设当前租户(客户)。过渡期(单客户)=组织树根 id；区域公司间在租户内用 R8 数据范围。
-        var tenantResolver = context.RequestServices.GetRequiredService<ITenantResolver>();
-        var currentTenantId = tenantResolver.GetRootTenantId();
+        // v2 多租户：设当前租户(客户)。阶段4C：X-Tenant-Context 头显式指定租户（加性、向后兼容——现前端只发 X-Org-Context，
+        // 头缺失即回退 TenantResolver=单客户组织树根，零破坏）。头存在时须校验用户为该租户【已接受成员】(防伪造他租户 id)否则 403。
+        long? currentTenantId;
+        var tenantHeader = context.Request.Headers["X-Tenant-Context"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(tenantHeader) && long.TryParse(tenantHeader, out var headerTenantId))
+        {
+            var orgContextService = context.RequestServices.GetRequiredService<IOrgContextService>();
+            if (!await orgContextService.ValidateTenantMembershipAsync(userId, headerTenantId))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                context.Response.ContentType = "application/json";
+                var forbidden = ApiResult.Fail("无权访问该租户", 403);
+                await context.Response.WriteAsync(JsonSerializer.Serialize(forbidden, CamelCaseOptions));
+                return;
+            }
+            currentTenantId = headerTenantId;
+        }
+        else
+        {
+            currentTenantId = context.RequestServices.GetRequiredService<ITenantResolver>().GetRootTenantId();
+        }
         if (currentTenantId.HasValue)
             context.Items["CurrentTenantId"] = currentTenantId.Value;
 

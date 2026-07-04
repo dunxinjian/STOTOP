@@ -52,6 +52,17 @@ public class OrgContextController : ControllerBase
         return ApiResult<SwitchOrganizationResponse>.Success(result);
     }
 
+    [HttpPost("switch-tenant")]
+    public async Task<ApiResult<SwitchTenantResponse>> SwitchTenant([FromBody] SwitchTenantRequest request)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null)
+            return ApiResult<SwitchTenantResponse>.Fail("未登录", 401);
+
+        var result = await _orgContextService.SwitchTenantAsync(userId.Value, request.TenantId);
+        return ApiResult<SwitchTenantResponse>.Success(result);
+    }
+
     [HttpGet("current")]
     public async Task<ApiResult<SwitchOrganizationResponse?>> GetCurrentContext()
     {

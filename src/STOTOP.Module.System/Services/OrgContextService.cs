@@ -504,6 +504,47 @@ public class OrgContextService : IOrgContextService
             .ToListAsync();
     }
 
+    /// <summary>阶段4C·R9：严格校验用户是否指定租户的已接受成员。SYS租户成员 非 ITenantScoped（跨租户可见）→ LINQ 直查。
+    /// 【不】给 admin/平台超管 旁路——跨租户访问走 /api/platform 平台作用域，X-Tenant-Context 路径只认真实成员（design §6.4 platform 与 tenant 互斥）。</summary>
+    public async Task<bool> ValidateTenantMembershipAsync(long userId, long tenantId)
+    {
+        return await _context.Set<SysTenantMember>()
+            .AnyAsync(m => m.FUserId == userId && m.FTenantId == tenantId
+                        && m.FInviteStatus == 2 && m.FStatus == 1);
+    }
+
+    /// <summary>阶段4C·R6：切换租户。校验已接受成员 → 取该租户内用户可切换组织 → 有主/唯一组织则重算其上下文。
+    /// 组织切换的角色/权限/菜单重算复用 <see cref="SwitchOrganizationAsync"/>；租户维度靠 SYS组织架构.F租户ID 过滤。</summary>
+    public async Task<SwitchTenantResponse> SwitchTenantAsync(long userId, long tenantId)
+    {
+        if (!await ValidateTenantMembershipAsync(userId, tenantId))
+            throw new InvalidOperationException("用户不是该租户的有效成员");
+
+        var tenantName = await _context.Set<SysOrganization>()
+            .Where(o => o.FID == tenantId).Select(o => o.FName).FirstOrDefaultAsync() ?? string.Empty;
+
+        // 用户全部可切换组织中，筛出属于该租户(SYS组织架构.F租户ID=tenantId)的。
+        var allOrgs = await GetUserOrganizationsAsync(userId);
+        var orgIds = allOrgs.Select(o => o.OrgId).ToList();
+        var tenantOrgIds = await _context.Set<SysOrganization>()
+            .Where(o => orgIds.Contains(o.FID) && o.FTenantId == tenantId)
+            .Select(o => o.FID)
+            .ToListAsync();
+        var orgsInTenant = allOrgs.Where(o => tenantOrgIds.Contains(o.OrgId)).ToList();
+
+        // 自动选：主组织，否则唯一组织，否则不自动选（前端二级选组织）。
+        var auto = orgsInTenant.FirstOrDefault(o => o.IsPrimaryOrg == 1)
+                   ?? (orgsInTenant.Count == 1 ? orgsInTenant[0] : null);
+
+        return new SwitchTenantResponse
+        {
+            TenantId = tenantId,
+            TenantName = tenantName,
+            Organizations = orgsInTenant,
+            Context = auto == null ? null : await SwitchOrganizationAsync(userId, auto.OrgId),
+        };
+    }
+
     private static List<MenuDto> BuildMenuTree(List<MenuDto> menus)
     {
         var menuLookup = menus.ToLookup(m => m.ParentId);
