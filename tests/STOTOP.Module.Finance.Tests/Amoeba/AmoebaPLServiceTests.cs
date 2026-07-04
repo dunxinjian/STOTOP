@@ -139,6 +139,26 @@ public class AmoebaPLServiceTests
     }
 
     [Fact]
+    public void 区域上卷_Regions进IsSubReport_折叠成Units后按business_unit过滤()
+    {
+        // [part-2] IsSubReport 认 Regions 维
+        Assert.True(new AmoebaReportScope { Regions = new() { 192 } }.IsSubReport);
+        Assert.False(new AmoebaReportScope().IsSubReport);
+
+        // ExpandRegionScopeAsync 把 Regions 展开成网点公司经营单元 business_unit aux 集并折叠进 Units（展开链走 DB，已 dev 核对）。
+        // 此处以折叠结果(Units={2,4})验证下游过滤语义：命中 BusinessUnitId ∈ 集 的点，无单元点严格剔除。
+        var points = new List<DataPoint>
+        {
+            new() { Source = "billing", BusinessUnitId = 2, Amount = 10m },   // 城区(区域内·选中)
+            new() { Source = "billing", BusinessUnitId = 3, Amount = 20m },   // 南郊(区域内·本例未并入)
+            new() { Source = "billing", BusinessUnitId = 4, Amount = 30m },   // 浏河(区域内·选中)
+            new() { Source = "billing", Amount = 5m },                        // 无经营单元 → 严格剔除
+        };
+        var scoped = AmoebaPLService.ApplyScopeFilter(points, new AmoebaReportScope { Units = new() { 2, 4 } });
+        Assert.Equal(new[] { 2L, 4L }, scoped.Select(p => p.BusinessUnitId!.Value).OrderBy(x => x).ToArray());
+    }
+
+    [Fact]
     public async Task GetPLItemDetail_excludes_branded_import_revenue_entries()
     {
         await using var db = TestDbContextFactory.Create(nameof(GetPLItemDetail_excludes_branded_import_revenue_entries), orgId: 192);

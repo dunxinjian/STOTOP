@@ -360,10 +360,18 @@ public class AmoebaReportScope
     public List<long>? Units { get; set; }           // 经营单元ID → dp.BusinessUnitId(可扩展)
     public List<string>? Brands { get; set; }        // 品牌编码 → dp.BrandCode(可扩展)
 
+    /// <summary>
+    /// [阶段3C part-2] 区域上卷：区域公司组织节点ID(SysOrganization，FKind=区域公司)。服务端经 3C 交叉引用桥
+    /// (FinOperatingUnit.FSourceLegacyAuxId + SYS组织闭包) 展开为其**网点公司经营单元 business_unit aux 集**，
+    /// 并入 <see cref="Units"/> 维过滤（区域与 Units 同属 business_unit 维，非独立数据点标签）。
+    /// 最小过滤档：营收/成本/发件(send)公共费按区域正确；派件(deliver)公共费受既有 outlet↔网点公司未接线所限，暂不按区域缩。
+    /// </summary>
+    public List<long>? Regions { get; set; }
+
     /// <summary>是否子报表(任一维度被约束)。</summary>
     public bool IsSubReport =>
         (Outlets?.Count > 0) || (Projects?.Count > 0) || (Directions?.Count > 0)
-        || (Units?.Count > 0) || (Brands?.Count > 0);
+        || (Units?.Count > 0) || (Brands?.Count > 0) || (Regions?.Count > 0);
 }
 
 public class AmoebaMultiPeriodResponse

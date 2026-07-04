@@ -255,7 +255,10 @@ public class AmoebaPLService
         var periodResults = new List<List<DataPoint>>();
         // [批次5-S2] 子报表的同期全口径基线(scope 过滤前全集)，供公共费分摊取全额/全口径件量；全口径请求为 null
         var periodFullScopePoints = new List<List<DataPoint>?>();
-        bool isSubReport = request.Scope?.IsSubReport == true;
+        // [阶段3C part-2] 区域上卷：把 Scope.Regions 展开成其网点公司经营单元 aux 集并折叠进 Units 维；
+        // 之后 isSubReport/ApplyScopeFilter/派件件量 统一用 effectiveScope（deliver 仅读 Outlets，未受折叠影响=既有限制）。
+        var effectiveScope = await ExpandRegionScopeAsync(request.Scope);
+        bool isSubReport = effectiveScope?.IsSubReport == true;
         // [批次5-S3] 各期的期间键(粒度前缀+期间)：manual 加载/去重与估算取数按此键
         var periodKeys = periods.Select(p => BuildPeriodKey(p, granularity)).ToList();
         for (int i = 0; i < periods.Count; i++)
@@ -266,7 +269,7 @@ public class AmoebaPLService
             // 故 all 即免费的全口径基线(纠正设计 §4.5 关于额外 DB 聚合的悲观假设)
             periodFullScopePoints.Add(isSubReport ? all : null);
             // [方案B 批次4] L1 请求级 scope 预过滤(独占匹配之前)：网点/项目/方向等;Scope=null 则全口径不变
-            all = ApplyScopeFilter(all, request.Scope);
+            all = ApplyScopeFilter(all, effectiveScope);
             periodResults.Add(all);
         }
 
@@ -282,6 +285,9 @@ public class AmoebaPLService
 
         // 7. 对每个期间执行独占匹配，得到 PLItemId -> Amount 字典
         var unmatchedWarnings = new List<string>();
+        // [阶段3C part-2] 区域子报表显式声明既有限制：派件(进港)公共费按全口径分摊、未按区域缩(outlet↔网点公司主数据未接线)——勿把进港公共费当作区域实数。
+        if (request.Scope?.Regions is { Count: > 0 })
+            unmatchedWarnings.Add("区域子报表：营收/成本/发件(出港)公共费已按区域缩；派件(进港)公共费仍按全口径分摊，未按区域缩(outlet↔网点公司主数据未接线，最小过滤档既有限制)");
         var perPeriodAmounts = new List<Dictionary<long, decimal>>();
         // [批次5-S4] 日/周公共费分摊基线缓存：所属当月数据点(实际凭证/估值，含当月例外)，同月一次请求内只聚合一次
         var monthPointsCache = new Dictionary<string, List<DataPoint>>();
@@ -335,7 +341,7 @@ public class AmoebaPLService
                 var monthPts = await GetMonthPoints(PeriodContainingMonth(periods[i], granularity));
                 // [派件量接入 §B2] deliver 件量从 STG申通派件日明细 取：分子=本期(scope 网点)、分母=所属当月(全网点)，
                 // 与 monthPts 月公共费全额配对成「时间+scope」一次比例（镜像 send 侧 billing 件量口径）。
-                var scopedDeliver = await AggregateDeliverVolume(wkStart, wkEnd, orgId, request.Scope);
+                var scopedDeliver = await AggregateDeliverVolume(wkStart, wkEnd, orgId, effectiveScope);
                 // [审查 I1] fullDeliver 按月缓存：同月多日/多周只对全月聚合一次(scopedDeliver 仍每期算)
                 var monthKey = PeriodContainingMonth(periods[i], granularity);
                 if (!fullDeliverCache.TryGetValue(monthKey, out var fullDeliver))
@@ -354,7 +360,7 @@ public class AmoebaPLService
                 // [派件量接入 §B2] 月/季/年子报表：deliver 件量同期取——分子=本期 scope 网点、分母=同期全网点，
                 // 与 fullPts 同期全口径全额配对成纯 scope 比例（无时间维，故 scoped/full 用同一期间范围）。
                 var (pStart, pEnd) = PeriodToDateRange(periods[i], granularity);
-                var scopedDeliver = await AggregateDeliverVolume(pStart, pEnd, orgId, request.Scope);
+                var scopedDeliver = await AggregateDeliverVolume(pStart, pEnd, orgId, effectiveScope);
                 var fullDeliver = await AggregateDeliverVolume(pStart, pEnd, orgId, null);
                 ApplyCommonCostAllocation(matched, periodResults[i], fullPts, plItems, indicatorItems, allItems, allocWarnings, scopedDeliver, fullDeliver);
                 unmatchedWarnings.AddRange(allocWarnings.Select(w => periods.Count > 1 ? $"[{periods[i]}] {w}" : w));
@@ -2778,6 +2784,68 @@ public class AmoebaPLService
                 map[ou.LegacyAuxId] = regionAuxId;
         }
         return map;
+    }
+
+    /// <summary>
+    /// [阶段3C part-2] 区域上卷 scope 展开：把 <see cref="AmoebaReportScope.Regions"/>(区域公司组织节点ID)展开成其
+    /// 网点公司经营单元 business_unit aux 集，**折叠进 Units 维**，返回新 scope（Regions 置空，供 ApplyScopeFilter 纯 Units 过滤）。
+    /// 无 Regions 时原样返回。区域无对应网点公司经营单元 → Units 置不匹配哨兵(-1L)，使该区域出**空**报表而非退化成全口径。
+    /// 最小过滤档：send/营收/成本按区域正确；deliver 派件件量仅读 Outlets 不受此折叠影响（既有限制，见 DTO 注释）。
+    /// </summary>
+    private async Task<AmoebaReportScope?> ExpandRegionScopeAsync(AmoebaReportScope? scope)
+    {
+        if (scope?.Regions is not { Count: > 0 }) return scope;
+
+        var regionAux = await ExpandRegionsToUnitAuxIdsAsync(scope.Regions);
+        var units = new List<long>(scope.Units ?? new List<long>());
+        units.AddRange(regionAux);
+        units = units.Distinct().ToList();
+        if (units.Count == 0) units.Add(-1L);   // 区域无网点公司经营单元 → 过滤到空(非全口径)
+
+        return new AmoebaReportScope
+        {
+            Outlets = scope.Outlets,
+            Projects = scope.Projects,
+            Directions = scope.Directions,
+            Units = units,
+            Brands = scope.Brands,
+            Regions = null,   // 已折叠进 Units，避免 ApplyScopeFilter 二次处理
+        };
+    }
+
+    /// <summary>
+    /// [阶段3C part-2] 区域公司组织节点 → 其下辖网点公司经营单元的 business_unit aux FID 集。
+    /// 链（BuildUnitRegionParentMapAsync 反向）：FIN经营单元(F来源业务单元ID!=null) → 网点公司(SysOutletCompany.FOrgNodeId)
+    /// → SYS组织闭包(该网点公司节点的祖先 ∈ 请求区域) → 收对应 aux。跨租户经 ITenantScoped 墙隔离(请求内租户上下文)。
+    /// </summary>
+    private async Task<HashSet<long>> ExpandRegionsToUnitAuxIdsAsync(IReadOnlyCollection<long> regionOrgNodeIds)
+    {
+        var result = new HashSet<long>();
+        if (regionOrgNodeIds.Count == 0) return result;
+
+        var ous = await _dbContext.Set<FinOperatingUnit>()
+            .Where(u => u.FStatus == 1 && u.FSourceLegacyAuxId != null)
+            .Select(u => new { u.FCompanyId, LegacyAuxId = u.FSourceLegacyAuxId!.Value })
+            .ToListAsync();
+        if (ous.Count == 0) return result;
+
+        var companyIds = ous.Select(o => o.FCompanyId).Distinct().ToList();
+        var companyToNode = await _dbContext.Set<SysOutletCompany>()
+            .Where(c => companyIds.Contains(c.FID))
+            .ToDictionaryAsync(c => c.FID, c => c.FOrgNodeId);
+        var nodeIds = companyToNode.Values.Distinct().ToList();
+
+        // 网点公司组织节点 → 其闭包祖先 ∈ 请求区域 的节点集
+        var nodesUnderRegion = (await _dbContext.Set<SysOrgClosure>()
+            .Where(cl => nodeIds.Contains(cl.FDescendantId) && regionOrgNodeIds.Contains(cl.FAncestorId))
+            .Select(cl => cl.FDescendantId)
+            .Distinct()
+            .ToListAsync()).ToHashSet();
+
+        foreach (var ou in ous)
+            if (companyToNode.TryGetValue(ou.FCompanyId, out var node) && nodesUnderRegion.Contains(node))
+                result.Add(ou.LegacyAuxId);
+        return result;
     }
 
     /// <summary>
