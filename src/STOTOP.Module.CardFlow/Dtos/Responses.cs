@@ -129,6 +129,17 @@ public class CardFlowPathPreviewStepDto
     public string? PolicyKey { get; set; }
     public string? PolicyName { get; set; }
     public List<CardFlowPathPreviewCandidateDto> Candidates { get; set; } = new();
+    /// <summary>人工节点处理人干跑结果（该节点将派给谁），非人工节点为 null</summary>
+    public CardFlowPathPreviewApproverDto? Approver { get; set; }
+}
+
+/// <summary>路径预演的处理人解析干跑结果（复用运行时 ApproverResolver，样例数据驱动）</summary>
+public class CardFlowPathPreviewApproverDto
+{
+    public string Strategy { get; set; } = string.Empty;
+    public List<string> ApproverNames { get; set; } = new();
+    public string? FallbackReason { get; set; }
+    public string? Error { get; set; }
 }
 
 public class CardFlowPathPreviewCandidateDto

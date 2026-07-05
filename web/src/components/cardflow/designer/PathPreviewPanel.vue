@@ -5,7 +5,7 @@ import { previewFlowDraftPath } from '@/api/cardflow'
 import { normalizeOptionList } from '@/utils/cardflowFieldFormat'
 import UserSelect from '@/components/cardflow/fields/UserSelect.vue'
 import OrgSelect from '@/components/cardflow/fields/OrgSelect.vue'
-import type { CardFlowPathPreviewDto, SchemaFieldDefinition } from '@/types/cardflow'
+import type { CardFlowPathPreviewDto, CardFlowPathPreviewStepDto, SchemaFieldDefinition } from '@/types/cardflow'
 
 const props = defineProps<{
   flowDefinitionId?: number | null
@@ -14,6 +14,34 @@ const props = defineProps<{
   /** 流程卡片字段：样例表单按它动态生成，路由条件才能供到值 */
   fields?: SchemaFieldDefinition[]
 }>()
+
+// 步骤点击联动：把节点 stageKey 抛给编辑页切预览视角
+const emit = defineEmits<{
+  (e: 'step-select', stageKey: string): void
+}>()
+
+const STRATEGY_LABELS: Record<string, string> = {
+  role: '按角色',
+  fixed: '指定人员',
+  fixedUsers: '指定人员',
+  fieldUsers: '按字段取人',
+  initiator: '发起人',
+  orgChain: '组织链',
+  amountMatrix: '金额矩阵',
+  feeTypeBp: '费用类型 BP',
+}
+
+function strategyLabel(strategy?: string | null): string {
+  if (!strategy) return '未配置'
+  return STRATEGY_LABELS[strategy] || strategy
+}
+
+function approverText(approver: NonNullable<CardFlowPathPreviewStepDto['approver']>): string {
+  if (approver.error) return approver.error
+  if (approver.approverNames.length) return approver.approverNames.join('、')
+  if (approver.fallbackReason) return `未解析到处理人，兜底：${approver.fallbackReason === 'flowAdmin' ? '转审批管理员' : approver.fallbackReason}`
+  return '未解析到处理人'
+}
 
 const sample = reactive({
   initiatorId: undefined as number | undefined,
@@ -172,10 +200,23 @@ async function runPreview() {
     </div>
 
     <div v-if="result?.steps?.length" class="cf-path-preview__details">
-      <article v-for="step in result.steps" :key="`${step.order}-${step.stageKey}`">
+      <article
+        v-for="step in result.steps"
+        :key="`${step.order}-${step.stageKey}`"
+        :class="{ 'is-clickable': step.stepType === 'stage' }"
+        @click="step.stepType === 'stage' && emit('step-select', step.stageKey)"
+      >
         <div class="cf-path-preview__detail-head">
           <strong>{{ step.stageName }}</strong>
           <span>{{ step.reason || step.selectedRouteName || step.stepType }}</span>
+        </div>
+        <!-- 人工节点：该节点将派给谁（ApproverResolver 干跑真值） -->
+        <div v-if="step.approver" class="cf-path-preview__approver">
+          <span class="cf-path-preview__approver-strategy">处理人（{{ strategyLabel(step.approver.strategy) }}）</span>
+          <span
+            class="cf-path-preview__approver-names"
+            :class="{ 'is-error': !!step.approver.error, 'is-fallback': !step.approver.error && !step.approver.approverNames.length }"
+          >{{ approverText(step.approver) }}</span>
         </div>
         <div v-if="step.candidates?.length" class="cf-path-preview__candidates">
           <span
@@ -292,6 +333,41 @@ async function runPreview() {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-card);
+
+  &.is-clickable {
+    cursor: pointer;
+    transition: border-color 0.15s;
+
+    &:hover {
+      border-color: var(--color-primary);
+    }
+  }
+}
+
+.cf-path-preview__approver {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+
+  &-strategy {
+    flex-shrink: 0;
+    color: var(--text-3);
+  }
+
+  &-names {
+    color: var(--text-1);
+    word-break: break-all;
+
+    &.is-error {
+      color: var(--color-danger);
+    }
+
+    &.is-fallback {
+      color: var(--color-warning);
+    }
+  }
 }
 
 .cf-path-preview__detail-head {

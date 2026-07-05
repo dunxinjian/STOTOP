@@ -937,6 +937,13 @@ function schedulePreviewRefresh() {
 // 端点读已保存草稿，故按预览节点/视角切换刷新（编辑期改动经 30s 自动保存后随切换生效）
 watch([selectedPreviewStageId, previewViewerMode], schedulePreviewRefresh)
 
+// 路径预演步骤点击 → 卡片预览切到该节点（stageKey 即 stage.id）
+function onPreviewStepSelect(stageKey: string) {
+  if (state.stages.some(stage => stage.id === stageKey)) {
+    selectedPreviewStageId.value = stageKey
+  }
+}
+
 const previewRuntimeComponents = computed<CardComponentRuntime[]>(() => {
   // 优先端点真值（脱敏/聚合/access 与运行时一字不差）
   if (previewEndpointWorkView.value?.components?.length) {
@@ -2842,6 +2849,7 @@ function goBack() {
                 :preview-api="previewFlowDraftPath"
                 :disabled="!previewReady"
                 :fields="state.cardSchema"
+                @step-select="onPreviewStepSelect"
               />
             </BaseCard>
 
@@ -2987,6 +2995,7 @@ function goBack() {
           :flow-definition-id="flowId"
           :preview-api="previewFlowDraftPath"
           :fields="state.cardSchema"
+          @step-select="onPreviewStepSelect"
         />
         <RuleHealthPanel
           :stages="state.stages"

@@ -13,15 +13,18 @@ public sealed class CardFlowPathPreviewService : ICardFlowPathPreviewService
     private readonly STOTOPDbContext _dbContext;
     private readonly IConditionRuleEvaluator _conditionRuleEvaluator;
     private readonly IAuditSnapshotPolicyService _auditSnapshotPolicyService;
+    private readonly IApproverResolver _approverResolver;
 
     public CardFlowPathPreviewService(
         STOTOPDbContext dbContext,
         IConditionRuleEvaluator conditionRuleEvaluator,
-        IAuditSnapshotPolicyService auditSnapshotPolicyService)
+        IAuditSnapshotPolicyService auditSnapshotPolicyService,
+        IApproverResolver approverResolver)
     {
         _dbContext = dbContext;
         _conditionRuleEvaluator = conditionRuleEvaluator;
         _auditSnapshotPolicyService = auditSnapshotPolicyService;
+        _approverResolver = approverResolver;
     }
 
     public async Task<CardFlowPathPreviewDto> PreviewDraftVersionAsync(
@@ -68,7 +71,10 @@ public sealed class CardFlowPathPreviewService : ICardFlowPathPreviewService
             FlowDefinitionId = definitionId,
             FlowVersionId = version.FID
         };
-        var context = await BuildPreviewContextAsync(request, cancellationToken);
+        var cardData = BuildCardData(request);
+        var context = await BuildPreviewContextAsync(request, cardData, cancellationToken);
+        // 处理人干跑用的合成卡片（ApproverResolver 只读 cardData，不读 card 字段；此处仅补 org/initiator 兜底）
+        var previewCard = new CfCard { FInitiatorId = request.InitiatorId ?? 0, FOrgId = request.OrgId ?? 0 };
         var stageByKey = stages
             .Where(stage => !string.IsNullOrWhiteSpace(stage.FStageKey))
             .GroupBy(stage => stage.FStageKey, StringComparer.OrdinalIgnoreCase)
@@ -103,6 +109,12 @@ public sealed class CardFlowPathPreviewService : ICardFlowPathPreviewService
                 Type = current.FType
             };
             result.Steps.Add(step);
+
+            // 人工节点：干跑 ApproverResolver，回答"该节点将派给谁"（复用运行时解析，样例数据驱动）
+            if (string.Equals(current.FType, "human", StringComparison.OrdinalIgnoreCase))
+            {
+                step.Approver = await ResolveApproverPreviewAsync(current, cardData, previewCard, request, version.FFlowSettingsJson, cancellationToken);
+            }
 
             var outgoing = routes
                 .Where(route =>
@@ -250,15 +262,53 @@ public sealed class CardFlowPathPreviewService : ICardFlowPathPreviewService
         };
     }
 
-    private async Task<ConditionEvaluationContext> BuildPreviewContextAsync(
-        CardFlowPathPreviewRequest request, CancellationToken cancellationToken)
+    // 样例卡片数据：InitialDataJson 打底 + DataJson 覆盖。路径预演与处理人干跑共用同一份，口径一致。
+    private static Dictionary<string, object?> BuildCardData(CardFlowPathPreviewRequest request)
     {
         var cardData = ParseObject(request.InitialDataJson);
         foreach (var pair in ParseObject(request.DataJson))
         {
             cardData[pair.Key] = pair.Value;
         }
+        return cardData;
+    }
 
+    // 人工节点处理人干跑：复用运行时 ApproverResolver，样例数据/发起人/组织驱动，失败不阻断预演
+    private async Task<CardFlowPathPreviewApproverDto> ResolveApproverPreviewAsync(
+        CfStageDefinition stage,
+        IReadOnlyDictionary<string, object?> cardData,
+        CfCard previewCard,
+        CardFlowPathPreviewRequest request,
+        string? flowSettingsJson,
+        CancellationToken cancellationToken)
+    {
+        var dto = new CardFlowPathPreviewApproverDto { Strategy = stage.FAssigneeStrategy ?? string.Empty };
+        if (string.IsNullOrWhiteSpace(stage.FAssigneeStrategy))
+        {
+            dto.Error = "未配置处理人策略";
+            return dto;
+        }
+        try
+        {
+            var result = await _approverResolver.ResolveAsync(
+                stage, previewCard, cardData, request.OrgId ?? 0, request.InitiatorId ?? 0, flowSettingsJson, cancellationToken);
+            dto.ApproverNames = result.Approvers
+                .OrderBy(a => a.SortOrder)
+                .Select(a => string.IsNullOrWhiteSpace(a.UserName) ? $"#{a.UserId}" : a.UserName)
+                .ToList();
+            dto.FallbackReason = result.FallbackReason;
+            dto.Error = result.ErrorMessage;
+        }
+        catch (Exception ex)
+        {
+            dto.Error = "处理人预演失败：" + ex.Message;
+        }
+        return dto;
+    }
+
+    private async Task<ConditionEvaluationContext> BuildPreviewContextAsync(
+        CardFlowPathPreviewRequest request, Dictionary<string, object?> cardData, CancellationToken cancellationToken)
+    {
         // 灌入明细样例数据，使引用 detailSummary.* 的条件边预演能真实求值（否则恒落默认分支，误导发布决策）
         var detailData = (request.Details ?? new List<PreviewDetailRow>())
             .OrderBy(row => row.SortOrder)

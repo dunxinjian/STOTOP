@@ -223,6 +223,15 @@ export interface CardFlowPathPreviewStepDto {
   policyKey?: string | null
   policyName?: string | null
   candidates: CardFlowPathPreviewCandidateDto[]
+  /** 人工节点处理人干跑结果（该节点将派给谁），非人工节点为 null */
+  approver?: CardFlowPathPreviewApproverDto | null
+}
+
+export interface CardFlowPathPreviewApproverDto {
+  strategy: string
+  approverNames: string[]
+  fallbackReason?: string | null
+  error?: string | null
 }
 
 export interface CardFlowPathPreviewCandidateDto {
