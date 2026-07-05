@@ -60,6 +60,11 @@ public class VoucherService : IVoucherService
     /// 已存在外层事务（如 CardFlow FlowEngineService 审批流在事务内经 Bridge 生成凭证）时，
     /// 直接复用外层事务、由外层统一提交/回滚——避免 EF 不支持的嵌套 BeginTransaction 抛错；
     /// 非关系型(InMemory) provider 不支持事务，退化为直接执行（行为不变）。
+    ///
+    /// 自开事务必须经 ExecutionStrategy 执行：DbContext 启用了 EnableRetryOnFailure，
+    /// 直接 BeginTransaction 会抛 "SqlServerRetryingExecutionStrategy does not support
+    /// user-initiated transactions"（曾导致数据导入自动凭证批次链每组失败、零凭证）。
+    /// 失败时 strategy 以全新事务整体重试 writes（先回滚再重来，故 writes 须可重复执行——此处均为纯 DB 写）。
     /// </summary>
     private async Task WithTransactionAsync(Func<Task> writes)
     {
@@ -68,17 +73,21 @@ public class VoucherService : IVoucherService
             await writes();
             return;
         }
-        await using var tx = await _context.Database.BeginTransactionAsync();
-        try
+        var strategy = _context.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            await writes();
-            await tx.CommitAsync();
-        }
-        catch
-        {
-            await tx.RollbackAsync();
-            throw;
-        }
+            await using var tx = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                await writes();
+                await tx.CommitAsync();
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        });
     }
 
     private long GetCurrentOrgId()
