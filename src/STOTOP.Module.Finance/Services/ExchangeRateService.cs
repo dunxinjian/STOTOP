@@ -78,17 +78,20 @@ public class ExchangeRateService : IExchangeRateService
         if (request.Id.HasValue && request.Id.Value > 0)
         {
             _logger.LogInformation("更新汇率 {RateId}, 币种: {Currency}, 汇率: {Rate}", request.Id.Value, request.CurrencyCode, request.Rate);
-            entity = await _db.Set<FinExchangeRate>().FindAsync(request.Id.Value)
+            // 经全局租户过滤器 + 显式账套归属校验取实体（FinExchangeRate 是 ITenantScoped，但 FindAsync 绕过滤器且不校验账套→IDOR）；
+            // AsTracking 保留可更新语义（全局默认 NoTrackingWithIdentityResolution）
+            entity = await _db.Set<FinExchangeRate>().AsTracking()
+                .FirstOrDefaultAsync(r => r.FID == request.Id.Value && r.FAccountSetId == request.AccountSetId)
                 ?? throw new InvalidOperationException("汇率记录不存在");
         }
         else
         {
             _logger.LogInformation("新增汇率, 币种: {Currency}, 汇率: {Rate}, 生效日期: {Date}", request.CurrencyCode, request.Rate, request.EffectiveDate);
             entity = new FinExchangeRate { FCreateTime = DateTime.Now };
+            entity.FAccountSetId = request.AccountSetId;
             _db.Set<FinExchangeRate>().Add(entity);
         }
 
-        entity.FAccountSetId = request.AccountSetId;
         entity.FCurrencyCode = request.CurrencyCode;
         entity.FCurrencyName = request.CurrencyName;
         entity.FRate = request.Rate;
@@ -98,10 +101,12 @@ public class ExchangeRateService : IExchangeRateService
         return MapToDto(entity);
     }
 
-    public async Task DeleteRateAsync(long id)
+    public async Task DeleteRateAsync(long id, long accountSetId)
     {
         _logger.LogInformation("删除汇率 {RateId}", id);
-        var entity = await _db.Set<FinExchangeRate>().FindAsync(id)
+        // 经全局租户过滤器 + 显式账套归属校验取实体，禁止 FindAsync 绕过滤器越权删任意账套汇率
+        var entity = await _db.Set<FinExchangeRate>().AsTracking()
+            .FirstOrDefaultAsync(r => r.FID == id && r.FAccountSetId == accountSetId)
             ?? throw new InvalidOperationException("汇率记录不存在");
         _db.Set<FinExchangeRate>().Remove(entity);
         await _db.SaveChangesAsync();

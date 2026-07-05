@@ -9,11 +9,6 @@ namespace STOTOP.Module.CardFlow.Services;
 
 public sealed class CardPresentationResolver : ICardPresentationResolver
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
     private static readonly HashSet<string> WritableAccess = new(StringComparer.OrdinalIgnoreCase)
     {
         "editable",
@@ -302,7 +297,7 @@ public sealed class CardPresentationResolver : ICardPresentationResolver
             var accessKey = $"{tableKey}.{column.Key}";
             var access = request.DetailAccess.TryGetValue(accessKey, out var rule)
                 ? NormalizeAccess(rule.Access)
-                : "readonly";
+                : StageAccessLevels.Masked;
             return new CardComponentColumnRuntimeDto
             {
                 Key = column.Key,
@@ -434,75 +429,13 @@ public sealed class CardPresentationResolver : ICardPresentationResolver
     }
 
     private static CardSchemaV2 ReadCardSchema(string? schemaJson)
-    {
-        if (string.IsNullOrWhiteSpace(schemaJson))
-        {
-            return new CardSchemaV2();
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(schemaJson);
-            if (document.RootElement.ValueKind == JsonValueKind.Array)
-            {
-                return new CardSchemaV2
-                {
-                    Fields = JsonSerializer.Deserialize<List<CardFieldDefinitionV2>>(schemaJson, JsonOptions) ?? new()
-                };
-            }
-
-            if (document.RootElement.ValueKind == JsonValueKind.Object)
-            {
-                return JsonSerializer.Deserialize<CardSchemaV2>(schemaJson, JsonOptions) ?? new CardSchemaV2();
-            }
-        }
-        catch (JsonException)
-        {
-            return new CardSchemaV2();
-        }
-
-        return new CardSchemaV2();
-    }
+        => CardSchemaReader.ReadSchema(schemaJson);
 
     private static List<CardFieldDefinitionV2> ReadCardFields(string? schemaJson)
-        => ReadCardSchema(schemaJson).Fields ?? new List<CardFieldDefinitionV2>();
+        => CardSchemaReader.ReadFields(schemaJson);
 
     private static List<CardDetailTableDefinitionV2> ReadDetailTables(string? detailSchemaJson)
-    {
-        if (string.IsNullOrWhiteSpace(detailSchemaJson))
-        {
-            return new List<CardDetailTableDefinitionV2>();
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(detailSchemaJson);
-            if (document.RootElement.ValueKind == JsonValueKind.Array)
-            {
-                return new List<CardDetailTableDefinitionV2>
-                {
-                    new()
-                    {
-                        DetailTableKey = "default",
-                        Label = "明细",
-                        Columns = JsonSerializer.Deserialize<List<CardFieldDefinitionV2>>(detailSchemaJson, JsonOptions) ?? new()
-                    }
-                };
-            }
-
-            if (document.RootElement.ValueKind == JsonValueKind.Object)
-            {
-                var schema = JsonSerializer.Deserialize<CardDetailSchemaV2>(detailSchemaJson, JsonOptions);
-                return schema?.Tables ?? new List<CardDetailTableDefinitionV2>();
-            }
-        }
-        catch (JsonException)
-        {
-            return new List<CardDetailTableDefinitionV2>();
-        }
-
-        return new List<CardDetailTableDefinitionV2>();
-    }
+        => CardSchemaReader.ReadDetailTables(detailSchemaJson);
 
     private static JsonObject ParseObject(string? json)
     {
@@ -543,17 +476,7 @@ public sealed class CardPresentationResolver : ICardPresentationResolver
         return "text";
     }
 
-    private static string NormalizeAccess(string? access)
-    {
-        return access?.Trim() switch
-        {
-            "hidden" => "hidden",
-            "masked" => "masked",
-            "editable" => "editable",
-            "required" => "required",
-            _ => "readonly"
-        };
-    }
+    private static string NormalizeAccess(string? access) => StageAccessLevels.Normalize(access);
 
     private static object? ConvertNodeValue(JsonNode? value)
     {

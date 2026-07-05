@@ -16,6 +16,6 @@ public interface IExchangeRateService
     /// <summary>保存/更新汇率</summary>
     Task<ExchangeRateDto> SaveRateAsync(SaveExchangeRateRequest request);
 
-    /// <summary>删除汇率</summary>
-    Task DeleteRateAsync(long id);
+    /// <summary>删除汇率（须传所属账套做归属校验，防越权删）</summary>
+    Task DeleteRateAsync(long id, long accountSetId);
 }

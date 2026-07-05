@@ -133,16 +133,22 @@ public class BudgetService : IBudgetService
 
     public async Task<List<BudgetLineDto>> GetLinesAsync(long budgetVersionId, string? period, long? orgId)
     {
-        var versionExists = await _versionRepository.Query()
-            .AnyAsync(v => v.FID == budgetVersionId);
+        // 版本查询走正常(组织+租户)过滤器：仅归属组织(FOrgId==FOwnerOrgId==当前组织)可见，构成授权边界。
+        var version = await _versionRepository.Query()
+            .FirstOrDefaultAsync(v => v.FID == budgetVersionId);
 
-        if (!versionExists)
+        if (version == null)
         {
             throw new InvalidOperationException("预算版本不存在");
         }
 
+        // 预算明细刻意跨子组织(FinBudgetLine 是 IOrgScoped，line.FOrgId 为各子组织，异于版本归属组织)。
+        // 组织全局过滤器只放行 FOrgId==当前组织，会把其余子组织明细整体滤掉→读取不可见。
+        // 故用 IgnoreQueryFilters 绕过组织过滤器，并手动重挂租户硬墙(用已过租户校验的版本 FTenantId)收敛，
+        // 以 FBudgetVersionId(版本已过组织授权) 收口，既保租户隔离又能读到本版本全部子组织明细。
         var query = _lineRepository.Query()
-            .Where(l => l.FBudgetVersionId == budgetVersionId);
+            .IgnoreQueryFilters()
+            .Where(l => l.FBudgetVersionId == budgetVersionId && l.FTenantId == version.FTenantId);
 
         if (!string.IsNullOrWhiteSpace(period))
         {
@@ -191,19 +197,25 @@ public class BudgetService : IBudgetService
             FinBudgetLine? entity = null;
             if (line.Id > 0)
             {
+                // 明细跨子组织，须绕组织过滤器并手挂租户硬墙(用已过校验的版本 FTenantId)，否则按 FID 也可能被组织过滤器滤掉误判为新增。
                 entity = await _lineRepository.Query()
+                    .IgnoreQueryFilters()
                     .AsTracking()
-                    .FirstOrDefaultAsync(l => l.FID == line.Id && l.FBudgetVersionId == budgetVersionId);
+                    .FirstOrDefaultAsync(l => l.FID == line.Id && l.FBudgetVersionId == budgetVersionId && l.FTenantId == version.FTenantId);
             }
 
             if (entity == null)
             {
                 var accountCode = NormalizeNullable(line.AccountCode);
                 var dimensionJson = NormalizeNullable(line.DimensionJson);
+                // 关键去重：line.OrgId 常异于当前组织，组织过滤器会使 l.FOrgId==line.OrgId 与 FOrgId==当前组织 矛盾→恒查空→每次重复插行、金额成倍虚增。
+                // 故 IgnoreQueryFilters 绕组织过滤器，改以版本 FTenantId 手挂租户硬墙收敛。
                 entity = await _lineRepository.Query()
+                    .IgnoreQueryFilters()
                     .AsTracking()
                     .FirstOrDefaultAsync(l =>
                         l.FBudgetVersionId == budgetVersionId &&
+                        l.FTenantId == version.FTenantId &&
                         l.FPeriod == line.Period &&
                         l.FOrgId == line.OrgId &&
                         l.FAmoebaUnitId == line.AmoebaUnitId &&

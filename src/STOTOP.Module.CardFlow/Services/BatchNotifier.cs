@@ -1,18 +1,21 @@
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
-using STOTOP.Module.CardFlow.Hubs;
+using STOTOP.Module.CardFlow.AutoPlugin;
 
 namespace STOTOP.Module.CardFlow.Services;
 
-/// <summary>IBatchNotifier 实现：通过 SignalR 推送批次事件，所有方法自带 try-catch</summary>
+/// <summary>
+/// IBatchNotifier 实现：经 IProgressNotifier 推送到 ProgressHub 的 import-{batchId} 组，所有方法自带 try-catch。
+/// 不可直推 CardFlowHub：该 Hub 无批次订阅入口、前端 useBatchSync 只监听 progress 连接，
+/// 且 Clients.All 会跨组织广播。
+/// </summary>
 public class BatchNotifier : IBatchNotifier
 {
-    private readonly IHubContext<CardFlowHub> _hubContext;
+    private readonly IProgressNotifier _progressNotifier;
     private readonly ILogger<BatchNotifier> _logger;
 
-    public BatchNotifier(IHubContext<CardFlowHub> hubContext, ILogger<BatchNotifier> logger)
+    public BatchNotifier(IProgressNotifier progressNotifier, ILogger<BatchNotifier> logger)
     {
-        _hubContext = hubContext;
+        _progressNotifier = progressNotifier;
         _logger = logger;
     }
 
@@ -20,11 +23,7 @@ public class BatchNotifier : IBatchNotifier
     {
         try
         {
-            await _hubContext.Clients.All.SendAsync("BatchPipelineStarted", new
-            {
-                batchId,
-                plugins = plugins.Select(p => new { name = p.Name, index = p.Index, status = p.Status })
-            });
+            await _progressNotifier.NotifyBatchPipelineStartedAsync(batchId, plugins);
         }
         catch (Exception ex)
         {
@@ -36,14 +35,7 @@ public class BatchNotifier : IBatchNotifier
     {
         try
         {
-            await _hubContext.Clients.All.SendAsync("PluginStatusChanged", new
-            {
-                batchId,
-                pluginIndex,
-                pluginName,
-                status,
-                error
-            });
+            await _progressNotifier.NotifyPluginStatusChangedAsync(batchId, pluginIndex, pluginName, status, error);
         }
         catch (Exception ex)
         {
@@ -55,12 +47,7 @@ public class BatchNotifier : IBatchNotifier
     {
         try
         {
-            await _hubContext.Clients.All.SendAsync("BatchProgressUpdate", new
-            {
-                batchId,
-                processedRows = processed,
-                totalRows = total
-            });
+            await _progressNotifier.NotifyBatchProgressUpdateAsync(batchId, processed, total);
         }
         catch (Exception ex)
         {

@@ -124,5 +124,6 @@ graph TB
 | [22-claude-workflow.md](22-claude-workflow.md) | 用 Claude Code 高效开发：日常闭环、斜杠命令、子代理、大库提速、权限与门禁 |
 | [23-multitenant-org-redesign.md](23-multitenant-org-redesign.md) | **（拟议·未实施）** 多租户组织/租户/身份/数据权限重设计：区域公司=租户、四层隔离、两列两层 fail-closed 过滤器、R8 数据范围、外部 IdP、SaaS、迁移分阶段 |
 | [24-tenant-migration-playbook.md](24-tenant-migration-playbook.md) | **（拟议·未实施）** 多租户隔离迁移实施手册：阶段0-4 依赖图、阶段0 加列+回填+三重校验全量代码/SQL、阶段1 fail-closed 过滤器落点、隔离自检纳门禁、关键文件锚点（配套 23） |
+| [25-account-set-rule-p0.md](25-account-set-rule-p0.md) | **（已实施）** 账套规则（FinAccountSetRule）P0：制单审核分离/结转科目映射/凭证字白名单三项账套级会计控制，含 as-built 偏差与激活记录（V20、FID 2129/2130、baseline 模板明细漂移修复） |
 
 新增设计文档默认使用中文，并优先记录当前运行边界而不是历史计划。标注"拟议"的文档为目标态设计，尚未落地。

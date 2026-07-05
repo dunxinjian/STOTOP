@@ -354,6 +354,12 @@ export const layoutRoute: RouteRecordRaw = {
       meta: { title: '辅助设置', icon: 'Grid', module: 'finance' },
     },
     {
+      path: 'finance/account-set-rules',
+      name: 'AccountSetRuleConfig',
+      component: () => import('@/views/finance/AccountSetRuleConfig.vue'),
+      meta: { title: '账套规则', icon: 'ControlOutlined', module: 'finance' },
+    },
+    {
       path: 'finance/auxiliary-aliases',
       name: 'AuxiliaryAliasConfig',
       component: () => import('@/views/finance/AuxiliaryAliasConfig.vue'),
@@ -919,12 +925,13 @@ export const layoutRoute: RouteRecordRaw = {
       component: () => import('@/views/cardflow/CardApprovePage.vue'),
       meta: { title: '审批', hidden: true, permission: '*', module: 'cardflow' },
     },
-    {
-      path: 'cardflow/delegations',
-      name: 'CardFlowDelegations',
-      component: () => import('@/views/cardflow/DelegationPage.vue'),
-      meta: { title: '委托管理', permission: '*', module: 'cardflow' },
-    },
+    // V2 冻结：审批委托引擎未消费（设计决策 D1，2026-06-16 简化瘦身），入口暂下线
+    // {
+    //   path: 'cardflow/delegations',
+    //   name: 'CardFlowDelegations',
+    //   component: () => import('@/views/cardflow/DelegationPage.vue'),
+    //   meta: { title: '委托管理', permission: '*', module: 'cardflow' },
+    // },
     {
       path: 'cardflow/settings/notification',
       name: 'CardFlowNotification',

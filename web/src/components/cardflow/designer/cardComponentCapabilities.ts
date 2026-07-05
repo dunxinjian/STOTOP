@@ -574,16 +574,23 @@ export const CARD_COMPONENT_CAPABILITIES: Record<string, CardComponentCapability
   },
 }
 
+// 运行时 type 同为 placeholderControl、仅靠 controlKind 区分的暂缓能力项（capability key 与 controlKind 同名）。
+const DEFERRED_PLACEHOLDER_CONTROL_KINDS = ['formula', 'columnLayout', 'aiAssist', 'serialNumber', 'ocrText', 'componentSuite']
+
 export function resolveComponentCapability(type?: string | null, props?: Record<string, any> | null): CardComponentCapability {
   const capabilityKey = typeof props?.capabilityKey === 'string' ? props.capabilityKey : null
   if (capabilityKey && CARD_COMPONENT_CAPABILITIES[capabilityKey]) {
     return CARD_COMPONENT_CAPABILITIES[capabilityKey]
   }
-  if (type === 'placeholderControl' && props?.controlKind === 'formula') {
-    return CARD_COMPONENT_CAPABILITIES.formula
-  }
-  if (type === 'placeholderControl' && props?.controlKind === 'columnLayout') {
-    return CARD_COMPONENT_CAPABILITIES.columnLayout
+  // 无 capabilityKey 的存量占位组件（历史数据/手改）按 controlKind 回退到对应能力项，
+  // 封死 aiAssist/serialNumber/ocrText 等落到 publishable 的 placeholderControl 兜底绕过发布门禁。
+  if (
+    type === 'placeholderControl'
+    && typeof props?.controlKind === 'string'
+    && DEFERRED_PLACEHOLDER_CONTROL_KINDS.includes(props.controlKind)
+    && CARD_COMPONENT_CAPABILITIES[props.controlKind]
+  ) {
+    return CARD_COMPONENT_CAPABILITIES[props.controlKind]
   }
   return CARD_COMPONENT_CAPABILITIES[type || ''] || CARD_COMPONENT_CAPABILITIES.placeholderControl
 }

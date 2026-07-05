@@ -35,7 +35,8 @@ export function useAutoSave(opts: UseAutoSaveOptions) {
     saveState.value = 'saving'
     try {
       await opts.save()
-      saveState.value = 'saved'
+      // 保存期间可能产生新编辑：以 isDirty() 为准，避免把未保存的增量误标为"已保存"
+      saveState.value = opts.isDirty() ? 'dirty' : 'saved'
       lastSavedAt.value = new Date()
     } catch (e) {
       saveState.value = 'error'

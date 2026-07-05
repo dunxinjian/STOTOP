@@ -280,7 +280,7 @@ public class ExpenseApprovalE2ETests
             new StageConfigParser(),
             new StageFieldAccessService(),
             new StageActionPolicyService(),
-            new ConditionEvaluator(),
+            new ConditionRuleEvaluator(),
             new ApproverResolver(db),
             new FakeBudgetOccupationService(),
             new DbTodoService(db),

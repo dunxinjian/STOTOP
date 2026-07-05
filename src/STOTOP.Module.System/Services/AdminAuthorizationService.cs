@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using STOTOP.Infrastructure.Data;
+using STOTOP.Module.System.Entities;
 
 namespace STOTOP.Module.System.Services;
 
@@ -20,16 +21,11 @@ public class AdminAuthorizationService : IAdminAuthorizationService
         return user.Claims.Any(c => c.Type == ClaimTypes.Role && c.Value == AdminRoleClaim);
     }
 
+    // 全局判定 admin：SysUserRole 非 IOrgScoped，Set<> 不带组织过滤，与原 raw SQL 同口径。
+    // 用 AnyAsync(→EXISTS) 而非 SqlQueryRaw+First，避免 EF[10103]（First 无 OrderBy）噪音警告；勿改回 raw SQL。
     public async Task<bool> IsAdminByUserIdAsync(STOTOPDbContext db, long userId)
-    {
-        var count = await db.Database
-            .SqlQueryRaw<int>(
-                "SELECT COUNT(1) AS [Value] FROM [SYS用户角色] WHERE [F用户ID] = {0} AND [F角色ID] = {1}",
-                userId, AdminRoleId)
-            .FirstOrDefaultAsync();
-
-        return count > 0;
-    }
+        => await db.Set<SysUserRole>()
+            .AnyAsync(ur => ur.FUserId == userId && ur.FRoleId == AdminRoleId);
 
     public async Task<bool> IsPlatformAdminByUserIdAsync(STOTOPDbContext db, long userId)
     {

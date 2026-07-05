@@ -7,6 +7,7 @@ using STOTOP.Core.Interfaces;
 using STOTOP.Core.Models;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Infrastructure.Events;
+using STOTOP.Module.Finance.Constants;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Entities;
 using STOTOP.Module.Finance.Events;
@@ -28,6 +29,7 @@ public class VoucherService : IVoucherService
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IEventDispatcher _eventDispatcher;
     private readonly STOTOPDbContext _context;
+    private readonly IAccountSetRuleService _accountSetRuleService;
 
     public VoucherService(
         IRepository<FinVoucher> voucherRepository,
@@ -38,7 +40,8 @@ public class VoucherService : IVoucherService
         ChangeTrackingService changeTrackingService,
         IHttpContextAccessor httpContextAccessor,
         IEventDispatcher eventDispatcher,
-        STOTOPDbContext context)
+        STOTOPDbContext context,
+        IAccountSetRuleService accountSetRuleService)
     {
         _voucherRepository = voucherRepository;
         _entryRepository = entryRepository;
@@ -49,6 +52,7 @@ public class VoucherService : IVoucherService
         _httpContextAccessor = httpContextAccessor;
         _eventDispatcher = eventDispatcher;
         _context = context;
+        _accountSetRuleService = accountSetRuleService;
     }
 
     /// <summary>
@@ -294,7 +298,14 @@ public class VoucherService : IVoucherService
     public async Task<VoucherDto> CreateAsync(CreateVoucherRequest request, string creator, long accountSetId = 0, bool enforceAuxContract = false)
     {
         ValidateVoucher(request);
-        await ValidateEntriesAsync(request.Entries, enforceAuxContract);
+
+        // P0-3 凭证字须在账套启用集合内（服务端强制，防绕过前端下拉直接调 API）。
+        // 无配置回退全集；仅拦新建，编辑/草稿不校验（历史凭证字不回溯）。
+        var enabledWords = await _accountSetRuleService.GetEnabledVoucherWordsAsync(accountSetId);
+        if (!enabledWords.Contains(request.VoucherWord))
+            throw new InvalidOperationException($"凭证字只能是 {string.Join("/", enabledWords)}，当前值：\"{request.VoucherWord}\"");
+
+        await ValidateEntriesAsync(request.Entries, accountSetId, enforceAuxContract);
 
         // 验证辅助核算JSON格式
         foreach (var entry in request.Entries)
@@ -429,7 +440,7 @@ public class VoucherService : IVoucherService
         }
 
         ValidateVoucher(request);
-        await ValidateEntriesAsync(request.Entries, enforceAuxContract);
+        await ValidateEntriesAsync(request.Entries, voucher.FAccountSetId, enforceAuxContract);
 
         // 验证辅助核算JSON格式
         foreach (var entry in request.Entries)
@@ -551,6 +562,21 @@ public class VoucherService : IVoucherService
         var voucher = await GetOwnedVoucherAsync(id);
         if (voucher == null) return false;
 
+        // 状态机校验：仅待审核(1)可审核。否则草稿(0)可越过提交直审、作废(-1)被复活、锁定(3)绕过反结账解锁。
+        if (voucher.FStatus != (int)VoucherStatus.Pending)
+            throw new InvalidOperationException(voucher.FStatus switch
+            {
+                (int)VoucherStatus.Audited => "凭证已审核，无需重复审核",
+                (int)VoucherStatus.Locked => "凭证所在期间已结账锁定，请先反结账",
+                (int)VoucherStatus.Voided => "凭证已作废，不可审核",
+                _ => "仅待审核凭证可审核"
+            });
+
+        // P0-1 制单审核分离（账套规则开关，默认关=不校验）：制单人不可审核本人凭证
+        var rule = await _accountSetRuleService.GetByAccountSetAsync(voucher.FAccountSetId);
+        if (rule?.FRequireAuditSeparation == true && voucher.FCreator == auditor)
+            throw new InvalidOperationException("本账套已启用制单审核分离，制单人不可审核本人凭证");
+
         voucher.FStatus = 2; // 已审核
         voucher.FAuditor = auditor;
         voucher.FUpdatedTime = DateTime.Now;
@@ -566,6 +592,12 @@ public class VoucherService : IVoucherService
     {
         var voucher = await GetOwnedVoucherAsync(id);
         if (voucher == null) return false;
+
+        // 状态机校验：仅已审核(2)可反审核。锁定(3)须先反结账；草稿/待审核/作废无从反审核。
+        if (voucher.FStatus == (int)VoucherStatus.Locked)
+            throw new InvalidOperationException("凭证所在期间已结账锁定，请先反结账后再操作");
+        if (voucher.FStatus != (int)VoucherStatus.Audited)
+            throw new InvalidOperationException("仅已审核凭证可反审核");
 
         voucher.FStatus = 1; // 待审核
         voucher.FAuditor = null;
@@ -879,6 +911,7 @@ public class VoucherService : IVoucherService
     {
         int successCount = 0;
         int skipCount = 0;
+        int selfAuditSkipCount = 0; // P0-1 制单人自审被拦（与"已审核"跳过分开计数）
         var now = DateTime.Now;
 
         foreach (var id in voucherIds)
@@ -886,9 +919,22 @@ public class VoucherService : IVoucherService
             var voucher = await GetOwnedVoucherAsync(id);
             if (voucher == null) continue;
 
-            if (voucher.FStatus == 2)
+            // 仅待审核(1)可审核；已审核(2)/草稿(0)/作废(-1)/锁定(3) 一律跳过（与单张 AuditAsync 状态机一致）
+            if (voucher.FStatus != 1)
             {
                 skipCount++;
+                continue;
+            }
+
+            // P0-1 制单审核分离：批量不整批失败，逐张跳过并留痕
+            var rule = await _accountSetRuleService.GetByAccountSetAsync(voucher.FAccountSetId);
+            if (rule?.FRequireAuditSeparation == true && voucher.FCreator == auditorName)
+            {
+                selfAuditSkipCount++;
+                await _operationLogService.LogAsync(
+                    voucher.FAccountSetId, "凭证", "批量审核跳过",
+                    $"制单审核分离拦截：{auditorName} 不可审核本人制单的凭证 {voucher.FVoucherWord}{voucher.FVoucherNo}",
+                    id, $"{voucher.FVoucherWord}{voucher.FVoucherNo}");
                 continue;
             }
 
@@ -905,9 +951,12 @@ public class VoucherService : IVoucherService
             successCount++;
         }
 
+        var message = $"成功审核 {successCount} 张，跳过 {skipCount} 张（非待审核）";
+        if (selfAuditSkipCount > 0)
+            message += $"，{selfAuditSkipCount} 张（制单人不可自审）";
         return ApiResult<object>.Success(
-            new { successCount, skipCount },
-            $"成功审核 {successCount} 张，跳过 {skipCount} 张（已审核）");
+            new { successCount, skipCount, selfAuditSkipCount },
+            message);
     }
 
     public async Task<ApiResult<object>> CheckGapAsync(long accountSetId, int year, int periodNo)
@@ -944,13 +993,20 @@ public class VoucherService : IVoucherService
             msg);
     }
 
-    private async Task ValidateEntriesAsync(List<CreateVoucherEntryRequest> entries, bool enforceAuxContract = false)
+    private async Task ValidateEntriesAsync(List<CreateVoucherEntryRequest> entries, long accountSetId, bool enforceAuxContract = false)
     {
         foreach (var entry in entries)
         {
             var account = await _accountRepository.GetByIdAsync(entry.AccountId);
             if (account == null)
                 throw new InvalidOperationException($"科目不存在：{entry.AccountId}");
+            // 科目账套归属校验：GetByIdAsync 走主键不受账套过滤，须复核归属，
+            // 防跨账套科目串入本账套凭证（F38）。accountSetId<=0（后台/历史调用）时不拦。
+            if (accountSetId > 0 && account.FAccountSetId != accountSetId)
+                throw new InvalidOperationException($"科目 {account.FCode} {account.FName} 不属于当前账套，不能录入凭证");
+            // 非末级科目不能直接记账（末级=FIsLeaf==1），防止在汇总科目上挂分录破坏科目层级汇总（F38）。
+            if (account.FIsLeaf != 1)
+                throw new InvalidOperationException($"科目 {account.FCode} {account.FName} 非末级科目，不能直接记账");
             if (account.FEnableStatus != 1)
                 throw new InvalidOperationException($"科目 {account.FCode} {account.FName} 已停用，不能录入凭证");
 

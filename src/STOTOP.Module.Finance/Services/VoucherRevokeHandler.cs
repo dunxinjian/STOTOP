@@ -42,7 +42,11 @@ public class VoucherRevokeHandler : IDataScopeRevokeHandler
     /// <returns>撤销的凭证数量</returns>
     public async Task<VoucherRevokeResult> RevokeByDataScopeAsync(string dataScopeId, long operatorId)
     {
+        // AsTracking 必须显式指定：DbContext 全局默认 NoTrackingWithIdentityResolution，
+        // 否则下方对 voucher.FIsRevoked / FStatus 的赋值不进变更跟踪器，SaveChangesAsync 不落库
+        // → 作废/撤销标记全部丢失，且因 !FIsRevoked 恒成立，重复撤销会反复生成红冲凭证。
         var vouchers = await _context.Set<FinVoucher>()
+            .AsTracking()
             .Include(v => v.Entries)
             .Where(v => v.FDataScopeId == dataScopeId && !v.FIsRevoked)
             .ToListAsync();
@@ -61,13 +65,13 @@ public class VoucherRevokeHandler : IDataScopeRevokeHandler
         {
             try
             {
-                if (voucher.FStatus == 2) // 已审核/已过账 → 生成红冲凭证
+                if (voucher.FStatus == 2 || voucher.FStatus == 3) // 已审核/已锁定(结账后)=已过账 → 生成红冲凭证
                 {
                     await GenerateRedVoucherAsync(voucher, operatorId);
                     voucher.FIsRevoked = true;
                     redVoucherCount++;
                 }
-                else // 未审核（草稿/待审核）→ 直接标记作废
+                else // 未过账（草稿/待审核）→ 直接标记作废
                 {
                     voucher.FIsRevoked = true;
                     voucher.FStatus = -1; // 作废状态

@@ -159,10 +159,13 @@ public class InvoiceService : IInvoiceService
         };
     }
 
-    public async Task<InvoiceDto?> GetInvoiceByIdAsync(long id)
+    public async Task<InvoiceDto?> GetInvoiceByIdAsync(long id, long accountSetId)
     {
         var invoice = await _invoiceRepository.GetByIdAsync(id);
-        return invoice == null ? null : MapToDto(invoice);
+        // FinInvoice 未实现 IOrgScoped/ITenantScoped，无全局过滤器；必须显式校验账套归属，否则任意发票 FID 越权可读
+        if (invoice == null || invoice.FAccountSetId != accountSetId)
+            return null;
+        return MapToDto(invoice);
     }
 
     public async Task<bool> MatchInvoiceAsync(long invoiceId, long voucherId, long accountSetId)
@@ -172,7 +175,7 @@ public class InvoiceService : IInvoiceService
             return false;
 
         var voucher = await _voucherRepository.GetByIdAsync(voucherId);
-        if (voucher == null) return false;
+        if (voucher == null || voucher.FAccountSetId != accountSetId) return false;
 
         invoice.FMatchedVoucherId = voucherId;
         invoice.FMatchStatus = 1;

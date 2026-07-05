@@ -4,9 +4,6 @@
       <template #center>
         <a-segmented v-model:value="activeTab" :options="tabOptions" size="small" @change="handleTabChange" />
       </template>
-      <template #right>
-        <a-button size="small" @click="handleExport">导出 Excel</a-button>
-      </template>
       <template #toolbar>
         <a-input-number v-model:value="filters.batchId" placeholder="批次ID" :min="1" :controls="false" size="small" style="width: 110px" />
         <a-select v-model:value="filters.status" placeholder="处理状态" allowClear size="small" style="width: 110px">
@@ -25,10 +22,10 @@
     <div class="stats-bar">
       <a-spin :spinning="statsLoading" size="small">
         <div class="stats-bar__inner">
-          <span class="stats-item">总记录 <strong>{{ stats.total ?? 0 }}</strong></span>
-          <span class="stats-item stats-item--info">未处理 <strong>{{ stats.unprocessed ?? 0 }}</strong></span>
-          <span class="stats-item stats-item--success">已加工 <strong>{{ stats.processed ?? 0 }}</strong></span>
-          <span class="stats-item stats-item--danger">加工失败 <strong>{{ stats.failed ?? 0 }}</strong></span>
+          <span class="stats-item">总记录 <strong>{{ stats.totalCount ?? 0 }}</strong></span>
+          <span class="stats-item stats-item--info">未处理 <strong>{{ stats.unprocessedCount ?? 0 }}</strong></span>
+          <span class="stats-item stats-item--success">已加工 <strong>{{ stats.processedCount ?? 0 }}</strong></span>
+          <span class="stats-item stats-item--danger">加工失败 <strong>{{ stats.failedCount ?? 0 }}</strong></span>
           <span class="stats-item">收入 <strong class="text-success">¥{{ formatAmount(stats.totalIncome ?? 0) }}</strong></span>
           <span class="stats-item">支出 <strong class="text-danger">¥{{ formatAmount(stats.totalExpense ?? 0) }}</strong></span>
         </div>
@@ -51,7 +48,6 @@
             </a-menu>
           </template>
         </a-dropdown>
-        <a-button size="small" @click="handleBatchReprocess">批量重新加工</a-button>
       </div>
 
       <!-- 数据表格 -->
@@ -141,7 +137,6 @@ import {
   updateStagingRecord,
   batchDeleteStaging,
   batchUpdateStagingStatus,
-  reprocessStaging,
 } from '@/api/cardflow'
 
 // ==================== 列配置（数据驱动） ====================
@@ -154,16 +149,15 @@ interface ColumnDef {
 
 const COLUMN_CONFIGS: Record<string, ColumnDef[]> = {
   jt: [
-    { key: 'F流水号', label: '流水号', width: 150 },
-    { key: 'F记账日期', label: '记账日期', width: 110 },
-    { key: 'F业务日期', label: '业务日期', width: 110 },
-    { key: 'F网点编号', label: '网点编号', width: 100 },
-    { key: 'F网点名称', label: '网点名称', width: 120 },
-    { key: 'F业务类型', label: '业务类型', width: 100 },
-    { key: 'F费用名称', label: '费用名称', width: 120 },
-    { key: 'F发生额收入', label: '收入', width: 100, align: 'right' },
-    { key: 'F发生额支出', label: '支出', width: 100, align: 'right' },
-    { key: 'F余额', label: '余额', width: 100, align: 'right' },
+    { key: 'F流水号', label: '流水号', width: 160 },
+    { key: 'F业务日期', label: '业务日期', width: 150 },
+    { key: 'F网点编号', label: '网点编号', width: 90 },
+    { key: 'F网点名称', label: '网点名称', width: 140 },
+    { key: 'F交易类型', label: '交易类型', width: 90 },
+    { key: 'F费用主类', label: '费用主类型', width: 110 },
+    { key: 'F费用子类', label: '费用子类型', width: 160 },
+    { key: 'F发生金额', label: '发生金额', width: 110, align: 'right' },
+    { key: 'F本次余额', label: '本次余额', width: 110, align: 'right' },
     { key: 'F处理状态', label: '状态', width: 90 },
     { key: 'F创建时间', label: '创建时间', width: 160 },
   ],
@@ -179,13 +173,17 @@ const COLUMN_CONFIGS: Record<string, ColumnDef[]> = {
     { key: 'F创建时间', label: '创建时间', width: 160 },
   ],
   yd: [
-    { key: 'F运单编号', label: '运单编号', width: 150 },
-    { key: 'F日期', label: '日期', width: 110 },
-    { key: 'F始发网点', label: '始发网点', width: 120 },
-    { key: 'F目的网点', label: '目的网点', width: 120 },
-    { key: 'F费用类型', label: '费用类型', width: 100 },
-    { key: 'F应收金额', label: '应收', width: 100, align: 'right' },
-    { key: 'F应付金额', label: '应付', width: 100, align: 'right' },
+    { key: 'F交易凭证', label: '交易凭证', width: 170 },
+    { key: 'F公司编码', label: '网点编码', width: 90 },
+    { key: 'F所属公司', label: '所属公司', width: 150 },
+    { key: 'F交易日期', label: '交易日期', width: 110 },
+    { key: 'F交易类型', label: '交易类型', width: 110 },
+    { key: 'F费用大类', label: '费用大类', width: 160 },
+    { key: 'F三级科目', label: '三级科目', width: 150 },
+    { key: 'F交易金额', label: '交易金额', width: 100, align: 'right' },
+    { key: 'F发生额收入', label: '收入', width: 90, align: 'right' },
+    { key: 'F发生额支出', label: '支出', width: 90, align: 'right' },
+    { key: 'F期末余额', label: '期末余额', width: 110, align: 'right' },
     { key: 'F处理状态', label: '状态', width: 90 },
     { key: 'F创建时间', label: '创建时间', width: 160 },
   ],
@@ -295,9 +293,10 @@ function buildParams() {
     params.endDate = filters.dateRange[1]
   }
   if (filters.keyword) params.keyword = filters.keyword
+  // 后端排序参数为 SortBy(string) + SortDesc(bool)
   if (sortState.prop) {
-    params.sortField = sortState.prop
-    params.sortOrder = sortState.order === 'ascend' ? 'asc' : 'desc'
+    params.sortBy = sortState.prop
+    params.sortDesc = sortState.order === 'descend'
   }
   return params
 }
@@ -361,10 +360,6 @@ function handleTableChange(_pagination: any, _filters: any, sorter: any) {
   loadData()
 }
 
-function handleExport() {
-  message.info('功能开发中')
-}
-
 // ---- 批量操作 ----
 async function handleBatchDelete() {
   const ids = selectedRowKeys.value
@@ -403,26 +398,6 @@ async function handleBatchStatus(newStatus: number) {
         loadAll()
       } catch {
         message.error('批量修改状态失败')
-      }
-    },
-  })
-}
-
-async function handleBatchReprocess() {
-  const ids = selectedRowKeys.value
-  Modal.confirm({
-    title: '批量重新加工',
-    content: `确认对选中的 ${ids.length} 条记录重新加工？`,
-    okText: '确认',
-    cancelText: '取消',
-    async onOk() {
-      try {
-        await reprocessStaging(activeTab.value, { ids: ids as number[] })
-        message.success('已提交重新加工')
-        selectedRowKeys.value = []
-        loadAll()
-      } catch {
-        message.error('批量重新加工失败')
       }
     },
   })

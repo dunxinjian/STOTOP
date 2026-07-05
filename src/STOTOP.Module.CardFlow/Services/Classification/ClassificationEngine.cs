@@ -622,6 +622,8 @@ public class ClassificationEngine
                Regex.IsMatch(tableName, @"^STG[\u4e00-\u9fa5A-Za-z0-9_]+$");
     }
 
+    // 条件求值收敛（阶段3g 2026-07-04）：本实现是 JSON→SQL 编译范式（服务端集合过滤），与内存求值的 ConditionRuleEvaluator 范式不同，暂保留独立；
+    // 新增算子/规则能力请优先评估复用 ConditionRuleEvaluator，避免第四套语义。
     /// <summary>递归构建WHERE子句</summary>
     private string BuildWhereClause(JsonElement element, List<SqlParameter> parameters)
     {

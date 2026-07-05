@@ -50,8 +50,133 @@ public static class FinanceSeeder
             new(17, "阶段3B(M6): 从 SYS网点公司 1:1 物化派生 FIN经营单元(禁手工,公司停用联动) (2026-07-03)", MigrateV17),
             new(18, "阶段3C(M6): FIN经营单元 加 F来源类型/F来源业务单元ID 交叉引用列+索引; existing-DB 侧建桥(fresh-DB 因 aux 尚未播种,由 BasicData V1 补建) (2026-07-03)", MigrateV18),
             new(19, "阶段3C 修: 撤销 V18 对 business_unit aux 的反向来源标记(F来源类型=FIN经营单元)——曾冻结这些经营单元 aux 的改名,桥改为 OU 单向 (2026-07-04)", MigrateV19),
+            new(20, "账套规则P0: 建 FIN账套规则 表(一账套一行,制单审核分离/结转科目映射/启用凭证字,含 F租户ID 隔离键)+唯一账套索引+租户索引;只建空表不插行=零行为变更 (2026-07-04)", MigrateV20),
+            new(21, "账套规则P0 配套修: 清理模板3明细旧快照残留行(FID 20431-20903)——baseline 表节已重导为 V11 产物(FID 700001+),upsert-only 对齐不删旧行,V11后用旧JSON对齐过的库会双份 (2026-07-04)", MigrateV21),
+            new(22, "阶段0收尾: FIN阿米巴手工数据.F损益项ID 放开为 NULL(对齐模型 long?—暂估行本就可空,库NOT NULL会拒插估算行) (2026-07-05)", MigrateV22),
+            new(23, "授权加固: 注册缺失的财务功能权限码(账套管理/模板/预算/资金计划)到 SYS功能权限,并授予 admin 及既有持 finance:account:manage 的角色——配套控制器新增 [RequirePermission],否则非admin恒403 (2026-07-05)", MigrateV23),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>授权加固（配套控制器补 [RequirePermission]）·注册缺失功能权限码：
+    /// AccountSet/AccountTemplate/Budget/BudgetControl/TreasuryPlan 控制器新增的功能级权限码
+    /// (finance:accountset:manage / template:manage / budget:* / budget-control:view / treasury:*)
+    /// 此前未在 baseline SYS功能权限 seed，若不注册则非 admin 用户命中这些端点恒 403（admin 旁路仍可用）。
+    /// 幂等：缺码才插；授予 admin(角色1) 及"已持 finance:account:manage 的所有角色"以保留既有财务用户访问。
+    /// 权限行按现有财务权限的父菜单挂靠(仅用于菜单归类，不影响权限校验)。</summary>
+    private static void MigrateV23(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        ExecSql(ctx, @"
+        DECLARE @ParentId BIGINT;
+        SELECT TOP 1 @ParentId = [F父ID] FROM [SYS功能权限] WHERE [F编码] = N'finance:account:manage';
+
+        DECLARE @codes TABLE (Name NVARCHAR(50), Code NVARCHAR(100));
+        INSERT INTO @codes VALUES
+            (N'账套管理',       N'finance:accountset:manage'),
+            (N'科目模板管理',   N'finance:template:manage'),
+            (N'预算查看',       N'finance:budget:view'),
+            (N'预算编辑',       N'finance:budget:edit'),
+            (N'预算审批',       N'finance:budget:approve'),
+            (N'预算映射',       N'finance:budget:mapping'),
+            (N'预算控制查看',   N'finance:budget-control:view'),
+            (N'资金计划查看',   N'finance:treasury:view'),
+            (N'资金计划编辑',   N'finance:treasury:edit');
+
+        IF @ParentId IS NOT NULL AND @ParentId > 0
+        BEGIN
+            INSERT INTO [SYS功能权限] ([F名称],[F编码],[F类型],[F父ID],[F排序],[F状态],[F是否可见])
+            SELECT c.Name, c.Code, N'按钮', @ParentId, 99, 1, 0
+            FROM @codes c
+            WHERE NOT EXISTS (SELECT 1 FROM [SYS功能权限] p WHERE p.[F编码] = c.Code);
+        END
+
+        -- 授予 admin(角色1) 及所有已持 finance:account:manage 的角色，保留既有财务用户访问
+        INSERT INTO [SYS角色权限] ([F角色ID],[F权限ID])
+        SELECT DISTINCT r.[F角色ID], p.[FID]
+        FROM [SYS功能权限] p
+        JOIN @codes c ON p.[F编码] = c.Code
+        CROSS APPLY (
+            SELECT CAST(1 AS BIGINT) AS [F角色ID]
+            UNION
+            SELECT rp.[F角色ID] FROM [SYS角色权限] rp
+            JOIN [SYS功能权限] fp ON rp.[F权限ID] = fp.[FID]
+            WHERE fp.[F编码] = N'finance:account:manage'
+        ) r
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [SYS角色权限] x WHERE x.[F角色ID] = r.[F角色ID] AND x.[F权限ID] = p.[FID]
+        );");
+    }
+
+    /// <summary>
+    /// 阶段0收尾·反向漂移收口：FIN阿米巴手工数据.F损益项ID 库列仍 NOT NULL，但模型为 long?(IsRequired(false)，
+    /// 暂估 estimate 行本就可空,见 FinAmoebaManualData 实体注释 + AmoebaPLService)——estimate 写入会被库 NOT NULL 拒插。
+    /// 放开 NOT NULL→NULL 永远数据安全(无行违反)。该列在唯一过滤索引 IX_FinAmoebaManualData_Unique 内，
+    /// 须"落索引→改列→建回"(与配置 HasIndex 定义一致：唯一/过滤 F数据类型='manual')。
+    /// 幂等：仅当列当前 NOT NULL 时执行。唯一性不受影响——manual 行(过滤集内)始终有值,null 只在被过滤掉的 estimate 行。
+    /// </summary>
+    private static void MigrateV22(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+        IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+                   WHERE TABLE_NAME = N'FIN阿米巴手工数据' AND COLUMN_NAME = N'F损益项ID' AND IS_NULLABLE = 'NO')
+        BEGIN
+            IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_FinAmoebaManualData_Unique'
+                       AND object_id = OBJECT_ID(N'FIN阿米巴手工数据'))
+                DROP INDEX [IX_FinAmoebaManualData_Unique] ON [FIN阿米巴手工数据];
+
+            ALTER TABLE [FIN阿米巴手工数据] ALTER COLUMN [F损益项ID] bigint NULL;
+
+            CREATE UNIQUE INDEX [IX_FinAmoebaManualData_Unique]
+                ON [FIN阿米巴手工数据] ([F模板ID], [F损益项ID], [F组织ID], [F期间])
+                WHERE [F数据类型] = 'manual';
+        END");
+    }
+
+    /// <summary>账套规则P0 配套修（规约审查 R1）·清理模板3明细旧快照残留：
+    /// baseline JSON 的 FIN科目模板_明细 表节已按"库为真源"重导为 V11 产物（FID=账套2科目FID，700001+），
+    /// 旧快照行（FID 20431–20903，共473行）从 JSON 移除；但 BaselineReferenceDataSeeder 只 upsert 不删除，
+    /// 凡在 V11(2026-06-19) 之后、本修复之前用旧 JSON 对齐过的库（含该窗口内 --init-database 的新库）
+    /// 会新旧并存=模板3每个科目双份，套模板初始化新账套即产出双份科目。此步幂等删除旧段；dev 已验证无残留（删0行）。</summary>
+    private static void MigrateV21(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        ExecSql(ctx, @"
+        DELETE FROM [FIN科目模板_明细]
+        WHERE [F模板ID] = 3 AND [FID] BETWEEN 20431 AND 20903;");
+    }
+
+    /// <summary>账套规则(P0)·建表：FIN账套规则 一账套一行(UNIQUE F账套ID)，承载账套级会计控制开关与结转科目映射。
+    /// 无行=无配置=全部回退写死行为(fail-safe)，故只建空表、不预置数据——上线瞬间行为与当前完全一致。
+    /// 实体 FinAccountSetRule 标 ITenantScoped(租户全局过滤器)+IAccountSetScoped(标记接口,查询手写 Where)。幂等。</summary>
+    private static void MigrateV20(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = N'FIN账套规则')
+        CREATE TABLE [FIN账套规则](
+            [FID] bigint IDENTITY(1,1) NOT NULL CONSTRAINT [PK_FIN账套规则] PRIMARY KEY,
+            [F账套ID] bigint NOT NULL,
+            [F租户ID] bigint NOT NULL CONSTRAINT [DF_FIN账套规则_F租户ID] DEFAULT 0,
+            [F组织ID] bigint NOT NULL CONSTRAINT [DF_FIN账套规则_F组织ID] DEFAULT 0,
+            [F制单审核分离] bit NOT NULL CONSTRAINT [DF_FIN账套规则_F制单审核分离] DEFAULT 0,
+            [F本年利润科目编码] nvarchar(20) NULL,
+            [F未分配利润科目编码] nvarchar(20) NULL,
+            [F启用凭证字] nvarchar(max) NULL,
+            [F状态] int NOT NULL CONSTRAINT [DF_FIN账套规则_F状态] DEFAULT 1,
+            [F创建时间] datetime2 NOT NULL CONSTRAINT [DF_FIN账套规则_F创建时间] DEFAULT SYSDATETIME(),
+            [F更新时间] datetime2 NOT NULL CONSTRAINT [DF_FIN账套规则_F更新时间] DEFAULT SYSDATETIME()
+        );");
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name=N'IX_FIN账套规则_账套ID' AND object_id=OBJECT_ID(N'FIN账套规则'))
+            CREATE UNIQUE INDEX [IX_FIN账套规则_账套ID] ON [FIN账套规则]([F账套ID]);");
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name=N'IX_FIN账套规则_租户ID' AND object_id=OBJECT_ID(N'FIN账套规则'))
+            CREATE INDEX [IX_FIN账套规则_租户ID] ON [FIN账套规则]([F租户ID]);");
     }
 
     /// <summary>阶段3C 修（终审 finding）·撤销反向来源标记：V18 曾把被桥 business_unit aux 反标 F来源类型='FIN经营单元'，

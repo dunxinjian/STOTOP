@@ -248,12 +248,27 @@ public class VoucherTemplateService
         if (template == null)
             throw new InvalidOperationException($"模板 {templateId} 不存在");
 
-        // 查找对应期间
+        // 模板须属于目标账套（否则跨账套借模板生成凭证）
+        if (template.FAccountSetId != accountSetId)
+            throw new InvalidOperationException("模板不属于该账套");
+
+        // 借贷平衡校验（结转前拦不平衡模板）
+        var tplEntries = template.Entries ?? [];
+        var totalDebit = tplEntries.Sum(e => e.FDebitAmount);
+        var totalCredit = tplEntries.Sum(e => e.FCreditAmount);
+        if (Math.Abs(totalDebit - totalCredit) > 0.001m)
+            throw new InvalidOperationException($"模板借贷不平衡，借方 {totalDebit}，贷方 {totalCredit}");
+
+        // 查找对应期间 —— 期间缺失一律拒绝（原代码落 FPeriodId=0 脏数据）
         var period = await _periodRepository.Query()
             .Where(p => p.FAccountSetId == accountSetId && p.FStartDate <= date && p.FEndDate >= date)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync()
+            ?? throw new InvalidOperationException($"未找到账套 {accountSetId} 在 {date:yyyy-MM-dd} 对应的会计期间");
 
-        long periodId = period?.FID ?? 0;
+        // 已结账期间禁止生成凭证
+        VoucherPostingRules.EnsureOpenForPosting(period);
+
+        long periodId = period.FID;
 
         // 计算凭证号
         int nextNo = 1;

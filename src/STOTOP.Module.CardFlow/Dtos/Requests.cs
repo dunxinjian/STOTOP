@@ -60,8 +60,19 @@ public class FlowDefinitionQueryRequest
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
     public string? Status { get; set; }
+
+    /// <summary>多状态筛选，逗号分隔（如 "draft,published"）；与 Status 并存时取并集语义由本字段覆盖</summary>
+    public string? Statuses { get; set; }
+
     public long? OrgId { get; set; }
     public string? Keyword { get; set; }
+    public long? FlowGroupId { get; set; }
+
+    /// <summary>排序字段白名单：flowName / createdTime / lastPublishedTime，缺省按创建时间倒序</summary>
+    public string? SortField { get; set; }
+
+    /// <summary>asc / desc（缺省 desc）</summary>
+    public string? SortOrder { get; set; }
 }
 
 public class CreateFlowDefinitionRequest
@@ -73,6 +84,7 @@ public class CreateFlowDefinitionRequest
     public string? TitleTemplate { get; set; }
     public string? AllowedRolesJson { get; set; }
     public long? FlowGroupId { get; set; }
+    public string? MatchPattern { get; set; }
     public long OrgId { get; set; }
 }
 
@@ -84,6 +96,7 @@ public class UpdateFlowDefinitionRequest
     public string? TitleTemplate { get; set; }
     public string? AllowedRolesJson { get; set; }
     public long? FlowGroupId { get; set; }
+    public string? MatchPattern { get; set; }
 }
 
 public class SaveDraftVersionRequest
@@ -164,6 +177,27 @@ public class CardFlowPathPreviewRequest
     public string? SourceType { get; set; }
     public long? SourceId { get; set; }
     public int? MaxSteps { get; set; }
+    /// <summary>明细样例行，用于 detailSummary.* 条件求值</summary>
+    public List<PreviewDetailRow>? Details { get; set; }
+}
+
+/// <summary>预演 / 呈现预览共用的明细样例行</summary>
+public class PreviewDetailRow
+{
+    public string? DetailTableKey { get; set; }
+    public string? DataJson { get; set; }
+    public int SortOrder { get; set; }
+}
+
+/// <summary>设计期呈现预览请求：草稿定义 + 样例数据 → 节点工作视图（后端真值，替代前端复刻）</summary>
+public class CardPresentationPreviewRequest
+{
+    public long? FlowVersionId { get; set; }
+    public string? StageKey { get; set; }
+    public string? DataJson { get; set; }
+    public List<PreviewDetailRow>? Details { get; set; }
+    /// <summary>视角：assignee（节点处理人，默认）| observer | initiator。B3 统一 assignee 口径，observer/initiator 差异留 B4</summary>
+    public string? ViewerMode { get; set; }
 }
 
 // 卡片请求

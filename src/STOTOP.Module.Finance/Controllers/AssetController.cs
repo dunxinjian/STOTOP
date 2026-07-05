@@ -6,6 +6,9 @@ using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Services.Interfaces;
 using global::System.Security.Claims;
 
+using STOTOP.Module.System.Filters;
+using STOTOP.Module.Finance.Filters;
+
 namespace STOTOP.Module.Finance.Controllers;
 
 [Authorize]
@@ -43,6 +46,7 @@ public class AssetController : ControllerBase
     }
 
     [HttpPost("categories")]
+    [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
     public async Task<ApiResult<AssetCategoryDto>> CreateCategory([FromBody] CreateAssetCategoryRequest request, [FromQuery] long accountSetId)
     {
         try
@@ -57,6 +61,7 @@ public class AssetController : ControllerBase
     }
 
     [HttpPut("categories/{id}")]
+    [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
     public async Task<ApiResult<AssetCategoryDto>> UpdateCategory(long id, [FromBody] CreateAssetCategoryRequest request)
     {
         var result = await _assetService.UpdateCategoryAsync(id, request);
@@ -68,6 +73,7 @@ public class AssetController : ControllerBase
     }
 
     [HttpDelete("categories/{id}")]
+    [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
     public async Task<ApiResult> DeleteCategory(long id)
     {
         try
@@ -108,6 +114,7 @@ public class AssetController : ControllerBase
     }
 
     [HttpPost("cards")]
+    [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
     public async Task<ApiResult<AssetCardDto>> CreateCard([FromBody] CreateAssetCardRequest request, [FromQuery] long accountSetId)
     {
         try
@@ -122,6 +129,7 @@ public class AssetController : ControllerBase
     }
 
     [HttpPut("cards/{id}")]
+    [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
     public async Task<ApiResult<AssetCardDto>> UpdateCard(long id, [FromBody] UpdateAssetCardRequest request)
     {
         var result = await _assetService.UpdateCardAsync(id, request);
@@ -133,6 +141,7 @@ public class AssetController : ControllerBase
     }
 
     [HttpDelete("cards/{id}")]
+    [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
     public async Task<ApiResult> DeleteCard(long id)
     {
         var result = await _assetService.DeleteCardAsync(id);
@@ -145,6 +154,7 @@ public class AssetController : ControllerBase
 
     /// <summary>导入小番财务导出的资产类别 Excel</summary>
     [HttpPost("categories/import/xiaofan")]
+    [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
     public async Task<ApiResult<AssetImportResult>> ImportCategoriesFromXiaofan(IFormFile? file, [FromQuery] long accountSetId)
     {
         if (file == null || file.Length == 0)
@@ -172,6 +182,7 @@ public class AssetController : ControllerBase
 
     /// <summary>导入小番财务导出的资产卡片 Excel</summary>
     [HttpPost("cards/import/xiaofan")]
+    [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
     public async Task<ApiResult<AssetImportResult>> ImportCardsFromXiaofan(IFormFile? file, [FromQuery] long accountSetId)
     {
         if (file == null || file.Length == 0)
@@ -201,15 +212,8 @@ public class AssetController : ControllerBase
 
     #region Depreciation
 
-    [HttpPost("depreciation/{periodId}")]
-    public async Task<ApiResult<DepreciationResultDto>> CalculateDepreciation(long periodId)
-    {
-        var creator = User.FindFirst(ClaimTypes.Name)?.Value ?? "system";
-        var result = await _assetService.CalculateDepreciationAsync(periodId, creator);
-        return ApiResult<DepreciationResultDto>.Success(result, $"成功计提{result.DepreciatedCount}项资产折旧");
-    }
-
     [HttpPost("calculate-depreciation")]
+    [RequirePermission(FinancePermissions.AssetDepreciate)]
     public async Task<ApiResult<DepreciationPreviewDto>> CalculateDepreciationPreview([FromQuery] long periodId, [FromQuery] long accountSetId = 0)
     {
         var result = await _assetService.CalculateDepreciationPreviewAsync(periodId, accountSetId);
@@ -217,6 +221,7 @@ public class AssetController : ControllerBase
     }
 
     [HttpPost("generate-depreciation-vouchers")]
+    [RequirePermission(FinancePermissions.AssetDepreciate)]
     public async Task<ApiResult<DepreciationResultDto>> GenerateDepreciationVouchers([FromQuery] long periodId, [FromQuery] long accountSetId = 0)
     {
         var result = await _assetService.GenerateDepreciationVouchersAsync(periodId, accountSetId);
@@ -235,6 +240,7 @@ public class AssetController : ControllerBase
     }
 
     [HttpPost("trial-balance/generate")]
+    [RequireAccountSetPermission(AccountSetPermissions.ReportView)]
     public async Task<ApiResult<TrialBalanceDto>> GenerateTrialBalance([FromQuery] long periodId, [FromQuery] long accountSetId = 0)
     {
         var result = await _trialBalanceService.GenerateTrialBalanceAsync(periodId, accountSetId);

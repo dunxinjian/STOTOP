@@ -109,7 +109,9 @@ export function showUrge(batch: BatchItem, role: RoleType): boolean {
   return false
 }
 
-/** 按角色返回可用操作列表（替代 BatchCard 内 v-if 判断链） */
+/** 按角色返回可用操作列表（替代 BatchCard 内 v-if 判断链）
+ * 注意：当前无调用方；其中 urge/assign/transfer 无后端 API 支撑，接线前须先补后端
+ */
 export function getStatusActions(batch: BatchItem, role: RoleType, currentUserName?: string): Action[] {
   const actions: Action[] = []
   const s = batch.status

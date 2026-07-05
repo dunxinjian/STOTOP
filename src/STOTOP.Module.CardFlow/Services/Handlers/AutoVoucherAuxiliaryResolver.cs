@@ -103,15 +103,29 @@ public class AutoVoucherAuxiliaryResolver
     }
 
     /// <summary>
-    /// fixed 模式解析：按 FixedItemId 或 FixedValue（编码/名称）查找
+    /// fixed 模式解析：按 FixedItemId → FixedItemCode → FixedValue 依次匹配。
+    /// <para>[缺陷3] FID 未命中不静默丢弃，落编码兜底：express_brand 等固定项由 EXP品牌 INSERT...SELECT
+    /// 自增 FID 同步，FID 非稳定标识（re-seed / 组织树重建会漂移）；编码 ST/YD/JT 才是跨 re-seed 稳定键。
+    /// FID 命中时行为不变（现网 fid16=ST 走快路径）。</para>
     /// </summary>
     private AuxiliaryItemInfo? ResolveFixed(AuxiliaryConfigV2 auxConfig, List<AuxiliaryItemInfo> candidates)
     {
+        // 1. 优先按固定 FID 精确匹配（候选已按 AuxType 过滤，FID 命中即该类型下的确定项）
         if (auxConfig.FixedItemId.HasValue)
         {
-            return candidates.FirstOrDefault(a => a.Id == auxConfig.FixedItemId.Value);
+            var byId = candidates.FirstOrDefault(a => a.Id == auxConfig.FixedItemId.Value);
+            if (byId != null) return byId;
+            // FID 未命中（漂移 / 该账套无此 FID）→ 不静默丢，落编码兜底
         }
 
+        // 2. 兜底：按 FixedItemCode 精确匹配编码（与 FixedItemId 双写、跨 re-seed 稳定）
+        if (!string.IsNullOrEmpty(auxConfig.FixedItemCode))
+        {
+            var byCode = candidates.FirstOrDefault(a => a.Code == auxConfig.FixedItemCode);
+            if (byCode != null) return byCode;
+        }
+
+        // 3. 兜底：按 FixedValue（编码或名称）匹配
         if (!string.IsNullOrEmpty(auxConfig.FixedValue))
         {
             return candidates.FirstOrDefault(a =>

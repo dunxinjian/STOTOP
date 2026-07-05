@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.CardFlow.Entities;
+using STOTOP.Module.CardFlow.Models.Rules;
 
 namespace STOTOP.Module.CardFlow.Services;
 
@@ -18,6 +19,9 @@ public class OrchestrationEngineService
     {
         PropertyNameCaseInsensitive = true
     };
+
+    // 条件求值收敛（阶段3g 2026-07-04）：边条件 {field, op, value} 归一化后统一委托主力 ConditionRuleEvaluator（无状态，可共享单例）
+    private static readonly ConditionRuleEvaluator RuleEvaluator = new();
 
     public OrchestrationEngineService(STOTOPDbContext db, ILogger<OrchestrationEngineService> logger)
     {
@@ -742,7 +746,8 @@ public class OrchestrationEngineService
     }
 
     /// <summary>
-    /// 简单条件评估：支持 ==, !=, &gt;, &lt;, &gt;=, &lt;=, in, notIn。
+    /// 边条件评估（{field, op, value} 格式）：归一化为单节点规则树后委托 ConditionRuleEvaluator，行为以主力语义为准。
+    /// 保留原编排格式的结构性缺省：条件缺失/非对象/缺 field·op 视为放行；notIn 主力无对应算子，以 in 取反实现（字段缺失仍按不匹配）。
     /// </summary>
     private bool EvaluateCondition(JsonElement? condition, Dictionary<string, JsonElement> context)
     {
@@ -765,75 +770,23 @@ public class OrchestrationEngineService
         var op = opEl.GetString();
         if (string.IsNullOrEmpty(field) || string.IsNullOrEmpty(op)) return true;
 
-        if (!context.TryGetValue(field, out var actualEl))
+        var negate = op == "notIn";
+        var rule = new Dictionary<string, object?>
         {
-            return false;
-        }
+            ["field"] = field,
+            ["operator"] = negate ? "in" : op
+        };
+        if (cond.TryGetProperty("value", out var valueEl))
+            rule["value"] = valueEl;
 
-        var hasValue = cond.TryGetProperty("value", out var valueEl);
+        var evalContext = new ConditionEvaluationContext();
+        foreach (var pair in context)
+            evalContext.CardData[pair.Key] = pair.Value;
 
-        switch (op)
-        {
-            case "==":
-                return hasValue && JsonEquals(actualEl, valueEl);
-            case "!=":
-                return hasValue && !JsonEquals(actualEl, valueEl);
-            case ">":
-            case "<":
-            case ">=":
-            case "<=":
-                if (!hasValue) return false;
-                if (!TryToDouble(actualEl, out var a) || !TryToDouble(valueEl, out var b)) return false;
-                return op switch
-                {
-                    ">" => a > b,
-                    "<" => a < b,
-                    ">=" => a >= b,
-                    "<=" => a <= b,
-                    _ => false
-                };
-            case "in":
-                return hasValue && valueEl.ValueKind == JsonValueKind.Array
-                    && valueEl.EnumerateArray().Any(v => JsonEquals(actualEl, v));
-            case "notIn":
-                return hasValue && valueEl.ValueKind == JsonValueKind.Array
-                    && !valueEl.EnumerateArray().Any(v => JsonEquals(actualEl, v));
-            default:
-                _logger.LogWarning("条件评估遇到未知操作符 {Op}", op);
-                return false;
-        }
-    }
-
-    private static bool JsonEquals(JsonElement a, JsonElement b)
-    {
-        if (a.ValueKind == JsonValueKind.String && b.ValueKind == JsonValueKind.String)
-        {
-            return string.Equals(a.GetString(), b.GetString(), StringComparison.Ordinal);
-        }
-        if (a.ValueKind == JsonValueKind.True || a.ValueKind == JsonValueKind.False
-            || b.ValueKind == JsonValueKind.True || b.ValueKind == JsonValueKind.False)
-        {
-            return a.ValueKind == b.ValueKind;
-        }
-        if (TryToDouble(a, out var da) && TryToDouble(b, out var db))
-        {
-            return Math.Abs(da - db) < 1e-9;
-        }
-        return string.Equals(a.GetRawText(), b.GetRawText(), StringComparison.Ordinal);
-    }
-
-    private static bool TryToDouble(JsonElement el, out double v)
-    {
-        v = 0;
-        switch (el.ValueKind)
-        {
-            case JsonValueKind.Number:
-                return el.TryGetDouble(out v);
-            case JsonValueKind.String:
-                return double.TryParse(el.GetString(), out v);
-            default:
-                return false;
-        }
+        var matched = RuleEvaluator.Evaluate(JsonSerializer.Serialize(rule), evalContext).Matched;
+        if (negate)
+            return context.ContainsKey(field) && !matched;
+        return matched;
     }
 
     private Dictionary<string, JsonElement> BuildEvalContext(

@@ -1,43 +1,46 @@
-﻿using System.Security.Claims;
-using Microsoft.Data.SqlClient;
+﻿using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Infrastructure.Events;
+using STOTOP.Module.CardFlow.AutoPlugin;
 using STOTOP.Module.CardFlow.Dtos;
 using STOTOP.Module.CardFlow.Entities;
 using STOTOP.Module.CardFlow.Events;
 using STOTOP.Module.System.Services;
-using STOTOP.Module.Workflow.DTOs;
 using STOTOP.Module.Workflow.Entities;
-using STOTOP.Module.Workflow.Enums;
-using STOTOP.Module.Workflow.Services.Interfaces;
 
 namespace STOTOP.Module.CardFlow.Services;
 
 /// <summary>
-/// 批次撤销处理器：负责批次删除前的预检查和撤销/物理删除操作
+/// 批次撤销处理器：负责批次删除前的预检查和撤销/物理删除操作。
+/// 撤销的无工单权威路径（产品决策：上传中心主动撤销是即时动作，不产生 WorkItem 工单）：
+/// 级联取消（IBatchLifecycleService 级联段）→ 标记撤销 → 撤销日志(WfRevokeLog) → 事件 → 版本号递增 + SignalR 推送。
+/// IBatchLifecycleService.RevokeBatchAsync 薄委托到这里，勿在别处再实现撤销
 /// </summary>
 public class BatchRevokeHandler
 {
     private readonly STOTOPDbContext _db;
-    private readonly IWorkItemService _workItemService;
     private readonly IConfiguration _configuration;
     private readonly IEventDispatcher _eventDispatcher;
+    private readonly IBatchLifecycleService _batchLifecycle;
+    private readonly IProgressNotifier _progressNotifier;
     private readonly ILogger<BatchRevokeHandler> _logger;
 
     public BatchRevokeHandler(
         STOTOPDbContext db,
-        IWorkItemService workItemService,
         IConfiguration configuration,
         IEventDispatcher eventDispatcher,
+        IBatchLifecycleService batchLifecycle,
+        IProgressNotifier progressNotifier,
         ILogger<BatchRevokeHandler> logger)
     {
         _db = db;
-        _workItemService = workItemService;
         _configuration = configuration;
         _eventDispatcher = eventDispatcher;
+        _batchLifecycle = batchLifecycle;
+        _progressNotifier = progressNotifier;
         _logger = logger;
     }
 
@@ -65,6 +68,11 @@ public class BatchRevokeHandler
             result.CanDelete = true;
             return result;
         }
+
+        // 统计在途卡片（撤销时会被级联取消，前端据此知情提示，不阻止操作）
+        var activeStatuses = new[] { "draft", "active", "returned" };
+        result.ActiveCardCount = await _db.Set<CfCard>()
+            .CountAsync(c => c.FBatchId == batchId && activeStatuses.Contains(c.FStatus));
 
         // 2. 查询关联凭证
         var encryptionKey = _configuration.GetValue<string>("Security:EncryptionKey");
@@ -165,9 +173,9 @@ public class BatchRevokeHandler
     }
 
     /// <summary>
-    /// 执行撤销/删除
-    /// force=false: 软删除（标记F已撤销=1，创建WorkItem，记录撤销日志）
-    /// force=true: 物理删除（调用CascadeDeleteBatchAsync） + 创建WorkItem记录
+    /// 执行撤销/删除（无工单路径）
+    /// force=false: 软删除（级联取消未完成卡片/凭证红冲/行明细置5 + 标记F已撤销=1 + 撤销日志 + 事件 + 版本号递增 + SignalR 推送）
+    /// force=true: 物理删除（调用CascadeDeleteBatchAsync）
     /// </summary>
     /// <param name="batchId">批次ID</param>
     /// <param name="operatorId">操作人ID</param>
@@ -222,108 +230,63 @@ public class BatchRevokeHandler
             return;
         }
 
-        // force=false（软删除）：创建 WorkItem 并标记撤销
-        long workItemId;
+        // force=false（软删除，无工单）：级联取消 → 标记撤销 → 撤销日志 → 事件 → 版本推送
+        // 级联段（取消未完成卡片/凭证红冲/行明细置5）收敛自 BatchLifecycleService，先级联后标记批次；
+        // 与本方法共享同一 scoped DbContext，其 SaveChanges 时批次尚无未落库改动，不会提前刷写
+        await _batchLifecycle.CascadeCancelBatchArtifactsAsync(batchId);
+
+        // 软删除：标记撤销（不设 FWorkItemId）
+        batch.FIsRevoked = true;
+        batch.FRevokedTime = DateTime.Now;
+        batch.FRevokedById = operatorId;
+        batch.FStatus = CfBatchStatus.Revoked;
+        batch.FUpdatedTime = DateTime.Now;
+
+        var affected = await _db.SaveChangesAsync();
+        _logger.LogInformation("批次 {BatchId} 撤销保存完成，受影响行数: {Rows}", batchId, affected);
+
+        // 记录撤销日志
+        var revokeLog = new WfRevokeLog
+        {
+            FOrgId = 1,
+            FDataScopeId = batchId.ToString(), // CfBatch 无 F数据作用域ID，使用批次ID代替
+            FOperatorId = operatorId,
+            FRevokeType = "BatchRevoke",
+            FTargetTable = "CF批次",
+            FAffectedRows = 1,
+            FRevokeStrategy = "MarkDeleted",
+            FIsSuccess = true
+        };
+        _db.Set<WfRevokeLog>().Add(revokeLog);
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation("批次 {BatchId} 已标记撤销（无工单）", batchId);
+
         try
         {
-            var workItemRequest = new CreateWorkItemRequest
+            await _eventDispatcher.PublishAsync(new ImportBatchRevokedEvent
             {
-                OrgId = 1, // 系统级操作
-                Title = $"批次撤销: {batch.FBatchNo}",
-                Description = $"撤销批次 {batch.FBatchNo}（文件: {batch.FFileName}），标记为已撤销",
-                Type = (int)WorkItemType.Task,
-                Source = (int)WorkItemSource.Manual,
-                Priority = (int)WorkItemPriority.Normal,
-                CreatorId = operatorId,
-                AssigneeId = operatorId,
-                Module = "DataCenter",
-                BizType = "ImportBatch",
-                BizId = batchId,
-                DataScopeId = batchId.ToString(), // CfBatch 无 F数据作用域ID，使用批次ID代替
-                AutoDispatch = false
-            };
-
-            var workItem = await _workItemService.CreateAsync(workItemRequest);
-            workItemId = workItem.Id;
+                BatchId = batchId,
+                OrgId = batch.FOrgId,
+                OperatorId = operatorId,
+                RevokedAt = DateTime.UtcNow,
+                ModuleCode = "DataCenter"
+            });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "创建撤销WorkItem失败: BatchId={BatchId}", batchId);
-            throw new InvalidOperationException($"创建工作项失败: {ex.Message}", ex);
+            _logger.LogWarning(ex, "发布批次撤销事件失败，不影响主流程: 批次={BatchId}", batchId);
         }
 
+        // 版本号递增 + SignalR 推送（复用 BatchLifecycleService 单一 SEQ 实现；推送失败仅告警不影响主流程）
+        var version = await _batchLifecycle.BumpChangeVersionAsync(batch);
         try
         {
-            // 软删除：标记撤销
-            batch.FIsRevoked = true;
-            batch.FRevokedTime = DateTime.Now;
-            batch.FRevokedById = operatorId;
-            batch.FWorkItemId = workItemId;
-
-            var affected = await _db.SaveChangesAsync();
-            _logger.LogInformation("批次 {BatchId} 撤销保存完成，受影响行数: {Rows}", batchId, affected);
-
-            // 记录撤销日志
-            var revokeLog = new WfRevokeLog
-            {
-                FOrgId = 1,
-                FDataScopeId = batchId.ToString(), // CfBatch 无 F数据作用域ID，使用批次ID代替
-                FOperatorId = operatorId,
-                FRevokeType = "BatchRevoke",
-                FTargetTable = "CF批次",
-                FAffectedRows = 1,
-                FRevokeStrategy = "MarkDeleted",
-                FIsSuccess = true
-            };
-            _db.Set<WfRevokeLog>().Add(revokeLog);
-            await _db.SaveChangesAsync();
-
-            _logger.LogInformation("批次 {BatchId} 已标记撤销，WorkItemId={WorkItemId}", batchId, workItemId);
-
-            try
-            {
-                await _eventDispatcher.PublishAsync(new ImportBatchRevokedEvent
-                {
-                    BatchId = batchId,
-                    OrgId = batch.FOrgId,
-                    OperatorId = operatorId,
-                    RevokedAt = DateTime.UtcNow,
-                    ModuleCode = "DataCenter"
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "发布批次撤销事件失败，不影响主流程: 批次={BatchId}", batchId);
-            }
-
-            // 更新 WorkItem 状态为 Completed
-            try
-            {
-                await _workItemService.CompleteAsync(workItemId, operatorId,
-                    result: "SoftRevoke",
-                    remark: "批次已标记撤销",
-                    enforceAssignee: false);
-            }
-            catch (Exception completeEx)
-            {
-                _logger.LogWarning(completeEx, "完成撤销WorkItem失败（工作项可能不存在或被过滤）: WorkItemId={WorkItemId}, BatchId={BatchId}", workItemId, batchId);
-            }
+            await _progressNotifier.NotifyBatchStatusChangedAsync(batchId, CfBatchStatus.Revoked, "Revoked", null, version);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "批次撤销/删除执行失败: BatchId={BatchId}", batchId);
-
-            // 尝试将 WorkItem 标记为取消
-            try
-            {
-                await _workItemService.CancelAsync(workItemId, operatorId, $"执行失败: {ex.Message}", enforceAssignee: false);
-            }
-            catch (Exception cancelEx)
-            {
-                _logger.LogWarning(cancelEx, "取消WorkItem失败: WorkItemId={WorkItemId}", workItemId);
-            }
-
-            throw;
+            _logger.LogWarning(ex, "推送批次撤销状态变更失败，不影响主流程: BatchId={BatchId}", batchId);
         }
     }
 
@@ -342,90 +305,41 @@ public class BatchRevokeHandler
         if (!batch.FIsRevoked)
             throw new InvalidOperationException("该批次未被撤销，无需恢复");
 
-        // 1. 创建 WorkItem
-        long workItemId;
+        // 恢复批次（无工单）：清除撤销标记 + 回到已暂存状态
+        batch.FIsRevoked = false;
+        batch.FRevokedTime = null;
+        batch.FRevokedById = null;
+        batch.FStatus = CfBatchStatus.Staged; // 恢复后回到已暂存状态
+        batch.FUpdatedTime = DateTime.Now;
+
+        await _db.SaveChangesAsync();
+
+        // 记录恢复日志
+        var restoreLog = new WfRevokeLog
+        {
+            FOrgId = 1,
+            FDataScopeId = batchId.ToString(), // CfBatch 无 F数据作用域ID
+            FOperatorId = operatorId,
+            FRevokeType = "BatchRestore",
+            FTargetTable = "CF批次",
+            FAffectedRows = 1,
+            FRevokeStrategy = "Restore",
+            FIsSuccess = true
+        };
+        _db.Set<WfRevokeLog>().Add(restoreLog);
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation("批次 {BatchId} 已恢复（无工单）", batchId);
+
+        // 版本号递增 + SignalR 推送
+        var version = await _batchLifecycle.BumpChangeVersionAsync(batch);
         try
         {
-            var workItemRequest = new CreateWorkItemRequest
-            {
-                OrgId = 1,
-                Title = $"批次恢复: {batch.FBatchNo}",
-                Description = $"恢复已撤销批次 {batch.FBatchNo}（文件: {batch.FFileName}）",
-                Type = (int)WorkItemType.Task,
-                Source = (int)WorkItemSource.Manual,
-                Priority = (int)WorkItemPriority.Normal,
-                CreatorId = operatorId,
-                AssigneeId = operatorId,
-                Module = "DataCenter",
-                BizType = "ImportBatch",
-                BizId = batchId,
-                DataScopeId = batchId.ToString(), // CfBatch 无 F数据作用域ID
-                AutoDispatch = false
-            };
-
-            var workItem = await _workItemService.CreateAsync(workItemRequest);
-            workItemId = workItem.Id;
+            await _progressNotifier.NotifyBatchStatusChangedAsync(batchId, CfBatchStatus.Staged, "Staged", null, version);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "创建恢复WorkItem失败: BatchId={BatchId}", batchId);
-            throw new InvalidOperationException($"创建工作项失败: {ex.Message}", ex);
-        }
-
-        try
-        {
-            // 2. 恢复批次：清除撤销标记
-            batch.FIsRevoked = false;
-            batch.FRevokedTime = null;
-            batch.FRevokedById = null;
-            batch.FWorkItemId = workItemId;
-
-            await _db.SaveChangesAsync();
-
-            // 3. 记录恢复日志
-            var restoreLog = new WfRevokeLog
-            {
-                FOrgId = 1,
-                FDataScopeId = batchId.ToString(), // CfBatch 无 F数据作用域ID
-                FOperatorId = operatorId,
-                FRevokeType = "BatchRestore",
-                FTargetTable = "CF批次",
-                FAffectedRows = 1,
-                FRevokeStrategy = "Restore",
-                FIsSuccess = true
-            };
-            _db.Set<WfRevokeLog>().Add(restoreLog);
-            await _db.SaveChangesAsync();
-
-            // 4. 更新 WorkItem 状态为 Completed
-            try
-            {
-                await _workItemService.CompleteAsync(workItemId, operatorId,
-                    result: "BatchRestore",
-                    remark: "批次已恢复",
-                    enforceAssignee: false);
-            }
-            catch (Exception completeEx)
-            {
-                _logger.LogWarning(completeEx, "完成恢复WorkItem失败（工作项可能不存在或被过滤）: WorkItemId={WorkItemId}, BatchId={BatchId}", workItemId, batchId);
-            }
-
-            _logger.LogInformation("批次 {BatchId} 已恢复，WorkItemId={WorkItemId}", batchId, workItemId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "批次恢复执行失败: BatchId={BatchId}", batchId);
-
-            try
-            {
-                await _workItemService.CancelAsync(workItemId, operatorId, $"执行失败: {ex.Message}", enforceAssignee: false);
-            }
-            catch (Exception cancelEx)
-            {
-                _logger.LogWarning(cancelEx, "取消WorkItem失败: WorkItemId={WorkItemId}", workItemId);
-            }
-
-            throw;
+            _logger.LogWarning(ex, "推送批次恢复状态变更失败，不影响主流程: BatchId={BatchId}", batchId);
         }
     }
 }

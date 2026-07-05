@@ -38,7 +38,7 @@ public class TenantResolver : ITenantResolver
     }
 
     /// <summary>
-    /// 解析指定组织所属的租户 id：读 SYS组织架构.F租户ID（原生 SQL 避开过滤器）。
+    /// 解析指定组织所属的租户 id：读 SYS组织架构.F租户ID。
     /// 存量 0 / 未回填 / 查询失败 → 兜底 <see cref="GetRootTenantId"/>。按 org 缓存（映射迁移后稳定）。
     /// </summary>
     public long? ResolveTenantForOrg(long orgId)
@@ -51,14 +51,16 @@ public class TenantResolver : ITenantResolver
             {
                 using var scope = _scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<STOTOPDbContext>();
-                var rows = db.Database
-                    .SqlQueryRaw<long>("SELECT TOP 1 [F租户ID] AS [Value] FROM [SYS组织架构] WHERE [FID] = {0}", oid)
-                    .ToList();
-                resolved = rows.Count > 0 ? rows[0] : 0;
+                // SYS组织架构 非 IOrgScoped/ITenantScoped(租户结构骨架、无全局过滤器)，LINQ 直读——
+                // provider-agnostic 可 InMemory 测(原生 SQL 在 InMemory 抛异常会误落兜底)。
+                resolved = db.Set<STOTOP.Module.System.Entities.SysOrganization>()
+                    .Where(o => o.FID == oid)
+                    .Select(o => o.FTenantId)
+                    .FirstOrDefault();
             }
             catch
             {
-                // 表不可读（InMemory / 升级窗口）→ 走兜底。
+                // 表不可读（升级窗口等）→ 走兜底。
                 resolved = 0;
             }
             return resolved != 0 ? resolved : GetRootTenantId();

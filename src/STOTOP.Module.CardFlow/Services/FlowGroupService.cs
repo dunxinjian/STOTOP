@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.CardFlow.Dtos;
 using STOTOP.Module.CardFlow.Entities;
+using STOTOP.Module.CardFlow.Models.Rules;
 using STOTOP.Module.CardFlow.Services.Interfaces;
 
 namespace STOTOP.Module.CardFlow.Services;
@@ -11,13 +12,13 @@ namespace STOTOP.Module.CardFlow.Services;
 public class FlowGroupService : IFlowGroupService
 {
     private readonly STOTOPDbContext _dbContext;
-    private readonly IConditionEvaluator _conditionEvaluator;
+    private readonly IConditionRuleEvaluator _conditionRuleEvaluator;
     private readonly ILogger<FlowGroupService> _logger;
 
-    public FlowGroupService(STOTOPDbContext dbContext, IConditionEvaluator conditionEvaluator, ILogger<FlowGroupService> logger)
+    public FlowGroupService(STOTOPDbContext dbContext, IConditionRuleEvaluator conditionRuleEvaluator, ILogger<FlowGroupService> logger)
     {
         _dbContext = dbContext;
-        _conditionEvaluator = conditionEvaluator;
+        _conditionRuleEvaluator = conditionRuleEvaluator;
         _logger = logger;
     }
 
@@ -206,6 +207,11 @@ public class FlowGroupService : IFlowGroupService
         var cardData = !string.IsNullOrEmpty(card.FDataJson)
             ? JsonSerializer.Deserialize<Dictionary<string, object?>>(card.FDataJson) ?? new()
             : new Dictionary<string, object?>();
+        // 触发条件为 JSON 规则树（前端 FlowGroupConnectionEditor 序列化 ConditionGroup），统一走 ConditionRuleEvaluator
+        var conditionContext = new ConditionEvaluationContext
+        {
+            CardData = new Dictionary<string, object?>(cardData, StringComparer.OrdinalIgnoreCase)
+        };
 
         foreach (var link in links)
         {
@@ -215,11 +221,7 @@ public class FlowGroupService : IFlowGroupService
                 continue;
             }
 
-            var schemaFields = cardData.Keys
-                .Select(k => new SchemaFieldDefinition { Key = k, Label = k, Type = "text", Required = false, Readonly = false })
-                .ToList();
-
-            var result = _conditionEvaluator.Evaluate(link.FTriggerCondition, cardData, schemaFields);
+            var result = _conditionRuleEvaluator.Evaluate(link.FTriggerCondition, conditionContext).Matched;
             if (result)
             {
                 _logger.LogInformation("Trigger link {LinkId} condition met for card {CardId}", link.FID, cardId);

@@ -300,7 +300,7 @@ flowchart TD
 
 ### 5.3 条件路由决策
 
-- **两套求值器并存，勿混淆**：单流程路由用 `ConditionRuleEvaluator`（结构化 JSON，前缀寻址 `card./detailSummary./source./initiator./orgChain/roles.*`，算子 eq/neq/gt/contains/in/inOrgChain/between 等）；编排引擎内部用自己的简化 `EvaluateCondition`（`{field,op,value}`，算子有限），二者不共享代码。
+- **主力求值器统一（阶段3g 2026-07-04）**：单流程路由/流程组/编排统一走 `ConditionRuleEvaluator`（结构化 JSON，前缀寻址 `card./detailSummary./source./initiator./orgChain/roles.*`，算子 eq/neq/gt/contains/in/inOrgChain/between 等）；编排引擎的 `{field,op,value}` 旧格式经归一化后委托主力。仍独立的两套：`AutoVoucherMatchingEngineV2` 私有求值（生产凭证链，D2 简化后置）与 `ClassificationEngine` 的 JSON→SQL 编译器（范式不同），均已就地标注收敛指引。
 - 运行时 `StageRouteResolver.ResolveNextStageAsync` 按 `FPriority` 逐条求值，命中即选，全不命中落 `FIsDefault` 默认分支；无路由规则则回退按 `FSortOrder` 线性下一节点。每次决策写 `CfRouteDecisionSnapshot`（候选评估明细 + 选中边 + 轮次）。
 - 发布前 `RouteGraphValidator` 静态校验环 + 可达性；草稿可经 `CardFlowPathPreviewService` 干跑预览（不持久化）。
 
@@ -320,9 +320,9 @@ flowchart TD
 |---|---|
 | **新增自动插件** | 继承 `InputPluginBase` / `ProcessingPluginBase`（card 粒度）/ `BatchPluginBase`（batch 粒度），重写 `PluginName` + `ExecuteAsync`；在 `CardFlowModuleExtensions` 里 `AddScoped<T>()` + `AutoPluginFactory.Register<T>("Code")`。Express 的计费插件即跨模块范例。 |
 | **新增审批人策略** | `ApproverResolver` 现支持 fixedUsers/role/fieldUsers/orgChain/amountMatrix/feeTypeBp/initiator；扩展在此集中处理，配置走节点 `FAssigneeConfigJson` |
-| **新增条件算子** | 单流程路由扩 `ConditionRuleEvaluator.NormalizeOperator` + 求值分支；编排另有独立实现需同步 |
+| **新增条件算子** | 扩 `ConditionRuleEvaluator.NormalizeOperator` + 求值分支（阶段3g 收敛后为单流程路由/流程组/编排统一求值器；AutoVoucher 与 ClassificationEngine 的独立实现见 §5.3 注） |
 | **新增通知渠道** | 实现 `INotificationChannel`（参考 `DingTalkChannel`），注册到 DI，按 `CfTodoItem.FPushChannel` 选用 |
-| **新增分类处理器** | 实现 `IClassificationHandler`，注册到 `ClassificationHandlerFactory`（现有 AutoVoucher/WorkTask/AlertNotify/InfoRecord） |
+| **新增分类处理器** | 实现 `IClassificationHandler`，在 `CardFlowModuleExtensions` 注册具体类（Plugin 薄壳注入用）+ `AddTransient<IClassificationHandler, XxxHandler>()`（接口注册决定派发规则 handler-types 接口可见列表；`ClassificationHandlerFactory` 已于阶段3d 移除） |
 
 **已注册的 11 个内置插件**：ExcelInput / SecurityCheck / QualityAnalysis / Classification / AutoVoucher / WorkTask / AlertNotify / InfoRecord / VoucherMigration / FanOut / BatchSummary。
 
@@ -343,7 +343,7 @@ flowchart TD
 
 **未闭环 / 半成品**
 
-- **委托（Delegation）未在引擎生效**：`CfDelegation` 全仓只有 CRUD，`FlowEngineService` / `ApproverResolver` 不查委托表，审批人解析与鉴权都不做受托人替换。
+- **委托（Delegation）未在引擎生效（前端入口已下线）**：`CfDelegation` 全仓只有 CRUD，`FlowEngineService` / `ApproverResolver` 不查委托表。按简化瘦身决策 D1 定为 V2：半成品死链 `CheckAndCreateDelegateTodoAsync` 已删，前端 `/cardflow/delegations` 路由已注释下线（2026-07-04）。
 - **编排 ↔ FlowEngine 未打通**：`OrchestrationEngineService.TriggerCardFlowNodeAsync` 是占位实现，未真正启动子流程。
 - **Events/ + EventHandlers/ 是死代码**：5 个事件 handler 类（`BatchLifecycleAuditHandler` + `ImportEventHandlers.cs` 内 4 个）**全部未在 `CardFlowModuleExtensions` 注册到 DI**（其他模块都在各自扩展里注册）→ 即便事件被发布也无人消费。发布点是存在的（`BatchRevokeHandler` 物理删除/撤销时发 `ImportBatchPurgedEvent`/`ImportBatchRevokedEvent`），其余 4 个事件（ImportBatchCompleted/Failed、ImportErrorDispatched、ClassificationCompleted）目前无发布点。属补注册或清理候选。
 - **下载后自动导入未实现**：`DownloadEngineService` 下载完只 log，自动导入是 TODO。

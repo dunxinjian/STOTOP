@@ -30,6 +30,10 @@ public static class FinancePermissions
     public const string AccountManage    = "finance:account:manage";
     public const string AccountSetManage = "finance:accountset:manage";
 
+    // 账套规则（账套级会计控制开关，菜单级权限）
+    public const string AccountSetRuleView = "finance:account-set-rule:view";
+    public const string AccountSetRuleEdit = "finance:account-set-rule:edit";
+
     // 模板管理
     public const string TemplateManage = "finance:template:manage";
 

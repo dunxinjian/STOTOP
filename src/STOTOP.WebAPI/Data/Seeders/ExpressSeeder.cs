@@ -37,8 +37,96 @@ public static class ExpressSeeder
             new(20, "阶段0多租户: Express 存量行 F租户ID 回填到根组织单租户(=根组织id) (2026-07-01)", MigrateV20),
             new(21, "阶段1收尾(裁定): EXP业务代理/EXP末端驿站(按租户隔离) 加 F租户ID 列+索引+回填根组织单租户 (2026-07-02)", MigrateV21),
             new(22, "阶段2C(M5): EXP快递网点 加 F网点公司ID/F品牌编码 + (公司,品牌)过滤唯一索引 + 回填品牌(自F快递品牌) + 退役死字段 F实体公司/F快递品牌 (2026-07-02)", MigrateV22),
+            new(23, "极兔网点注册: EXP快递网点 种入 3 个极兔网点(3512907南郊/3512894城区/3512906陆渡→浏河)，按 SYS网点公司名称解析 F网点公司ID + 挂经营实体组织节点 + 品牌JT + 租户 (2026-07-03)", MigrateV23),
+            new(24, "阶段0收尾: EXP快递报价及子表 11个非租户列硬化为 NOT NULL(存量0 NULL行;F状态/F品牌编码需落索引重建) (2026-07-05)", MigrateV24),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>
+    /// 阶段0收尾·非租户列硬化(无索引依赖的 9 列)：这些列建表早于模型标 NOT NULL，库中仍可空，与模型不一致；
+    /// SchemaAutoSync 对可空性只提示不自动改。(2026-07-05 核 47.105.65.51/stotop：这 11 列存量 NULL 行均为 0。)
+    /// 不加 DEFAULT：与模型一致(F品牌编码 模型另有 DEFAULT ''，如需完全对齐可另补 DF 约束)。(Table, Col, ALTER-ready 类型)。
+    /// </summary>
+    private static readonly (string Table, string Col, string Type)[] Phase0ExpHardenSimple =
+    {
+        ("EXP快递报价", "F付款方式", "int"), ("EXP快递报价", "F共享店铺", "bit"), ("EXP快递报价", "F含税", "bit"),
+        ("EXP快递报价", "F抛比", "int"), ("EXP快递报价", "F版本", "int"), ("EXP快递报价", "F结算重量环节", "int"),
+        ("EXP快递报价", "F账单周期", "int"),
+        ("EXP快递报价_共享别名", "F创建时间", "datetime2"), ("EXP快递报价_佣金配置", "F创建时间", "datetime2"),
+    };
+
+    /// <summary>
+    /// 阶段0收尾·硬化为 NOT NULL：① 无索引依赖 9 列直接 ALTER；② F状态/F品牌编码 各被一个复合索引依赖(err 5074)，
+    /// 须"落索引→改列→建回"(与库现有定义一致：均非唯一/无过滤)。幂等：仅在"列可空且无 NULL"时执行，硬化后再跑为 no-op。
+    /// </summary>
+    private static void MigrateV24(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // ① 无索引依赖的 9 列：直接 ALTER
+        foreach (var (t, c, type) in Phase0ExpHardenSimple)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+                       WHERE TABLE_NAME = N'{t}' AND COLUMN_NAME = N'{c}' AND IS_NULLABLE = 'YES')
+               AND NOT EXISTS (SELECT 1 FROM [{t}] WHERE [{c}] IS NULL)
+                ALTER TABLE [{t}] ALTER COLUMN [{c}] {type} NOT NULL;");
+        }
+
+        // ② EXP快递报价.F状态 —— 在 IX_EXP快递报价_品牌状态(F品牌编码,F状态)
+        SeederHelper.ExecuteRawSql(ctx, @"
+        IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+                   WHERE TABLE_NAME=N'EXP快递报价' AND COLUMN_NAME=N'F状态' AND IS_NULLABLE='YES')
+           AND NOT EXISTS (SELECT 1 FROM [EXP快递报价] WHERE [F状态] IS NULL)
+        BEGIN
+            IF EXISTS (SELECT 1 FROM sys.indexes WHERE name=N'IX_EXP快递报价_品牌状态' AND object_id=OBJECT_ID(N'EXP快递报价'))
+                DROP INDEX [IX_EXP快递报价_品牌状态] ON [EXP快递报价];
+            ALTER TABLE [EXP快递报价] ALTER COLUMN [F状态] int NOT NULL;
+            CREATE INDEX [IX_EXP快递报价_品牌状态] ON [EXP快递报价] ([F品牌编码],[F状态]);
+        END");
+
+        // ③ EXP快递报价_出港加收.F品牌编码 —— 在 IX_EXP快递报价_出港加收_业务对象品牌启用(F业务对象ID,F品牌编码,F启用)
+        SeederHelper.ExecuteRawSql(ctx, @"
+        IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+                   WHERE TABLE_NAME=N'EXP快递报价_出港加收' AND COLUMN_NAME=N'F品牌编码' AND IS_NULLABLE='YES')
+           AND NOT EXISTS (SELECT 1 FROM [EXP快递报价_出港加收] WHERE [F品牌编码] IS NULL)
+        BEGIN
+            IF EXISTS (SELECT 1 FROM sys.indexes WHERE name=N'IX_EXP快递报价_出港加收_业务对象品牌启用' AND object_id=OBJECT_ID(N'EXP快递报价_出港加收'))
+                DROP INDEX [IX_EXP快递报价_出港加收_业务对象品牌启用] ON [EXP快递报价_出港加收];
+            ALTER TABLE [EXP快递报价_出港加收] ALTER COLUMN [F品牌编码] nchar(2) NOT NULL;
+            CREATE INDEX [IX_EXP快递报价_出港加收_业务对象品牌启用] ON [EXP快递报价_出港加收] ([F业务对象ID],[F品牌编码],[F启用]);
+        END");
+    }
+
+    /// <summary>
+    /// 极兔网点注册（配合 CardFlowSeeder V64 极兔导入）：把极兔总部系统 3 个网点编号沉为 EXP快递网点 主数据，
+    /// 并按经营实体归属到 SYS网点公司（陆渡=浏河同一经营实体）。F网点公司ID/F组织ID/F租户ID 全部由 SYS网点公司 解析，
+    /// 不硬编码 FID（V11 回填的 FID 跨环境不稳定）。若目标库尚无对应 SYS网点公司（如极简 fresh 库），SELECT 无行 → 不插入（graceful）。
+    /// 幂等：按 F编号 NOT EXISTS。品牌 JT；(公司,品牌) 过滤唯一索引天然满足（3 公司各一行）。
+    /// </summary>
+    private static void MigrateV23(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // (极兔网点编号, 网点简称, 网点全称, SYS网点公司名称关键字)
+        var points = new[]
+        {
+            ("3512907", "极兔南郊", "苏州太仓南郊网点(极兔)", "南郊"),
+            ("3512894", "极兔城区", "苏州太仓城区网点(极兔)", "城区"),
+            ("3512906", "极兔陆渡", "苏州太仓陆渡网点(极兔)", "浏河"), // 陆渡=浏河，归属浏河经营实体
+        };
+
+        foreach (var (code, shortName, fullName, companyKeyword) in points)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            IF NOT EXISTS (SELECT 1 FROM [EXP快递网点] WHERE [F编号] = N'{code}')
+            INSERT INTO [EXP快递网点]
+                ([F编号],[F网点简称],[F网点全称],[F组织ID],[F所属组织ID],[F租户ID],[F品牌编码],[F网点公司ID],[F状态],[F创建时间],[F更新时间])
+            SELECT N'{code}', N'{shortName}', N'{fullName}', c.[F组织节点ID], c.[F组织节点ID], c.[F租户ID], N'JT', c.[FID], 1, GETDATE(), GETDATE()
+            FROM [SYS网点公司] c
+            WHERE c.[F名称] LIKE N'%{companyKeyword}%';");
+        }
     }
 
     /// <summary>

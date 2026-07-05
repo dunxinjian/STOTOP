@@ -1,5 +1,6 @@
 // 财务模块 API
 import { get, post, put, del } from './request'
+import { downloadBlob } from '@/utils/download'
 
 // 科目管理
 export function getAccountTree(category?: string, accountSetId?: number): Promise<any[]> {
@@ -438,6 +439,38 @@ export function initializeAccountSet(id: number, force: boolean = false) {
   return post(`/finance/account-sets/${id}/initialize?force=${force}`)
 }
 
+// ==================== 账套规则 ====================
+
+export interface FinAccountSetRuleDto {
+  fAccountSetId: number
+  fRequireAuditSeparation: boolean
+  fProfitAccountCode: string | null
+  fRetainedAccountCode: string | null
+  fEnabledVoucherWords: string[]
+}
+
+export type UpdateAccountSetRuleParams = Omit<FinAccountSetRuleDto, 'fAccountSetId'>
+
+// 读取当前账套规则（无配置返回默认值：开关关/编码空/凭证字全集）
+export function getAccountSetRule(accountSetId: number): Promise<FinAccountSetRuleDto> {
+  return get('/finance/account-set-rules', { accountSetId })
+}
+
+// 保存账套规则（一账套一行 Upsert）
+export function updateAccountSetRule(accountSetId: number, data: UpdateAccountSetRuleParams): Promise<FinAccountSetRuleDto> {
+  return put(`/finance/account-set-rules?accountSetId=${accountSetId}`, data)
+}
+
+// 当前账套启用的凭证字（凭证录入下拉用，仅需登录态）
+export function getEnabledVoucherWords(accountSetId: number): Promise<string[]> {
+  return get('/finance/account-set-rules/enabled-voucher-words', { accountSetId })
+}
+
+// 该账套是否存在已结账期间（改结转科目时的警告数据源）
+export function hasClosedPeriod(accountSetId: number): Promise<boolean> {
+  return get('/finance/periods/has-closed', { accountSetId })
+}
+
 // ==================== 日记账 ====================
 
 // 日记账 - 全部
@@ -516,8 +549,12 @@ export function deleteAttachment(id: number) {
   return del(`/finance/files/${id}`)
 }
 
-export function getAttachmentDownloadUrl(id: number): string {
-  return `/api/finance/files/${id}`
+// 下载附件：FileController 带 [Authorize]，裸 <a href> 无 Bearer 头必 401；
+// 经 axios 拉 blob（拦截器自动注入 Authorization）后触发浏览器下载。
+export function downloadAttachment(id: number, fileName?: string): Promise<void> {
+  return get<Blob>(`/finance/files/${id}`, undefined, { responseType: 'blob' }).then((blob) => {
+    downloadBlob(blob, fileName || `attachment_${id}`)
+  })
 }
 
 // ==================== 凭证模板 ====================
@@ -1547,16 +1584,16 @@ export function deleteAccountMapping(id: string): Promise<any> {
 
 // 辅助映射
 export function getAuxiliaryMappings(schemeId: string): Promise<any[]> {
-  return get('/finance/migration/auxiliary-mappings', { schemeId })
+  return get('/finance/migration/aux-mappings', { schemeId })
 }
 export function createAuxiliaryMappings(data: any): Promise<any> {
-  return post('/finance/migration/auxiliary-mappings', data)
+  return post('/finance/migration/aux-mappings', data)
 }
 export function updateAuxiliaryMapping(id: string, data: any): Promise<any> {
-  return put(`/finance/migration/auxiliary-mappings/${id}`, data)
+  return put(`/finance/migration/aux-mappings/${id}`, data)
 }
 export function deleteAuxiliaryMapping(id: string): Promise<any> {
-  return del(`/finance/migration/auxiliary-mappings/${id}`)
+  return del(`/finance/migration/aux-mappings/${id}`)
 }
 
 // 资产映射

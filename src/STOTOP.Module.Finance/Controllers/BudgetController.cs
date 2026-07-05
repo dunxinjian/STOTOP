@@ -4,6 +4,8 @@ using STOTOP.Core.Models;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Services.Interfaces;
 
+using STOTOP.Module.System.Filters;
+
 namespace STOTOP.Module.Finance.Controllers;
 
 [Authorize]
@@ -32,6 +34,7 @@ public class BudgetController : ControllerBase
     }
 
     [HttpPost("versions")]
+    [RequirePermission(FinancePermissions.BudgetEdit)]
     public async Task<ApiResult<BudgetVersionDto>> CreateVersion([FromBody] CreateBudgetVersionRequest request)
     {
         try
@@ -46,6 +49,7 @@ public class BudgetController : ControllerBase
     }
 
     [HttpPost("versions/{id}/submit")]
+    [RequirePermission(FinancePermissions.BudgetEdit)]
     public async Task<ApiResult> SubmitVersion(long id)
     {
         try
@@ -60,6 +64,7 @@ public class BudgetController : ControllerBase
     }
 
     [HttpPost("versions/{id}/approve")]
+    [RequirePermission(FinancePermissions.BudgetApprove)]
     public async Task<ApiResult> ApproveVersion(long id)
     {
         try
@@ -91,6 +96,7 @@ public class BudgetController : ControllerBase
     }
 
     [HttpPost("versions/{id}/lines:batch-upsert")]
+    [RequirePermission(FinancePermissions.BudgetEdit)]
     public async Task<ApiResult> BatchUpsertLines(long id, [FromBody] BatchUpsertBudgetLinesRequest request)
     {
         try
@@ -114,6 +120,7 @@ public class BudgetController : ControllerBase
     }
 
     [HttpPost("expense-mappings")]
+    [RequirePermission(FinancePermissions.BudgetMapping)]
     public async Task<ApiResult<BudgetExpenseMappingDto>> SaveExpenseMapping([FromBody] BudgetExpenseMappingDto request)
     {
         try

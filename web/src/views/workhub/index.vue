@@ -72,12 +72,15 @@
             </button>
             <div v-if="showDeferred" class="group-body">
               <TodoItemCard
-                v-for="item in hub.deferredItems.value"
+                v-for="item in deferredVisible"
                 :key="item.id"
                 :item="item"
                 :selected="hub.selectedItemId.value === item.id"
                 @select="selectItem(item)"
               />
+              <div v-if="deferredOverflow > 0" class="group-overflow">
+                还有 {{ deferredOverflow }} 条未显示
+              </div>
             </div>
           </div>
 
@@ -90,12 +93,15 @@
             </button>
             <div v-if="showArchived" class="group-body">
               <TodoItemCard
-                v-for="item in hub.archivedItems.value"
+                v-for="item in archivedVisible"
                 :key="item.id"
                 :item="item"
                 :selected="hub.selectedItemId.value === item.id"
                 @select="selectItem(item)"
               />
+              <div v-if="archivedOverflow > 0" class="group-overflow">
+                还有 {{ archivedOverflow }} 条未显示
+              </div>
             </div>
           </div>
         </div>
@@ -202,6 +208,13 @@ const latestPending = computed(() => {
 const showDeferred = ref(false)
 const showArchived = ref(false)
 
+// 折叠区防爆：长会话累积时只渲染前 COLLAPSE_CAP 条，其余以「还有 N 条」提示收纳
+const COLLAPSE_CAP = 50
+const deferredVisible = computed(() => hub.deferredItems.value.slice(0, COLLAPSE_CAP))
+const deferredOverflow = computed(() => Math.max(0, hub.deferredItems.value.length - COLLAPSE_CAP))
+const archivedVisible = computed(() => hub.archivedItems.value.slice(0, COLLAPSE_CAP))
+const archivedOverflow = computed(() => Math.max(0, hub.archivedItems.value.length - COLLAPSE_CAP))
+
 // —— 多选
 function toggleMulti() {
   if (hub.isMultiSelectMode.value) hub.exitMultiSelect()
@@ -231,8 +244,8 @@ onMounted(async () => {
     activeCategory.value = q as CatKey
   }
   hub.filters.value.category = activeCategory.value
-  await hub.fetchStats()
-  await hub.fetchItems(true)
+  // 合并接口一次拿列表 + 统计（后端一轮聚合），替代串行的 fetchStats + fetchItems 两轮
+  await hub.init()
   if (userStore.userInfo?.id) {
     hub.connect(userStore.userInfo.id)
   }
@@ -485,6 +498,13 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 7px;
+}
+
+.group-overflow {
+  padding: 6px 4px;
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: center;
 }
 
 .todo-foot {

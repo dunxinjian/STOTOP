@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.CardFlow.Entities;
 using STOTOP.Module.Finance.Dtos;
@@ -24,6 +25,7 @@ public partial class AutoVoucherHandler : IClassificationHandler
     private readonly STOTOPDbContext _dbContext;
     private readonly IProgressNotifier _notifier;
     private readonly ILogger<AutoVoucherHandler> _logger;
+    private readonly IOrgContextAccessor _orgContext;
 
     private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -37,12 +39,39 @@ public partial class AutoVoucherHandler : IClassificationHandler
         IVoucherService voucherService,
         STOTOPDbContext dbContext,
         IProgressNotifier notifier,
-        ILogger<AutoVoucherHandler> logger)
+        ILogger<AutoVoucherHandler> logger,
+        IOrgContextAccessor orgContext)
     {
         _voucherService = voucherService;
         _dbContext = dbContext;
         _notifier = notifier;
         _logger = logger;
+        _orgContext = orgContext;
+    }
+
+    /// <summary>
+    /// [缺陷5] 辅助核算加载的 组织 + 租户 过滤（生产与测试共享）。
+    /// <para>调用方须先 <c>IgnoreQueryFilters()</c>（故意绕过 IOrgScoped 全局过滤，否则 FOrgId==0 的全局项被滤掉）——
+    /// 但这同时绕过了 ITenantScoped 硬墙，故此处手写补回租户维度：</para>
+    /// <para>① 组织维：FOrgId==本批次组织 或 FOrgId==0（全局项 express_brand/business_direction）；</para>
+    /// <para>② 租户维（纵深防御，仅在有租户上下文时）：放行三类——(a) FOrgId==0 全局项（全租户共享、豁免租户）；
+    /// (b) FTenantId==本批次租户（本租户组织级项）；(c) FTenantId==0 未分配哨兵。</para>
+    /// <para>为何豁免 FTenantId==0：部分组织级 aux 项 FTenantId 为 0——如 BasicDataSeeder(BasicData tier，晚于
+    /// FinanceSeeder V13 回填故未被回填) 播种的 business_unit、或无匹配账套留哨兵的行。这些项靠 FOrgId==本组织
+    /// 隔离（多租户下别租户 ctx.OrgId 不同、FOrgId 过滤已挡住），豁免哨兵可避免把它们误滤（否则破坏 business_unit 匹配）。
+    /// 纵深防御仍对「FTenantId 已明确分配到另一个非0租户」的脏项生效（剔除跨租户串）。</para>
+    /// <para>现网单客户：tenantId=根；全局项经 FOrgId==0、outlet 经 FTenantId==根、business_unit 经 FTenantId==0
+    /// 哨兵 → 全加载，行为不变。tenantId==null 时退化为纯组织过滤，不破坏既有路径。</para>
+    /// </summary>
+    internal static IQueryable<FinAuxiliaryItem> FilterAuxByOrgAndTenant(
+        IQueryable<FinAuxiliaryItem> query, long orgId, long? tenantId)
+    {
+        query = query
+            .Where(a => a.FEnableStatus == 1)
+            .Where(a => a.FOrgId == orgId || a.FOrgId == 0);
+        if (tenantId.HasValue)
+            query = query.Where(a => a.FOrgId == 0 || a.FTenantId == 0 || a.FTenantId == tenantId.Value);
+        return query;
     }
 
     public async Task<HandlerResult> HandleAsync(HandlerContext context)
@@ -149,11 +178,13 @@ public partial class AutoVoucherHandler : IClassificationHandler
         engine.Initialize(config);
 
         // 6. 预加载辅助核算项目
+        // [缺陷5] IgnoreQueryFilters 绕过 IOrgScoped(为加载 FOrgId==0 全局项 express_brand/business_direction)，
+        // 同时绕过了 ITenantScoped 硬墙——经 FilterAuxByOrgAndTenant 手写补回 组织+租户 过滤（全局项豁免租户、
+        // 组织级项按批次租户隔离）。tenantId 取批次链设的 CurrentTenantId（缺陷4 后为 per-batch 租户）。
         var auxResolver = new AutoVoucherAuxiliaryResolver(_logger);
-        var auxItems = await _dbContext.Set<FinAuxiliaryItem>()
-            .IgnoreQueryFilters() // BUG1: 绕过 IOrgScoped 全局过滤(FOrgId==192)，否则 FOrgId==0 的全局项(express_brand/business_direction)被滤掉，只剩 outlet
-            .Where(a => a.FEnableStatus == 1)
-            .Where(a => a.FOrgId == ctx.OrgId || a.FOrgId == 0)
+        var auxItems = await FilterAuxByOrgAndTenant(
+                _dbContext.Set<FinAuxiliaryItem>().IgnoreQueryFilters(),
+                ctx.OrgId, _orgContext.CurrentTenantId)
             .Select(a => new AuxiliaryItemInfo { Id = a.FID, AuxType = a.FAuxType ?? "", Code = a.FCode, Name = a.FName })
             .ToListAsync();
         auxResolver.Initialize(auxItems);

@@ -221,7 +221,10 @@ public class FormulaService : IFormulaService
             F("资产负债表", 9, "非流动资产：", "header", null, accountSetId, now, displayConfig: "{\"category\":\"资产\"}"),
             F("资产负债表", 10, "固定资产原价", "balance_sum", "ACCOUNT(1601)", accountSetId, now, lineNo: "8", displayConfig: "{\"category\":\"资产\"}"),
             F("资产负债表", 11, "减：累计折旧", "balance_sum", "ACCOUNT(1602)", accountSetId, now, lineNo: "9", displayConfig: "{\"category\":\"资产\"}"),
-            F("资产负债表", 12, "固定资产账面价值", "row_calc", "ACCOUNT(1601)-ACCOUNT(1602)", accountSetId, now, lineNo: "10", displayConfig: "{\"category\":\"资产\"}"),
+            // 账面价值 = 原价 - 累计折旧。ACCOUNT() 取数口径为 FEndDebit-FEndCredit(借方为正)，
+            // 累计折旧(1602)为贷方余额科目，其 ACCOUNT 值本身即负，故用「+」相加才等于 原价-|累计折旧|；
+            // 原写「-」会变成 原价+|累计折旧| 虚增 2 倍折旧。
+            F("资产负债表", 12, "固定资产账面价值", "row_calc", "ACCOUNT(1601)+ACCOUNT(1602)", accountSetId, now, lineNo: "10", displayConfig: "{\"category\":\"资产\"}"),
             F("资产负债表", 13, "无形资产", "balance_sum", "ACCOUNT(1701)", accountSetId, now, lineNo: "11", displayConfig: "{\"category\":\"资产\"}"),
             F("资产负债表", 14, "非流动资产合计", "row_calc", "ROW(12)+ROW(13)", accountSetId, now, lineNo: "12", displayConfig: "{\"category\":\"资产\"}"),
             F("资产负债表", 15, "资产总计", "row_calc", "ROW(8)+ROW(14)", accountSetId, now, lineNo: "13", displayConfig: "{\"category\":\"资产\"}"),

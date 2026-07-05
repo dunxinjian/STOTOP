@@ -29,7 +29,7 @@
 - **DbContext 默认 NoTracking**：更新前显式 `.AsTracking()`，否则改动不落库。
 - **`AutoPluginFactory.Create` 必须传 scoped provider**（插件是 Scoped，别用根容器）。
 - **明细全量替换**：`CardService.UpdateAsync` 删旧插新，客户端须提交完整明细集。
-- **两套条件求值器**：单流程路由用 `ConditionRuleEvaluator`，编排引擎用内部私有 `EvaluateCondition`，**不共享代码**，改一个不影响另一个。
+- **条件求值已收敛（阶段3g）**：流程路由/节点进入条件/流程组触发/编排边条件统一走 `ConditionRuleEvaluator`（JSON 规则树）；仅 `AutoVoucherMatchingEngineV2.EvaluateCondition`（生产凭证链，D2 后置）与 `ClassificationEngine.BuildWhereClause`（JSON→SQL 编译范式）保留独立实现，新增算子先评估复用主力。
 - **schema 解析静默降级**：非法 JSON 不报错只「字段消失」。
 - **半成品/死代码**（别误以为生效）：委托 `Delegation` 未在引擎消费；`Events/`+`EventHandlers/` 未注册 DI 故永不触发；编排 `TriggerCardFlowNodeAsync` 是占位实现；下载后自动导入是 TODO。详见 design/07 §7。
 
@@ -38,7 +38,7 @@
 - **加自动插件**：继承 `InputPluginBase`/`ProcessingPluginBase`/`BatchPluginBase` → 重写 `PluginName`+`ExecuteAsync` → 在 `CardFlowModuleExtensions` 里 `AddScoped<T>()` + `AutoPluginFactory.Register<T>("Code")`。
 - **加审批人策略**：集中在 `Services/ApproverResolver.cs`。
 - **加通知渠道**：实现 `INotificationChannel`（参考 `DingTalkChannel`）。
-- **加分类处理器**：实现 `IClassificationHandler` → 注册到 `ClassificationHandlerFactory`。
+- **加分类处理器**：实现 `IClassificationHandler` → 在 `CardFlowModuleExtensions` 注册具体类（Plugin 薄壳注入用）+ `AddTransient<IClassificationHandler, XxxHandler>()`（接口注册决定派发规则 handler-types 接口的可见列表）。
 
 ## 约定
 

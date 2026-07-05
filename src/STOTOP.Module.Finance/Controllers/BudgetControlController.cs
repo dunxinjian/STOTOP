@@ -4,6 +4,8 @@ using STOTOP.Core.Models;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Services.Interfaces;
 
+using STOTOP.Module.System.Filters;
+
 namespace STOTOP.Module.Finance.Controllers;
 
 [Authorize]
@@ -19,6 +21,7 @@ public class BudgetControlController : ControllerBase
     }
 
     [HttpPost("preview")]
+    [RequirePermission(FinancePermissions.BudgetControlView)]
     public async Task<ApiResult<BudgetPreviewResult>> Preview([FromBody] BudgetPreviewRequest request)
     {
         try

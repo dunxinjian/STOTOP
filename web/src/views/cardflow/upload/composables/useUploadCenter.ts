@@ -145,7 +145,7 @@ export function useUploadCenter() {
 
   function mapQueueToBatch(q: any) {
     const intStatusMap: Record<number, string> = {
-      0: 'processing', 1: 'pending', 2: 'processing', 3: 'success', 4: 'processing', 5: 'success', 6: 'error', 7: 'partial', 8: 'error',
+      0: 'processing', 1: 'pending', 2: 'processing', 3: 'processing', 4: 'processing', 5: 'success', 6: 'error', 7: 'partial', 8: 'error',
     }
     const strStatusMap: Record<string, string> = {
       waiting: 'uploading', uploading: 'uploading', uploaded: 'processing',
@@ -196,7 +196,7 @@ export function useUploadCenter() {
 
   function mapHistoryToBatch(h: any) {
     const statusMap: Record<number, string> = {
-      0: 'processing', 1: 'pending', 2: 'processing', 3: 'success', 4: 'processing', 5: 'success', 6: 'error', 7: 'partial', 8: 'error',
+      0: 'processing', 1: 'pending', 2: 'processing', 3: 'processing', 4: 'processing', 5: 'success', 6: 'error', 7: 'partial', 8: 'error',
     }
     const status = statusMap[h.status] ?? 'processing'
     const totalRows = h.totalRows || 0
@@ -236,6 +236,8 @@ export function useUploadCenter() {
       waitHours: hours,
       comments: [],
       assigneeName: h.assigneeName || undefined,
+      // 后端 GetBatches 用 fileTypeName 携带流程名（FFlowDefinitionId=0 的待认领批次为空）
+      flowName: h.fileTypeName || h.flowName || undefined,
       actualTargetTable: h.actualTargetTable,
       isStale: !!h.isStale,
       orgName: h.orgName || h.f组织名称 || undefined,

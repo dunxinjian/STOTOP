@@ -17,6 +17,10 @@ public class FlowDefinitionDto
     public DateTime CreatedTime { get; set; }
     public string? TriggerConfigJson { get; set; }
     public long? AccountSetId { get; set; }
+
+    /// <summary>导入匹配规则 JSON（如 {"fileNamePattern":"*韵达*"}），用于导入文件第三轮回退匹配</summary>
+    public string? MatchPattern { get; set; }
+
     public int? CurrentVersion { get; set; }
     public DateTime? LastPublishedTime { get; set; }
     public bool HasDraft { get; set; }
@@ -395,17 +399,6 @@ public class CardRelationDto
     public string RelationType { get; set; } = string.Empty;
     public string? Description { get; set; }
     public decimal? OffsetAmount { get; set; }
-}
-
-public class SchemaFieldDefinition
-{
-    public string Key { get; set; } = string.Empty;
-    public string Label { get; set; } = string.Empty;
-    public string Type { get; set; } = string.Empty;
-    public bool Required { get; set; }
-    public bool Readonly { get; set; }
-    public bool Sensitive { get; set; }
-    public string? MaskPattern { get; set; }
 }
 
 public class NotificationSettingsDto

@@ -18,15 +18,18 @@ public class AccountPeriodController : ControllerBase
     private readonly IAccountPeriodService _periodService;
     private readonly IRepository<FinAccountPeriod> _periodRepository;
     private readonly IRepository<FinAccount> _accountRepository;
+    private readonly IAccountSetRuleService _accountSetRuleService;
 
     public AccountPeriodController(
         IAccountPeriodService periodService,
         IRepository<FinAccountPeriod> periodRepository,
-        IRepository<FinAccount> accountRepository)
+        IRepository<FinAccount> accountRepository,
+        IAccountSetRuleService accountSetRuleService)
     {
         _periodService = periodService;
         _periodRepository = periodRepository;
         _accountRepository = accountRepository;
+        _accountSetRuleService = accountSetRuleService;
     }
 
     [HttpGet]
@@ -94,11 +97,12 @@ public class AccountPeriodController : ControllerBase
             .OrderByDescending(p => p.FYear).ThenByDescending(p => p.FPeriodNo)
             .FirstOrDefaultAsync();
 
-        // 查找关键科目
+        // 查找关键科目（P0-2 结转目标科目按账套规则解析，无配置回退 3103/310405）
+        var (profitCode, retainedCode) = await _accountSetRuleService.GetClosingAccountCodesAsync(accountSetId);
         var profitAccount = await _accountRepository.Query()
-            .FirstOrDefaultAsync(a => a.FCode == "3103" && a.FAccountSetId == accountSetId);
+            .FirstOrDefaultAsync(a => a.FCode == profitCode && a.FAccountSetId == accountSetId);
         var retainedAccount = await _accountRepository.Query()
-            .FirstOrDefaultAsync(a => a.FCode == "310405" && a.FAccountSetId == accountSetId);
+            .FirstOrDefaultAsync(a => a.FCode == retainedCode && a.FAccountSetId == accountSetId);
 
         // 已结账期间列表
         var closedPeriods = await _periodRepository.Query()
@@ -111,8 +115,8 @@ public class AccountPeriodController : ControllerBase
         bool canReopen = lastClosedPeriod != null;
 
         string message = profitAccount == null
-            ? "警告：未找到3103科目"
-            : (retainedAccount == null ? "警告：未找到310405科目" : "");
+            ? $"警告：未找到{profitCode}科目"
+            : (retainedAccount == null ? $"警告：未找到{retainedCode}科目" : "");
 
         return ApiResult<object>.Success(new
         {
@@ -133,6 +137,16 @@ public class AccountPeriodController : ControllerBase
             canReopen,
             message
         });
+    }
+
+    /// <summary>该账套是否存在已结账期间（账套规则页改结转科目时的警告数据源，只读探测）</summary>
+    [HttpGet("has-closed")]
+    public async Task<ApiResult<bool>> HasClosedPeriod([FromQuery] long accountSetId = 0)
+    {
+        if (accountSetId <= 0) return ApiResult<bool>.Fail("请先选择账套");
+        var hasClosed = await _periodRepository.Query()
+            .AnyAsync(p => p.FAccountSetId == accountSetId && p.FIsClosed == 1);
+        return ApiResult<bool>.Success(hasClosed);
     }
 
     [HttpGet("pre-close-check")]

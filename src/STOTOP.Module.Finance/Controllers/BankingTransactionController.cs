@@ -4,6 +4,8 @@ using STOTOP.Core.Models;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Services.Interfaces;
 
+using STOTOP.Module.System.Filters;
+
 namespace STOTOP.Module.Finance.Controllers;
 
 [Authorize]
@@ -37,6 +39,7 @@ public class BankingTransactionController : ControllerBase
     }
 
     [HttpPost("import")]
+    [RequirePermission(FinancePermissions.BankTransactionImport)]
     public async Task<ApiResult<BankTransactionImportResult>> Import([FromBody] BankTransactionImportRequest request)
     {
         var operatorName = User.Identity?.Name;
@@ -45,6 +48,7 @@ public class BankingTransactionController : ControllerBase
     }
 
     [HttpPost("auto-match")]
+    [RequirePermission(FinancePermissions.BankTransactionMatch)]
     public async Task<ApiResult<AutoMatchResult>> AutoMatch()
     {
         var result = await _bankTransactionService.AutoMatchAsync();
@@ -52,6 +56,7 @@ public class BankingTransactionController : ControllerBase
     }
 
     [HttpPost("manual-match")]
+    [RequirePermission(FinancePermissions.BankTransactionMatch)]
     public async Task<ApiResult> ManualMatch([FromBody] BankTransactionManualMatchRequest request)
     {
         try
@@ -71,6 +76,7 @@ public class BankingTransactionController : ControllerBase
     }
 
     [HttpPost("skip-match")]
+    [RequirePermission(FinancePermissions.BankTransactionMatch)]
     public async Task<ApiResult<int>> SkipMatch([FromBody] BankTransactionSkipMatchRequest request)
     {
         var operatorName = User.Identity?.Name;

@@ -4,6 +4,7 @@ using NPOI.SS.UserModel;
 using NPOI.XSSF.UserModel;
 using NPOI.HSSF.UserModel;
 using STOTOP.Core.Interfaces;
+using STOTOP.Infrastructure.Data;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Entities;
 using STOTOP.Module.Finance.Services.Interfaces;
@@ -18,6 +19,7 @@ public class BankReconciliationService : IBankReconciliationService
     private readonly IRepository<FinVoucherEntry> _entryRepository;
     private readonly IRepository<FinAccountPeriod> _periodRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly STOTOPDbContext _context;
 
     public BankReconciliationService(
         IRepository<FinBankStatement> statementRepository,
@@ -25,7 +27,8 @@ public class BankReconciliationService : IBankReconciliationService
         IRepository<FinVoucher> voucherRepository,
         IRepository<FinVoucherEntry> entryRepository,
         IRepository<FinAccountPeriod> periodRepository,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        STOTOPDbContext context)
     {
         _statementRepository = statementRepository;
         _reconciliationRepository = reconciliationRepository;
@@ -33,6 +36,31 @@ public class BankReconciliationService : IBankReconciliationService
         _entryRepository = entryRepository;
         _periodRepository = periodRepository;
         _httpContextAccessor = httpContextAccessor;
+        _context = context;
+    }
+
+    /// <summary>
+    /// 把一组写操作包进事务：关系型 provider 且当前无外层事务时自开事务、失败整体回滚；
+    /// 已存在外层事务时复用；非关系型(InMemory)退化直接执行（保测试）。
+    /// </summary>
+    private async Task WithTransactionAsync(Func<Task> writes)
+    {
+        if (!_context.Database.IsRelational() || _context.Database.CurrentTransaction != null)
+        {
+            await writes();
+            return;
+        }
+        await using var tx = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            await writes();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
     }
 
     private long GetCurrentOrgId()
@@ -61,6 +89,17 @@ public class BankReconciliationService : IBankReconciliationService
         var importCount = 0;
         var startRowIndex = request.StartRow - 1; // 转为0-based
 
+        // 预取当前账套+银行账号已有流水的去重键，避免重复导入整表翻倍
+        var existingKeys = new HashSet<string>(
+            (await _statementRepository.Query()
+                .Where(s => s.FAccountSetId == accountSetId && s.FBankAccount == request.BankAccount)
+                .Select(s => new { s.FTransactionDate, s.FDebitAmount, s.FCreditAmount, s.FReferenceNo, s.FDescription })
+                .ToListAsync())
+                .Select(s => $"{s.FTransactionDate:yyyyMMdd}|{s.FDebitAmount}|{s.FCreditAmount}|{s.FReferenceNo}|{s.FDescription}"));
+
+        var pending = new List<FinBankStatement>();
+        var seenInBatch = new HashSet<string>();
+
         for (int i = startRowIndex; i <= sheet.LastRowNum; i++)
         {
             var row = sheet.GetRow(i);
@@ -72,29 +111,46 @@ public class BankReconciliationService : IBankReconciliationService
             if (!TryParseDate(row, request.DateColumnIndex, out var transactionDate))
                 continue;
 
-            var statement = new FinBankStatement
+            var debit = GetCellDecimalValue(row, request.DebitColumnIndex);
+            var credit = GetCellDecimalValue(row, request.CreditColumnIndex);
+
+            // 借贷同为0的空行直接跳过（否则会成为零金额流水，匹配任意分录）
+            if (debit <= 0 && credit <= 0) continue;
+
+            var description = GetCellStringValue(row, request.DescriptionColumnIndex);
+            var referenceNo = request.ReferenceNoColumnIndex >= 0
+                ? GetCellStringValue(row, request.ReferenceNoColumnIndex) : null;
+
+            var dedupKey = $"{transactionDate:yyyyMMdd}|{debit}|{credit}|{referenceNo}|{description}";
+            if (existingKeys.Contains(dedupKey) || !seenInBatch.Add(dedupKey))
+                continue; // 与库内已有或本批内重复 → 跳过
+
+            pending.Add(new FinBankStatement
             {
                 FAccountSetId = accountSetId,
                 FBankAccount = request.BankAccount,
                 FBankName = request.BankName,
                 FTransactionDate = transactionDate,
-                FDescription = GetCellStringValue(row, request.DescriptionColumnIndex),
-                FDebitAmount = GetCellDecimalValue(row, request.DebitColumnIndex),
-                FCreditAmount = GetCellDecimalValue(row, request.CreditColumnIndex),
+                FDescription = description,
+                FDebitAmount = debit,
+                FCreditAmount = credit,
                 FBalance = GetCellDecimalValue(row, request.BalanceColumnIndex),
                 FCounterparty = request.CounterpartyColumnIndex >= 0
                     ? GetCellStringValue(row, request.CounterpartyColumnIndex) : null,
-                FReferenceNo = request.ReferenceNoColumnIndex >= 0
-                    ? GetCellStringValue(row, request.ReferenceNoColumnIndex) : null,
+                FReferenceNo = referenceNo,
                 FMatchStatus = 0,
                 FImportBatchId = batchId,
                 FCreatedTime = DateTime.Now,
                 FUpdatedTime = DateTime.Now,
-            };
-
-            await _statementRepository.AddAsync(statement);
+            });
             importCount++;
         }
+
+        await WithTransactionAsync(async () =>
+        {
+            foreach (var statement in pending)
+                await _statementRepository.AddAsync(statement);
+        });
 
         return importCount;
     }
@@ -234,6 +290,9 @@ public class BankReconciliationService : IBankReconciliationService
             var amount = statement.FDebitAmount > 0 ? statement.FDebitAmount : statement.FCreditAmount;
             var isDebit = statement.FDebitAmount > 0;
 
+            // 零金额流水（借贷皆为0）会命中任意 0 金额分录，跳过
+            if (amount <= 0) continue;
+
             var matched = availableEntries.FirstOrDefault(x =>
                 !newlyMatchedEntryIds.Contains(x.Entry.FID) &&
                 Math.Abs((x.Voucher.FDate - statement.FTransactionDate).TotalDays) <= 3 &&
@@ -275,8 +334,34 @@ public class BankReconciliationService : IBankReconciliationService
         if (statement == null)
             throw new InvalidOperationException("银行流水不存在");
 
+        // GetByIdAsync 走主键取实体、不应用账套过滤器，须复核归属防跨账套 IDOR
+        if (statement.FAccountSetId != accountSetId)
+            throw new InvalidOperationException("银行流水不属于当前账套");
+
         if (statement.FMatchStatus == 1)
             throw new InvalidOperationException("该银行流水已匹配");
+
+        // 校验凭证存在且属当前账套
+        var voucher = await _voucherRepository.Query()
+            .FirstOrDefaultAsync(v => v.FID == request.VoucherId && v.FAccountSetId == accountSetId);
+        if (voucher == null)
+            throw new InvalidOperationException("凭证不存在或不属于当前账套");
+
+        // 校验分录存在且属该凭证
+        if (request.VoucherEntryId.HasValue)
+        {
+            var entryExists = await _entryRepository.Query()
+                .AnyAsync(e => e.FID == request.VoucherEntryId.Value && e.FVoucherId == request.VoucherId);
+            if (!entryExists)
+                throw new InvalidOperationException("凭证分录不存在或不属于该凭证");
+
+            // 阻止同一凭证分录被重复匹配
+            var alreadyMatched = await _reconciliationRepository.Query()
+                .AnyAsync(r => r.FAccountSetId == accountSetId
+                    && r.FVoucherEntryId == request.VoucherEntryId.Value);
+            if (alreadyMatched)
+                throw new InvalidOperationException("该凭证分录已被匹配");
+        }
 
         var now = DateTime.Now;
         var userId = GetCurrentUserId();
@@ -292,12 +377,15 @@ public class BankReconciliationService : IBankReconciliationService
             FOperatorId = userId,
         };
 
-        await _reconciliationRepository.AddAsync(reconciliation);
+        await WithTransactionAsync(async () =>
+        {
+            await _reconciliationRepository.AddAsync(reconciliation);
 
-        statement.FMatchStatus = 1;
-        statement.FMatchedVoucherId = request.VoucherId;
-        statement.FUpdatedTime = now;
-        await _statementRepository.UpdateAsync(statement);
+            statement.FMatchStatus = 1;
+            statement.FMatchedVoucherId = request.VoucherId;
+            statement.FUpdatedTime = now;
+            await _statementRepository.UpdateAsync(statement);
+        });
 
         return true;
     }

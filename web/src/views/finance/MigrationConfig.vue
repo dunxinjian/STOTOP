@@ -477,23 +477,24 @@ async function handleSubmitMapping() {
   mappingSubmitting.value = true
   try {
     const payload = { ...mappingForm, schemeId: currentSchemeId.value }
+    // 新增走批量端点（后端要求 { items: [...] }）：单条须包进 items，否则 request.Items 为空 → 静默零行插入
     if (activeTab.value === 'account') {
       if (isEditMapping.value) {
         await updateAccountMapping(mappingForm.id, payload)
       } else {
-        await createAccountMappings(payload)
+        await createAccountMappings({ items: [payload] })
       }
     } else if (activeTab.value === 'auxiliary') {
       if (isEditMapping.value) {
         await updateAuxiliaryMapping(mappingForm.id, payload)
       } else {
-        await createAuxiliaryMappings(payload)
+        await createAuxiliaryMappings({ items: [payload] })
       }
     } else {
       if (isEditMapping.value) {
         await updateAssetMapping(mappingForm.id, payload)
       } else {
-        await createAssetMappings(payload)
+        await createAssetMappings({ items: [payload] })
       }
     }
     message.success(isEditMapping.value ? '更新成功' : '新增成功')

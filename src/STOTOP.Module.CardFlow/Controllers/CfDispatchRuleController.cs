@@ -19,18 +19,18 @@ namespace STOTOP.Module.CardFlow.Controllers;
 public class CfDispatchRuleController : ControllerBase
 {
     private readonly DispatchRuleService _ruleService;
-    private readonly ClassificationHandlerFactory _handlerFactory;
+    private readonly IEnumerable<IClassificationHandler> _handlers;
     private readonly ClassificationEngine _engine;
     private readonly STOTOPDbContext _context;
 
     public CfDispatchRuleController(
         DispatchRuleService ruleService,
-        ClassificationHandlerFactory handlerFactory,
+        IEnumerable<IClassificationHandler> handlers,
         ClassificationEngine engine,
         STOTOPDbContext context)
     {
         _ruleService = ruleService;
-        _handlerFactory = handlerFactory;
+        _handlers = handlers;
         _engine = engine;
         _context = context;
     }
@@ -111,7 +111,7 @@ public class CfDispatchRuleController : ControllerBase
     [RequirePermission(CardFlowPermissions.DispatchRuleView)]
     public ApiResult<List<HandlerTypeInfo>> GetHandlerTypes()
     {
-        var registeredTypes = _handlerFactory.GetRegisteredTypes();
+        var registeredTypes = _handlers.Select(h => h.HandlerType).ToList();
 
         var handlerTypeDescriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {

@@ -4,6 +4,8 @@ using STOTOP.Core.Models;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Services.Interfaces;
 
+using STOTOP.Module.System.Filters;
+
 namespace STOTOP.Module.Finance.Controllers;
 
 [Authorize]
@@ -28,6 +30,7 @@ public class TreasuryPlanController : ControllerBase
     }
 
     [HttpPost("account-bindings")]
+    [RequirePermission(FinancePermissions.TreasuryEdit)]
     public async Task<ApiResult<TreasuryAccountBindingDto>> SaveAccountBinding([FromBody] TreasuryAccountBindingDto request)
     {
         try
@@ -62,6 +65,7 @@ public class TreasuryPlanController : ControllerBase
     }
 
     [HttpPost("lines")]
+    [RequirePermission(FinancePermissions.TreasuryEdit)]
     public async Task<ApiResult<TreasuryPlanLineDto>> SavePlanLine([FromBody] TreasuryPlanLineDto request)
     {
         try
@@ -76,6 +80,7 @@ public class TreasuryPlanController : ControllerBase
     }
 
     [HttpDelete("lines/{id}")]
+    [RequirePermission(FinancePermissions.TreasuryEdit)]
     public async Task<ApiResult> DeletePlanLine(long id)
     {
         try

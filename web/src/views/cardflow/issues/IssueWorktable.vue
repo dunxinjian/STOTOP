@@ -180,6 +180,7 @@ const query = reactive<ProcessingIssueQueryRequest>({
   pageSize: 20,
 })
 
+// 接口仅返回当前页 items 与 total（无全量分状态统计），此处统计口径为本页数据
 const counts = computed(() => {
   const base = { Pending: 0, Processing: 0, Resolved: 0, Ignored: 0, Failed: 0 }
   for (const issue of issues.value) {
@@ -190,10 +191,10 @@ const counts = computed(() => {
 })
 
 const summaryItems = computed(() => [
-  { key: 'Pending', label: '待处理', value: counts.value.Pending },
-  { key: 'Processing', label: '处理中', value: counts.value.Processing },
-  { key: 'Resolved', label: '已处理', value: counts.value.Resolved },
-  { key: 'Ignored', label: '已忽略', value: counts.value.Ignored },
+  { key: 'Pending', label: '本页待处理', value: counts.value.Pending },
+  { key: 'Processing', label: '本页处理中', value: counts.value.Processing },
+  { key: 'Resolved', label: '本页已处理', value: counts.value.Resolved },
+  { key: 'Ignored', label: '本页已忽略', value: counts.value.Ignored },
 ])
 
 watch(

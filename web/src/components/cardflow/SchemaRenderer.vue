@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { CardComponentRuntime, SchemaFieldDefinition } from '@/types/cardflow'
+import type { CardComponentRuntime, SchemaFieldDefinition, CardFileValue } from '@/types/cardflow'
+import { get } from '@/api/request'
+import { uploadCardAttachment } from '@/api/cardflow'
+import { downloadBlob } from '@/utils/download'
+import { formatFieldDisplayValue } from '@/utils/cardflowFieldFormat'
 import AccountSelector from './fields/AccountSelector.vue'
 import AuxiliarySelector from './fields/AuxiliarySelector.vue'
 import BankAccountSelector from './fields/BankAccountSelector.vue'
@@ -94,22 +98,88 @@ function getEnumLabel(field: SchemaFieldDefinition, val: any): string {
 }
 
 function getViewValue(field: SchemaFieldDefinition): string {
-  const val = formData.value[field.key]
-  if (val === null || val === undefined || val === '') return '-'
-  switch (field.type) {
-    case 'money':
-      return formatMoney(val)
-    case 'date':
-      return formatDate(val)
-    case 'enum':
-      return getEnumLabel(field, val)
-    default:
-      return String(val)
-  }
+  // 统一走 formatFieldDisplayValue：根治移动只读端对 user/org/account/auxiliary/bankAccount/voucherRef 输出 [object Object]
+  return formatFieldDisplayValue(field, formData.value[field.key])
 }
 
 function isImageFile(name: string): boolean {
   return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(name)
+}
+
+// ==================== 附件上传/下载 ====================
+// CardFileValue[] ↔ AntD/Vant 上传组件展示列表互转；上传经授权端点落盘，dataJson 只存 { name, url, size, mimeType }
+function toUploadList(value: any): any[] {
+  if (!Array.isArray(value)) return []
+  return value.map((f: any, i: number) => ({
+    uid: f.uid ?? `att-${i}-${f.url ?? f.name}`,
+    name: f.name ?? f.fileName ?? '文件',
+    status: 'done',
+    url: f.url,
+  }))
+}
+
+async function doPcUpload(key: string, option: any) {
+  try {
+    const value = await uploadCardAttachment(option.file as File)
+    const list: CardFileValue[] = Array.isArray(formData.value[key]) ? [...formData.value[key]] : []
+    list.push(value)
+    updateField(key, list)
+    option.onSuccess?.(value)
+  } catch (e) {
+    option.onError?.(e)
+  }
+}
+
+function removePcUpload(key: string, file: any) {
+  const id = file.url ?? file.name
+  const list = (Array.isArray(formData.value[key]) ? formData.value[key] : []).filter(
+    (f: any) => (f.url ?? f.name) !== id,
+  )
+  updateField(key, list)
+}
+
+function toVanList(value: any): any[] {
+  if (!Array.isArray(value)) return []
+  return value.map((f: any) => ({ url: f.url, ...f }))
+}
+
+async function vanAfterRead(key: string, item: any) {
+  const items = Array.isArray(item) ? item : [item]
+  for (const it of items) {
+    it.status = 'uploading'
+    it.message = '上传中'
+    try {
+      const value = await uploadCardAttachment(it.file as File)
+      const list: CardFileValue[] = Array.isArray(formData.value[key]) ? [...formData.value[key]] : []
+      list.push(value)
+      updateField(key, list)
+      it.status = 'done'
+      it.message = ''
+    } catch {
+      it.status = 'failed'
+      it.message = '上传失败'
+    }
+  }
+}
+
+function vanDelete(key: string, item: any): boolean {
+  const id = item?.url ?? item?.file?.name
+  const list = (Array.isArray(formData.value[key]) ? formData.value[key] : []).filter(
+    (f: any) => (f.url ?? f.name) !== id,
+  )
+  updateField(key, list)
+  return true
+}
+
+// 附件走授权下载端点（Bearer header），原生 <a>/<img> 请求不带 header，改经 axios 拉 blob 下载
+async function openAttachment(f: any) {
+  if (!f?.url) return
+  try {
+    const blob = await get<Blob>(f.url, undefined, { responseType: 'blob' })
+    downloadBlob(blob, f.name ?? f.fileName ?? '附件')
+  } catch {
+    // 忽略下载失败（越权/文件不存在）
+  }
 }
 
 function getPickerColumns(field: SchemaFieldDefinition) {
@@ -213,13 +283,14 @@ const hasRuntimeComponents = computed(() => (props.components?.length ?? 0) > 0)
           <!-- file -->
           <a-upload
             v-else-if="field.type === 'file'"
-            :file-list="formData[field.key] || []"
+            :file-list="toUploadList(formData[field.key])"
             :accept="field.accept"
             :disabled="field.readonly"
             list-type="picture-card"
-            @change="({ fileList }: any) => updateField(field.key, fileList)"
+            :custom-request="(opt: any) => doPcUpload(field.key, opt)"
+            @remove="(f: any) => removePcUpload(field.key, f)"
           >
-            <div>
+            <div v-if="!field.readonly">
               <plus-outlined />
               <div style="margin-top: 4px">上传</div>
             </div>
@@ -330,12 +401,13 @@ const hasRuntimeComponents = computed(() => (props.components?.length ?? 0) > 0)
             <template v-else-if="field.type === 'file'">
               <span v-if="!formData[field.key]?.length">-</span>
               <span v-else class="schema-view__files">
-                <template v-for="(f, idx) in formData[field.key]" :key="idx">
-                  <img v-if="isImageFile(f.name || f.fileName || '')" :src="f.url || f.thumbUrl" class="schema-view__thumb" />
-                  <a v-else :href="f.url" target="_blank" class="schema-view__file-link">
-                    {{ f.name || f.fileName || '文件' }}
-                  </a>
-                </template>
+                <a
+                  v-for="(f, idx) in formData[field.key]"
+                  :key="idx"
+                  class="schema-view__file-link"
+                  :class="{ 'is-image': isImageFile(f.name || f.fileName || '') }"
+                  @click.prevent="openAttachment(f)"
+                >{{ f.name || f.fileName || '文件' }}</a>
               </span>
             </template>
 
@@ -473,10 +545,12 @@ const hasRuntimeComponents = computed(() => (props.components?.length ?? 0) > 0)
           >
             <template #input>
               <VanUploader
-                :model-value="formData[field.key] || []"
+                :model-value="toVanList(formData[field.key])"
                 :accept="field.accept || 'image/*'"
                 :max-count="5"
-                @update:model-value="(v: any) => updateField(field.key, v)"
+                :disabled="field.readonly"
+                :after-read="(item: any) => vanAfterRead(field.key, item)"
+                :before-delete="(item: any) => vanDelete(field.key, item)"
               />
             </template>
           </VanField>
@@ -547,10 +621,12 @@ const hasRuntimeComponents = computed(() => (props.components?.length ?? 0) > 0)
             <template v-else-if="field.type === 'file'">
               <span v-if="!formData[field.key]?.length">-</span>
               <span v-else class="schema-view__files">
-                <template v-for="(f, idx) in formData[field.key]" :key="idx">
-                  <img v-if="isImageFile(f.name || '')" :src="f.url || f.thumbUrl" class="schema-view__thumb" />
-                  <a v-else :href="f.url" target="_blank">{{ f.name || '文件' }}</a>
-                </template>
+                <a
+                  v-for="(f, idx) in formData[field.key]"
+                  :key="idx"
+                  :class="{ 'is-image': isImageFile(f.name || '') }"
+                  @click.prevent="openAttachment(f)"
+                >{{ f.name || '文件' }}</a>
               </span>
             </template>
             <template v-else-if="field.type === 'cardRef' && formData[field.key]">

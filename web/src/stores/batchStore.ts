@@ -190,11 +190,15 @@ export const useBatchStore = defineStore('batch', () => {
    */
   function applyUpdate(batchId: number, patch: Partial<BatchItem>, version?: number) {
     const existing = _map.value.get(batchId)
+    // version === 0：后端 3 参 SignalR 重载不携带版本号，放行为软更新（只更新字段、不回退 _version），
+    // 否则这类实时推送会被版本保护全部丢弃
+    const isVersionlessPush = version === 0
     // 版本保护：有版本号时，只接受更新的版本
-    if (version !== undefined && existing?._version !== undefined && version <= existing._version) {
+    if (version !== undefined && !isVersionlessPush && existing?._version !== undefined && version <= existing._version) {
       return // 丢弃过时消息
     }
-    const updated = { ...(existing ?? {} as BatchItem), ...patch, _version: version ?? existing?._version }
+    const nextVersion = isVersionlessPush ? existing?._version : (version ?? existing?._version)
+    const updated = { ...(existing ?? {} as BatchItem), ...patch, _version: nextVersion }
     // 确保 id 始终存在
     updated.id = batchId
     _map.value.set(batchId, updated as BatchItem)

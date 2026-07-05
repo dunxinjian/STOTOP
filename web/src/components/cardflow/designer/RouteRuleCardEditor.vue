@@ -23,6 +23,8 @@ const fieldOptions = computed<FieldOption[]>(() =>
     key: field.key,
     label: field.label || field.key,
     type: field.type,
+    // enum 字段的可选值必须透传，否则条件值选择器是零选项死下拉
+    options: field.options || undefined,
   })),
 )
 
@@ -68,6 +70,20 @@ function patch(partial: Partial<StageRouteRuleRequest>) {
     next.conditionJson = null
   }
   emit('update:modelValue', next)
+}
+
+function toggleDefault(checked: boolean) {
+  if (!props.modelValue) return
+  if (checked) {
+    // 切为默认分支：数据置空条件，但保留本地 condition，便于切回时恢复
+    patch({ isDefault: true })
+  } else {
+    // 切回条件分支：把界面上仍显示的条件同步回数据，避免"界面有条件、数据是 null"的分叉
+    patch({
+      isDefault: false,
+      conditionJson: condition.value.conditions.length ? JSON.stringify(condition.value) : null,
+    })
+  }
 }
 </script>
 
@@ -136,7 +152,7 @@ function patch(partial: Partial<StageRouteRuleRequest>) {
         </div>
         <a-switch
           :checked="modelValue.isDefault"
-          @update:checked="(checked: boolean | string | number) => patch({ isDefault: Boolean(checked) })"
+          @update:checked="(checked: boolean | string | number) => toggleDefault(Boolean(checked))"
         />
       </div>
 

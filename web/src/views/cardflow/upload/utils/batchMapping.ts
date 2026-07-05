@@ -12,7 +12,7 @@ export const STATUS_MAP: Record<number, { label: string; color: string }> = {
   0: { label: '解析中', color: 'processing' },
   1: { label: '已暂存', color: 'default' },
   2: { label: '质检中', color: 'processing' },
-  3: { label: '已创建卡片', color: 'success' },
+  3: { label: '已创建卡片', color: 'processing' },
   4: { label: '处理中', color: 'processing' },
   5: { label: '已完成', color: 'success' },
   6: { label: '失败', color: 'error' },
@@ -28,7 +28,7 @@ const INTERNAL_STATUS_MAP: Record<number, BatchStatus> = {
   0: 'processing',   // 解析中
   1: 'pending',      // 已暂存
   2: 'processing',   // 质检中
-  3: 'success',      // 已创建卡片
+  3: 'processing',   // 已创建卡片（中间态：终态由 5/6/7 决定，映成 success 会拦截后续进度推送）
   4: 'processing',   // 处理中
   5: 'success',      // 已完成
   6: 'error',        // 失败

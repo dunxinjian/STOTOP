@@ -115,15 +115,27 @@ public class ContractReminderService : IContractReminderService
         return true;
     }
 
-    public async Task<List<ContractReminderDto>> GetPendingRemindersAsync(long recipientId)
+    public async Task<List<ContractReminderDto>> GetPendingRemindersAsync(long recipientId, int take = 0)
     {
-        var items = await _repository.Query()
+        var query = _repository.Query()
             .Include(r => r.Contract)
             .Where(r => r.FRecipientId == recipientId && !r.FIsHandled)
-            .OrderBy(r => r.FReminderDate)
-            .ToListAsync();
+            .OrderBy(r => r.FReminderDate);
+
+        // take>0 时封顶取前 N 条（WorkHub 瘦身），否则取全量
+        var items = take > 0
+            ? await query.Take(take).ToListAsync()
+            : await query.ToListAsync();
 
         return items.Select(MapToDto).ToList();
+    }
+
+    public async Task<int> GetPendingCountAsync(long userId)
+    {
+        // 与列表口径一致：接收人为本人且未处理的提醒数，直接下推 DB 计数
+        return await _repository.Query()
+            .Where(r => r.FRecipientId == userId && !r.FIsHandled)
+            .CountAsync();
     }
 
     public async Task<bool> MarkAsHandledAsync(long id)

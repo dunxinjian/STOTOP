@@ -63,7 +63,11 @@ public class AmoebaPLService
     /// </summary>
     public async Task<AmoebaReportResponse> GetReportAsync(AmoebaReportRequest request)
     {
-        var orgId = request.OrgId > 0 ? request.OrgId : GetCurrentOrgId();
+        // 安全(P1-4 同口径)：报表组织一律取当前登录组织，忽略请求体 OrgId，避免越权读他组织
+        // 计费营收/件量、凭证、折旧(资产卡)。billing/depreciation 均按 orgId 参数过滤 SQL，
+        // 若信任 request.OrgId 则可传 OrgId=B 拉 B 组织数据。如需授权跨组织出报表，改为校验
+        // request.OrgId ∈ 用户可访问组织集后再用。镜像 GetMultiPeriodReportAsync 既有修法。
+        var orgId = GetCurrentOrgId();
         var accountSetId = request.AccountSetId;
 
         // 1. 加载映射规则
@@ -1613,7 +1617,8 @@ public class AmoebaPLService
         if (accountSetId > 0)
             request.AccountSetId = accountSetId;
 
-        var orgId = request.OrgId > 0 ? request.OrgId : GetCurrentOrgId();
+        // 安全(P1-4 同口径)：忽略请求体 OrgId，一律取当前登录组织，避免导出越权他组织数据。
+        var orgId = GetCurrentOrgId();
         var effectiveAccountSetId = request.AccountSetId;
 
         // 获取组织名称
@@ -2225,7 +2230,9 @@ public class AmoebaPLService
     {
         var outlets = scope?.Outlets?.Where(s => !string.IsNullOrEmpty(s)).Distinct().ToList();
 
-        var sql = @"SELECT ISNULL(SUM([F基础派费收费件量]), 0) AS [Value]
+        // CAST 到 BIGINT：F基础派费收费件量 是 int 列，SUM(int) 返回 int，直接用 SqlQueryRaw<long>
+        // 物化会抛 InvalidCastException（SqlClient 不隐式加宽 int→long）；且大批量求和 int 会溢出。
+        var sql = @"SELECT ISNULL(SUM(CAST([F基础派费收费件量] AS BIGINT)), 0) AS [Value]
                     FROM [STG申通派件日明细]
                     WHERE [F结算日期] >= {0} AND [F结算日期] < {1}
                         AND [FOrgId] = {2} AND [FIsRevoked] = 0";

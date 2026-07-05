@@ -19,11 +19,22 @@ public class AccountController : ControllerBase
         _accountService = accountService;
     }
 
+    /// <summary>
+    /// 解析当前账套：请求头 X-AccountSet-Id 优先，其次回退 query/参数值。
+    /// 与 RequireAccountSetPermission(头优先)鉴权保持同口径，避免「鉴权按头、数据按 query/body」背离 → 跨账套读写。
+    /// </summary>
+    private long ResolveAccountSetId(long accountSetId)
+    {
+        var header = Request.Headers["X-AccountSet-Id"].FirstOrDefault();
+        if (long.TryParse(header, out var id) && id > 0) return id;
+        return accountSetId;
+    }
+
     [HttpGet("tree")]
     [RequireAccountSetPermission(AccountSetPermissions.SubjectView, AccountSetPermissions.SubjectEdit)]
     public async Task<ApiResult<List<AccountTreeDto>>> GetTree([FromQuery] string? category, [FromQuery] long accountSetId = 0)
     {
-        var result = await _accountService.GetTreeAsync(category, accountSetId);
+        var result = await _accountService.GetTreeAsync(category, ResolveAccountSetId(accountSetId));
         return ApiResult<List<AccountTreeDto>>.Success(result);
     }
 
@@ -37,7 +48,7 @@ public class AccountController : ControllerBase
         [FromQuery] string? keyword = null,
         [FromQuery] bool? onlyLeaf = null)
     {
-        var tree = await _accountService.GetTreeAsync(null, accountSetId);
+        var tree = await _accountService.GetTreeAsync(null, ResolveAccountSetId(accountSetId));
         var flat = new List<AccountSelectorDto>();
         FlattenAccountTree(tree, flat);
 
@@ -81,7 +92,7 @@ public class AccountController : ControllerBase
         [FromQuery] string auxType,
         [FromQuery] long accountSetId = 0)
     {
-        var result = await _accountService.GetByAuxTypeAsync(auxType, accountSetId);
+        var result = await _accountService.GetByAuxTypeAsync(auxType, ResolveAccountSetId(accountSetId));
         return ApiResult<List<AccountDto>>.Success(result);
     }
 
@@ -103,7 +114,7 @@ public class AccountController : ControllerBase
     {
         try
         {
-            var result = await _accountService.CreateAsync(request, accountSetId);
+            var result = await _accountService.CreateAsync(request, ResolveAccountSetId(accountSetId));
             return ApiResult<AccountDto>.Success(result, "创建科目成功");
         }
         catch (InvalidOperationException ex)
@@ -114,9 +125,9 @@ public class AccountController : ControllerBase
 
     [HttpPut("{id}")]
     [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
-    public async Task<ApiResult<AccountDto>> Update(long id, [FromBody] UpdateAccountRequest request)
+    public async Task<ApiResult<AccountDto>> Update(long id, [FromBody] UpdateAccountRequest request, [FromHeader(Name = "X-AccountSet-Id")] long accountSetId = 0)
     {
-        var result = await _accountService.UpdateAsync(id, request);
+        var result = await _accountService.UpdateAsync(id, request, accountSetId);
         if (result == null)
         {
             return ApiResult<AccountDto>.Fail("科目不存在");
@@ -126,11 +137,11 @@ public class AccountController : ControllerBase
 
     [HttpDelete("{id}")]
     [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
-    public async Task<ApiResult> Delete(long id)
+    public async Task<ApiResult> Delete(long id, [FromHeader(Name = "X-AccountSet-Id")] long accountSetId = 0)
     {
         try
         {
-            var result = await _accountService.DeleteAsync(id);
+            var result = await _accountService.DeleteAsync(id, accountSetId);
             if (!result)
             {
                 return ApiResult.Fail("科目不存在");
@@ -145,11 +156,11 @@ public class AccountController : ControllerBase
 
     [HttpPost("{id}/toggle-status")]
     [RequireAccountSetPermission(AccountSetPermissions.SubjectEdit)]
-    public async Task<ApiResult> ToggleStatus(long id)
+    public async Task<ApiResult> ToggleStatus(long id, [FromHeader(Name = "X-AccountSet-Id")] long accountSetId = 0)
     {
         try
         {
-            var result = await _accountService.ToggleStatusAsync(id);
+            var result = await _accountService.ToggleStatusAsync(id, accountSetId);
             if (!result)
             {
                 return ApiResult.Fail("科目不存在");
@@ -166,7 +177,7 @@ public class AccountController : ControllerBase
     [RequireAccountSetPermission(AccountSetPermissions.SubjectView, AccountSetPermissions.SubjectEdit)]
     public async Task<ApiResult<List<InitialBalanceDto>>> GetInitialBalances([FromQuery] long accountSetId = 0)
     {
-        var result = await _accountService.GetInitialBalancesAsync(accountSetId);
+        var result = await _accountService.GetInitialBalancesAsync(ResolveAccountSetId(accountSetId));
         return ApiResult<List<InitialBalanceDto>>.Success(result);
     }
 
@@ -176,6 +187,10 @@ public class AccountController : ControllerBase
     {
         try
         {
+            var effective = ResolveAccountSetId(request.AccountSetId);
+            if (request.AccountSetId != effective)
+                return ApiResult.Fail("账套上下文与请求体不一致");
+            request.AccountSetId = effective;
             await _accountService.SaveInitialBalancesAsync(request);
             return ApiResult.Ok("保存期初余额成功");
         }
@@ -193,6 +208,10 @@ public class AccountController : ControllerBase
     [RequireAccountSetPermission(AccountSetPermissions.AuxiliaryEdit)]
     public async Task<ApiResult> UpdateAuxiliary([FromBody] UpdateAccountAuxiliaryRequest request)
     {
+        var effective = ResolveAccountSetId(request.AccountSetId);
+        if (request.AccountSetId != effective)
+            return ApiResult.Fail("账套上下文与请求体不一致");
+        request.AccountSetId = effective;
         await _accountService.UpdateAccountAuxiliaryAsync(request);
         return ApiResult.Ok("关联科目保存成功");
     }

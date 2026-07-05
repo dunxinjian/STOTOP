@@ -87,6 +87,8 @@ export interface StageDefinition {
 
   // ===== 通用 =====
   conditionJson?: string
+  /** 优先级模板（无编辑 UI，透传保存防止后端全删全建时被置空） */
+  priorityTemplate?: number
 }
 
 const props = defineProps<{
@@ -155,7 +157,15 @@ const stages = ref<StageDefinition[]>(clone(props.modelValue || []))
 
 watch(() => props.modelValue, (v) => {
   if (JSON.stringify(v) === JSON.stringify(stages.value)) return
+  const selectedId = selectedIndex.value >= 0 ? stages.value[selectedIndex.value]?.id : undefined
   stages.value = clone(v || [])
+  // 外部整体替换（撤销/重做）后按 id 重新定位选中节点并回显编辑态，
+  // 否则右侧面板可能静默指向错位节点，后续编辑会把配置写进别的节点
+  if (selectedId) {
+    const idx = stages.value.findIndex(s => s.id === selectedId)
+    if (idx >= 0) selectStage(idx)
+    else selectedIndex.value = -1
+  }
 }, { deep: true })
 
 function clone<T>(v: T): T { return JSON.parse(JSON.stringify(v)) }
@@ -181,7 +191,7 @@ function newStage(type: StageNodeType): StageDefinition {
     approvalMode: type === 'manual' ? 'single' : undefined,
     assigneeStrategy: type === 'manual' ? 'role' : undefined,
     inputFields: type === 'manual' ? [] : undefined,
-    viewProfile: type === 'manual' ? { fieldAccess: {}, detailAccess: {}, summary: { fields: [] } } : undefined,
+    viewProfile: type === 'manual' ? { fieldAccess: {}, detailAccess: {}, componentAccess: {}, summary: { fields: [] } } : undefined,
     actionPolicy: type === 'manual' ? { allowedActions: [...DEFAULT_ACTIONS] } : undefined,
     failurePolicy: type === 'auto' ? 'halt' : undefined,
   }
@@ -429,7 +439,10 @@ function setFieldAccess(fieldKey: string, access: StageAccessMode) {
   stage.viewProfile!.fieldAccess![fieldKey] = {
     ...existing,
     access,
-    required: access === 'required' ? true : existing.required,
+    // 隐藏/脱敏必须清掉 required，否则产生"隐藏且必填"矛盾配置被发布校验拦下
+    required: access === 'required' ? true
+      : (access === 'hidden' || access === 'masked') ? false
+      : existing.required,
   }
   if (access === 'editable' || access === 'required') {
     stage.inputFields = Array.from(new Set([...(stage.inputFields || []), fieldKey]))
@@ -514,9 +527,17 @@ function buildAssigneeConfig(stage: StageDefinition) {
     return { roleCode: editRoleCode.value || '', users: [], fallback }
   }
   if (stage.assigneeStrategy === 'fixed') {
+    // userOptions 会被搜索整体替换，反查不到时回退已存配置里的姓名，避免二次序列化把 userName 抹空
+    const previous = parseAssigneeConfig(stage)
+    const previousUsers = new Map<number, any>((previous?.users || []).map((u: any) => [u.userId, u]))
     const users = editUserIds.value.map(id => {
       const opt = userOptions.value.find(o => o.value === id)
-      return { userId: id, userName: opt?.userName || '', orgName: opt?.orgName || null }
+      const prev = previousUsers.get(id)
+      return {
+        userId: id,
+        userName: opt?.userName || prev?.userName || '',
+        orgName: opt?.orgName ?? prev?.orgName ?? null,
+      }
     })
     return { users, roleCode: null, fallback }
   }

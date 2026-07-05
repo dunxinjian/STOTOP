@@ -5,6 +5,7 @@ using STOTOP.Core.Interfaces;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.CardFlow.AutoPlugin;
 using STOTOP.Module.CardFlow.Entities;
+using STOTOP.Module.CardFlow.Services;
 using STOTOP.WebAPI.Hubs;
 
 namespace STOTOP.WebAPI.Services;
@@ -95,20 +96,26 @@ public class SignalRProgressNotifier : IProgressNotifier, IDingTalkSyncProgressN
 
     public async Task NotifyBatchStatusChangedAsync(long batchId, int newStatus, string statusText, BatchSummaryDto? summary, long version)
     {
-        // 将 int 状态码映射为前端期望的字符串: 1=Processing, 2=Completed, 3=Failed, 4=PartialCompleted, 5=PendingPipeline
+        // 调用方传入 CfBatchStatus 0-8 口径；映射目标须落在前端 batchMapping.ts SIGNALR_STATUS_MAP
+        // 可识别集合 {Processing, Completed, Failed, PartialCompleted, PendingPipeline} 内，
+        // 且与其 INTERNAL_STATUS_MAP 数字口径一致（3已创建卡片→success、8已撤销→error）
         var status = newStatus switch
         {
-            1 => "Processing",
-            2 => "Completed",
-            3 => "Failed",
-            4 => "PartialCompleted",
-            5 => "PendingPipeline",
+            CfBatchStatus.Parsing => "Processing",
+            CfBatchStatus.Staged => "PendingPipeline",
+            CfBatchStatus.QualityChecking => "Processing",
+            CfBatchStatus.CardCreated => "Completed",
+            CfBatchStatus.Processing => "Processing",
+            CfBatchStatus.Completed => "Completed",
+            CfBatchStatus.Failed => "Failed",
+            CfBatchStatus.PartiallyCompleted => "PartialCompleted",
+            CfBatchStatus.Revoked => "Failed",
             _ => "Processing"
         };
         var payload = new { batchId, status, statusText, summary = (object?)summary, version };
 
         // 关键状态变更（完成/失败/部分完成）推送失败时重试最多2次
-        var isCritical = newStatus is 2 or 3 or 4;
+        var isCritical = newStatus is CfBatchStatus.Completed or CfBatchStatus.Failed or CfBatchStatus.PartiallyCompleted;
         var maxAttempts = isCritical ? 3 : 1;
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++)
@@ -455,6 +462,68 @@ public class SignalRProgressNotifier : IProgressNotifier, IDingTalkSyncProgressN
         catch (Exception)
         {
             // 其他异常也不应中断 AutoPlugin 执行
+        }
+    }
+
+    public async Task NotifyBatchPipelineStartedAsync(long batchId, IEnumerable<PluginSnapshot> plugins)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            // 前端 useBatchSync 以 {name,index,status(int 10-14)} 初始化 autoPluginTrail
+            await _hubContext.Clients.Group($"import-{batchId}")
+                .SendAsync("BatchPipelineStarted", new
+                {
+                    batchId,
+                    plugins = plugins.Select(p => new { name = p.Name, index = p.Index, status = p.Status })
+                }, cts.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // 超时但不中断执行
+        }
+        catch (Exception)
+        {
+            // 其他异常也不应中断执行
+        }
+    }
+
+    public async Task NotifyPluginStatusChangedAsync(long batchId, int pluginIndex, string pluginName, string status, string? error = null)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            await _hubContext.Clients.Group($"import-{batchId}")
+                .SendAsync("PluginStatusChanged", new { batchId, pluginIndex, pluginName, status, error }, cts.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // 超时但不中断执行
+        }
+        catch (Exception)
+        {
+            // 其他异常也不应中断执行
+        }
+    }
+
+    public async Task NotifyBatchProgressUpdateAsync(long batchId, int processedRows, int totalRows)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            await _hubContext.Clients.Group($"import-{batchId}")
+                .SendAsync("BatchProgressUpdate", new { batchId, processedRows, totalRows }, cts.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // 超时但不中断执行
+        }
+        catch (Exception)
+        {
+            // 其他异常也不应中断执行
         }
     }
 

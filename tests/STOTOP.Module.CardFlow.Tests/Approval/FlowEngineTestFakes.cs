@@ -87,8 +87,10 @@ internal sealed class FakeBatchLifecycleService : IBatchLifecycleService
 {
     public global::System.Threading.Tasks.Task RefreshBatchStatusAsync(long batchId) => global::System.Threading.Tasks.Task.CompletedTask;
     public global::System.Threading.Tasks.Task RevokeBatchAsync(long batchId, long operatorId) => global::System.Threading.Tasks.Task.CompletedTask;
+    public global::System.Threading.Tasks.Task CascadeCancelBatchArtifactsAsync(long batchId) => global::System.Threading.Tasks.Task.CompletedTask;
     public global::System.Threading.Tasks.Task<BatchProgressDto> GetBatchProgressAsync(long batchId)
         => global::System.Threading.Tasks.Task.FromResult(new BatchProgressDto());
 
     public global::System.Threading.Tasks.Task TransitionBatchStatusAsync(CfBatch batch, int newStatus, string? message = null) => global::System.Threading.Tasks.Task.CompletedTask;
+    public global::System.Threading.Tasks.Task<long> BumpChangeVersionAsync(CfBatch batch) => global::System.Threading.Tasks.Task.FromResult(0L);
 }

@@ -8,6 +8,8 @@ export interface FieldOption {
   key: string
   label: string
   type: string
+  /** enum 类型字段的可选值（用于渲染值选择器） */
+  options?: string[]
 }
 
 export interface ConditionItem {
@@ -145,6 +147,11 @@ function getFieldType(fieldKey: string): string {
 function getFieldLabel(fieldKey: string): string {
   const field = props.fields.find((f) => f.key === fieldKey)
   return field?.label || fieldKey
+}
+
+function getFieldEnumOptions(fieldKey: string) {
+  const field = props.fields.find((f) => f.key === fieldKey)
+  return (field?.options || []).map(opt => ({ value: opt, label: opt }))
 }
 
 function getOperators(fieldKey: string) {
@@ -350,11 +357,12 @@ defineExpose({ conditionSummary })
               @change="(val: any) => updateConditionValue(idx, val)"
             />
 
-            <!-- enum + in 运算符 → 多选 -->
+            <!-- enum + in 运算符 → 多选（tags 兜底：字段未配可选值时仍可手输） -->
             <a-select
               v-else-if="getFieldType((item as ConditionItem).field) === 'enum' && (item as ConditionItem).operator === 'in'"
               :value="(item as ConditionItem).value || []"
-              mode="multiple"
+              mode="tags"
+              :options="getFieldEnumOptions((item as ConditionItem).field)"
               placeholder="选择多个值"
               class="cb-value-input"
               :disabled="disabled"
@@ -365,16 +373,18 @@ defineExpose({ conditionSummary })
             <a-select
               v-else-if="getFieldType((item as ConditionItem).field) === 'enum'"
               :value="(item as ConditionItem).value"
+              :options="getFieldEnumOptions((item as ConditionItem).field)"
               placeholder="选择值"
               class="cb-value-input"
               :disabled="disabled"
               @change="(val: any) => updateConditionValue(idx, val)"
             />
 
-            <!-- date + between → 范围选择 -->
+            <!-- date + between → 范围选择（value-format 保证与卡片 date-only 数据可比，且回显合法） -->
             <a-range-picker
               v-else-if="getFieldType((item as ConditionItem).field) === 'date' && (item as ConditionItem).operator === 'between'"
               :value="(item as ConditionItem).value"
+              value-format="YYYY-MM-DD"
               class="cb-value-input"
               :disabled="disabled"
               @change="(val: any) => updateConditionValue(idx, val)"
@@ -394,19 +404,20 @@ defineExpose({ conditionSummary })
             <a-date-picker
               v-else-if="getFieldType((item as ConditionItem).field) === 'date'"
               :value="(item as ConditionItem).value"
+              value-format="YYYY-MM-DD"
               class="cb-value-input"
               :disabled="disabled"
               @change="(val: any) => updateConditionValue(idx, val)"
             />
 
-            <!-- user / org 类型 → select placeholder -->
-            <a-select
+            <!-- user / org 类型 → 直接录入 ID（此处无远端搜索数据源，空下拉不可用） -->
+            <a-input
               v-else-if="getFieldType((item as ConditionItem).field) === 'user' || getFieldType((item as ConditionItem).field) === 'org'"
               :value="(item as ConditionItem).value"
-              placeholder="选择"
+              :placeholder="getFieldType((item as ConditionItem).field) === 'user' ? '输入用户ID' : '输入组织ID'"
               class="cb-value-input"
               :disabled="disabled"
-              @change="(val: any) => updateConditionValue(idx, val)"
+              @change="(e: any) => updateConditionValue(idx, e.target.value)"
             />
 
             <!-- 默认 text input -->

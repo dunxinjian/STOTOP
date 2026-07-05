@@ -30,6 +30,10 @@ export const FinancePermissions = {
   AccountSetManage: 'finance:accountset:manage',
   TemplateManage:   'finance:template:manage',
 
+  // 账套规则（账套级会计控制开关）
+  AccountSetRuleView: 'finance:account-set-rule:view',
+  AccountSetRuleEdit: 'finance:account-set-rule:edit',
+
   // 银行对账
   BankReconciliationView:   'finance:bank:view',
   BankReconciliationImport: 'finance:bank:import',

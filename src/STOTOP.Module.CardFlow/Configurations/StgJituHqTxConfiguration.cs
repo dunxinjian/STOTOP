@@ -43,6 +43,9 @@ public class StgJituHqTxConfiguration : IEntityTypeConfiguration<StgJituHqTx>
         builder.Property(e => e.F本次余额).HasColumnName("F本次余额").HasColumnType("money");
         builder.Property(e => e.F预付时间).HasColumnName("F预付时间");
         builder.Property(e => e.F备注).HasColumnName("F备注").HasMaxLength(500);
+        // 派生收支双列（V67 加，导入 transformRules 按符号拆分）
+        builder.Property(e => e.F发生额收入).HasColumnName("F发生额收入").HasColumnType("money");
+        builder.Property(e => e.F发生额支出).HasColumnName("F发生额支出").HasColumnType("money");
 
         builder.HasIndex(e => e.F批次ID).HasDatabaseName("IX_STG极兔总部交易明细_F批次ID");
         builder.HasIndex(e => e.FDataScopeId).HasDatabaseName("IX_STG极兔总部交易明细_数据作用域").HasFilter("[FDataScopeId] IS NOT NULL");

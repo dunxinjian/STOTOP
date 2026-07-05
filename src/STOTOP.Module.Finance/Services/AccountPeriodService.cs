@@ -27,6 +27,7 @@ public class AccountPeriodService : IAccountPeriodService
     private readonly IEventDispatcher _eventDispatcher;
     private readonly ILogger<AccountPeriodService> _logger;
     private readonly STOTOPDbContext _context;
+    private readonly IAccountSetRuleService _accountSetRuleService;
 
     public AccountPeriodService(
         IRepository<FinAccountPeriod> periodRepository,
@@ -40,7 +41,8 @@ public class AccountPeriodService : IAccountPeriodService
         IReportService reportService,
         IEventDispatcher eventDispatcher,
         ILogger<AccountPeriodService> logger,
-        STOTOPDbContext context)
+        STOTOPDbContext context,
+        IAccountSetRuleService accountSetRuleService)
     {
         _periodRepository = periodRepository;
         _voucherRepository = voucherRepository;
@@ -54,6 +56,7 @@ public class AccountPeriodService : IAccountPeriodService
         _eventDispatcher = eventDispatcher;
         _logger = logger;
         _context = context;
+        _accountSetRuleService = accountSetRuleService;
     }
 
     private long GetCurrentOrgId()
@@ -94,9 +97,11 @@ public class AccountPeriodService : IAccountPeriodService
 
     public async Task<AccountPeriodDto?> GetCurrentAsync(long accountSetId = 0)
     {
-        var now = DateTime.Now;
+        // 用当天零点比较：FEndDate 存的是当月末日 00:00:00（CreateYearPeriodsAsync），
+        // 若与带时刻的 DateTime.Now 比较，月末当天 00:00 之后 FEndDate >= now 恒为 false → 当月最后一天查不到当前期间。
+        var today = DateTime.Now.Date;
         var period = await _periodRepository.Query()
-            .Where(p => p.FStartDate <= now && p.FEndDate >= now && p.FStatus == 1 && p.FAccountSetId == accountSetId)
+            .Where(p => p.FStartDate <= today && p.FEndDate >= today && p.FStatus == 1 && p.FAccountSetId == accountSetId)
             .FirstOrDefaultAsync();
         
         return period == null ? null : MapToDto(period);
@@ -153,15 +158,22 @@ public class AccountPeriodService : IAccountPeriodService
         // 1. 验证前置条件
         var period = await _periodRepository.GetByIdAsync(periodId);
         if (period == null) return (false, "期间不存在");
+        // 期间须属于传入账套：GetByIdAsync 按主键取，绕过账套维度，
+        // 若 periodId 与 accountSetId 错配则后续全部校验/结转会落到另一账套的数据上（IDOR + 数据污染）。
+        if (period.FAccountSetId != accountSetId) return (false, "期间不属于该账套");
         if (period.FIsClosed == 1) return (false, "该期间已结账");
 
-        // 检查上一期间是否已结账（首期除外）
-        var prevPeriod = await _periodRepository.Query()
-            .Where(p => p.FAccountSetId == accountSetId && p.FYear == period.FYear && p.FPeriodNo == period.FPeriodNo - 1)
-            .FirstOrDefaultAsync();
-        if (prevPeriod == null && period.FPeriodNo > 1)
+        // 检查上一期间是否已结账（该账套首期除外）：非1月查同年上一期，1月查上一年12月。
+        FinAccountPeriod? prevPeriod;
+        if (period.FPeriodNo > 1)
         {
-            // 跨年：查上一年12月
+            prevPeriod = await _periodRepository.Query()
+                .Where(p => p.FAccountSetId == accountSetId && p.FYear == period.FYear && p.FPeriodNo == period.FPeriodNo - 1)
+                .FirstOrDefaultAsync();
+        }
+        else
+        {
+            // 1月：查上一年12月（该账套上一年度存在期间时才要求先结账；不存在=账套首期，放行）
             prevPeriod = await _periodRepository.Query()
                 .Where(p => p.FAccountSetId == accountSetId && p.FYear == period.FYear - 1 && p.FPeriodNo == 12)
                 .FirstOrDefaultAsync();
@@ -169,12 +181,20 @@ public class AccountPeriodService : IAccountPeriodService
         if (prevPeriod != null && prevPeriod.FIsClosed != 1)
             return (false, $"请先结账 {prevPeriod.FYear}年{prevPeriod.FPeriodNo}月");
 
-        // 检查所有凭证已审核
+        // 检查无待审核凭证（与 PreCloseCheck 口径一致：仅待审核 FStatus==1 阻断；
+        // 草稿(0)未提交、作废(-1)已死、锁定(3)已入账，均不计入，避免作废凭证永久阻塞结账）。
         var unauditedCount = await _voucherRepository.Query()
-            .CountAsync(v => v.FPeriodId == periodId && v.FAccountSetId == accountSetId && v.FStatus != 2);
+            .CountAsync(v => v.FPeriodId == periodId && v.FAccountSetId == accountSetId && v.FStatus == 1);
         if (unauditedCount > 0)
-            return (false, $"该期间有{unauditedCount}张未审核凭证，请先审核");
+            return (false, $"该期间有{unauditedCount}张待审核凭证，请先审核");
 
+        // 从余额重算 → 结转凭证生成 → 期初结转 → 锁定 → 标记结账 全程一个显式事务：
+        // 中途任一步异常须整体回滚，否则会留半截结账（如结转凭证已生成但期间未标记、或期初已结转但凭证未锁定）。
+        // Repository.Add/Update 内部各自 SaveChangesAsync，被此外层事务统一提交/回滚；
+        // RecalculateBalanceAsync 无嵌套事务，纳入范围安全。
+        using var _closeTx = _context.Database.IsRelational() ? await _context.Database.BeginTransactionAsync() : null;
+        try
+        {
         // 先基于当前已审凭证重算期末余额，再做试算平衡校验。
         // 否则 GenerateTrialBalanceAsync 读取的是尚未重算（可能为空或为上次结账的旧值）的科目余额表，
         // 空表会得到 借0==贷0 的"假平衡"，使这道强制校验形同虚设。
@@ -184,14 +204,19 @@ public class AccountPeriodService : IAccountPeriodService
         var trialBalance = await _trialBalanceService.GenerateTrialBalanceAsync(periodId, accountSetId);
         if (!trialBalance.IsBalanced)
         {
+            if (_closeTx != null) await _closeTx.RollbackAsync();
             return (false, $"试算不平衡，借方合计 {trialBalance.TotalDebit}，贷方合计 {trialBalance.TotalCredit}，差额 {Math.Abs(trialBalance.TotalDebit - trialBalance.TotalCredit)}");
         }
 
-        // 2. 查找本年利润科目
+        // 2. 查找本年利润科目（P0-2 结转目标科目按账套规则读取，无配置回退 3103/310405）
+        var (profitCode, retainedCode) = await _accountSetRuleService.GetClosingAccountCodesAsync(accountSetId);
         var profitAccount = await _accountRepository.Query()
-            .FirstOrDefaultAsync(a => a.FCode == "3103" && a.FAccountSetId == accountSetId);
+            .FirstOrDefaultAsync(a => a.FCode == profitCode && a.FAccountSetId == accountSetId);
         if (profitAccount == null)
-            return (false, "未找到3103(本年利润)科目，无法结账");
+        {
+            if (_closeTx != null) await _closeTx.RollbackAsync();
+            return (false, $"未找到{profitCode}(本年利润)科目，无法结账");
+        }
 
         // 3. 查询所有损益类末级科目，汇总本期发生额并生成结转凭证
         var profitAndLossAccounts = await _accountRepository.Query()
@@ -311,7 +336,7 @@ public class AccountPeriodService : IAccountPeriodService
         if (period.FPeriodNo == 12)
         {
             var retainedAccount = await _accountRepository.Query()
-                .FirstOrDefaultAsync(a => a.FCode == "310405" && a.FAccountSetId == accountSetId);
+                .FirstOrDefaultAsync(a => a.FCode == retainedCode && a.FAccountSetId == accountSetId);
             if (retainedAccount != null)
             {
                 // 计算3103全年累计余额（贷-借的净额）
@@ -340,13 +365,13 @@ public class AccountPeriodService : IAccountPeriodService
                     var yearEndEntries = new List<FinVoucherEntry>();
                     if (yearProfit > 0) // 盈利：借本年利润，贷未分配利润
                     {
-                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 1, FSummary = "结转全年利润", FAccountId = profitAccount.FID, FAccountCode = "3103", FAccountName = "本年利润", FDebitAmount = yearProfit, FCreditAmount = 0, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
-                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 2, FSummary = "结转全年利润", FAccountId = retainedAccount.FID, FAccountCode = "310405", FAccountName = "利润分配-未分配利润", FDebitAmount = 0, FCreditAmount = yearProfit, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
+                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 1, FSummary = "结转全年利润", FAccountId = profitAccount.FID, FAccountCode = profitAccount.FCode, FAccountName = profitAccount.FName, FDebitAmount = yearProfit, FCreditAmount = 0, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
+                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 2, FSummary = "结转全年利润", FAccountId = retainedAccount.FID, FAccountCode = retainedAccount.FCode, FAccountName = retainedAccount.FName, FDebitAmount = 0, FCreditAmount = yearProfit, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
                     }
                     else // 亏损：借未分配利润，贷本年利润
                     {
-                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 1, FSummary = "结转全年亏损", FAccountId = retainedAccount.FID, FAccountCode = "310405", FAccountName = "利润分配-未分配利润", FDebitAmount = -yearProfit, FCreditAmount = 0, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
-                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 2, FSummary = "结转全年亏损", FAccountId = profitAccount.FID, FAccountCode = "3103", FAccountName = "本年利润", FDebitAmount = 0, FCreditAmount = -yearProfit, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
+                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 1, FSummary = "结转全年亏损", FAccountId = retainedAccount.FID, FAccountCode = retainedAccount.FCode, FAccountName = retainedAccount.FName, FDebitAmount = -yearProfit, FCreditAmount = 0, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
+                        yearEndEntries.Add(new FinVoucherEntry { FLineNo = 2, FSummary = "结转全年亏损", FAccountId = profitAccount.FID, FAccountCode = profitAccount.FCode, FAccountName = profitAccount.FName, FDebitAmount = 0, FCreditAmount = -yearProfit, FCreatedTime = DateTime.Now, FUpdatedTime = DateTime.Now });
                     }
 
                     var yearEndVoucher = new FinVoucher
@@ -371,6 +396,10 @@ public class AccountPeriodService : IAccountPeriodService
                 }
             }
         }
+
+        // 结转凭证（步骤3/4 新增的 status=2 损益/利润结转分录）已入账，须先重算本期余额，
+        // 否则下一步读到的是结转前旧余额：损益科目未清零、本年利润缺本期利润 → 下期期初错误。
+        await _reportService.RecalculateBalanceAsync(periodId, accountSetId);
 
         // 5. 结转下期期初余额
         var nextPeriod = await _periodRepository.Query()
@@ -442,7 +471,15 @@ public class AccountPeriodService : IAccountPeriodService
         // 结账后预计算报表缓存
         await _reportService.RecalculateBalanceAsync(periodId, accountSetId);
 
-        // 发布账期关闭事件
+        if (_closeTx != null) await _closeTx.CommitAsync();
+        }
+        catch
+        {
+            if (_closeTx != null) await _closeTx.RollbackAsync();
+            throw;
+        }
+
+        // 发布账期关闭事件（事务已提交，事件发布失败不回滚已结账结果）
         try
         {
             await _eventDispatcher.PublishAsync(new AccountPeriodClosedEvent
@@ -467,6 +504,8 @@ public class AccountPeriodService : IAccountPeriodService
     {
         var period = await _periodRepository.GetByIdAsync(periodId);
         if (period == null) return (false, "期间不存在");
+        // 期间须属于传入账套（同 CloseAsync：GetByIdAsync 绕过账套维度，错配会解锁他账套期间/凭证）。
+        if (period.FAccountSetId != accountSetId) return (false, "期间不属于该账套");
         if (period.FIsClosed != 1) return (false, "该期间未结账");
 
         // 检查下一期间未结账
@@ -478,6 +517,10 @@ public class AccountPeriodService : IAccountPeriodService
         if (nextPeriod != null && nextPeriod.FIsClosed == 1)
             return (false, "请先反结账下一期间");
 
+        // 删除结转凭证 → 解锁凭证 → 清结账标志 全程一个显式事务，中途异常整体回滚，避免半截反结账。
+        using var _reopenTx = _context.Database.IsRelational() ? await _context.Database.BeginTransactionAsync() : null;
+        try
+        {
         // 删除系统结转凭证
         var closingVouchers = await _voucherRepository.Query()
             .Where(v => v.FPeriodId == periodId && v.FAccountSetId == accountSetId && v.FSource == "system:closing")
@@ -513,6 +556,14 @@ public class AccountPeriodService : IAccountPeriodService
             accountSetId, "反结账", "反结账",
             $"反结账 {period.FYear}年{period.FPeriodNo}月期间",
             periodId, $"{period.FYear}-{period.FPeriodNo:D2}");
+
+        if (_reopenTx != null) await _reopenTx.CommitAsync();
+        }
+        catch
+        {
+            if (_reopenTx != null) await _reopenTx.RollbackAsync();
+            throw;
+        }
 
         return (true, "反结账成功");
     }

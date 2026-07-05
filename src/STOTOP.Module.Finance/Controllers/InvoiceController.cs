@@ -47,9 +47,9 @@ public class InvoiceController : ControllerBase
     }
 
     [HttpGet("{id}")]
-    public async Task<ApiResult<InvoiceDto>> GetById(long id)
+    public async Task<ApiResult<InvoiceDto>> GetById(long id, [FromQuery] long accountSetId = 0)
     {
-        var result = await _invoiceService.GetInvoiceByIdAsync(id);
+        var result = await _invoiceService.GetInvoiceByIdAsync(id, accountSetId);
         if (result == null)
             return ApiResult<InvoiceDto>.Fail("发票不存在");
         return ApiResult<InvoiceDto>.Success(result);

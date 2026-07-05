@@ -4,6 +4,8 @@ using STOTOP.Core.Models;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Services.Interfaces;
 
+using STOTOP.Module.System.Filters;
+
 namespace STOTOP.Module.Finance.Controllers;
 
 [Authorize]
@@ -44,6 +46,7 @@ public class BankingChannelController : ControllerBase
     }
 
     [HttpPost]
+    [RequirePermission(FinancePermissions.BankChannelManage)]
     public async Task<ApiResult<BankChannelDto>> Create([FromBody] CreateBankChannelRequest request)
     {
         var operatorName = User.Identity?.Name;
@@ -52,6 +55,7 @@ public class BankingChannelController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [RequirePermission(FinancePermissions.BankChannelManage)]
     public async Task<ApiResult<BankChannelDto>> Update(long id, [FromBody] UpdateBankChannelRequest request)
     {
         try
@@ -71,6 +75,7 @@ public class BankingChannelController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [RequirePermission(FinancePermissions.BankChannelManage)]
     public async Task<ApiResult> Delete(long id)
     {
         try

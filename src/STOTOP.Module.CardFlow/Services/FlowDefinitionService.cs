@@ -23,16 +23,42 @@ public class FlowDefinitionService : IFlowDefinitionService
     {
         var query = _dbContext.Set<CfFlowDefinition>().AsQueryable();
 
-        if (!string.IsNullOrEmpty(request.Status))
+        var statuses = (request.Statuses ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+        if (statuses.Count > 0)
+            query = query.Where(x => statuses.Contains(x.FStatus));
+        else if (!string.IsNullOrEmpty(request.Status))
             query = query.Where(x => x.FStatus == request.Status);
         if (request.OrgId.HasValue)
             query = query.Where(x => x.FOrgId == request.OrgId.Value);
+        if (request.FlowGroupId.HasValue)
+            query = query.Where(x => x.FFlowGroupId == request.FlowGroupId.Value);
         if (!string.IsNullOrEmpty(request.Keyword))
             query = query.Where(x => x.FFlowName.Contains(request.Keyword) || x.FFlowCode.Contains(request.Keyword));
 
         var totalCount = await query.CountAsync();
-        var pagedDefinitions = await query
-            .OrderByDescending(x => x.FCreatedTime)
+
+        // 排序（字段白名单）；lastPublishedTime 来自版本表聚合，用子查询排序
+        var desc = !string.Equals(request.SortOrder, "asc", StringComparison.OrdinalIgnoreCase);
+        var ordered = request.SortField switch
+        {
+            "flowName" => desc
+                ? query.OrderByDescending(x => x.FFlowName)
+                : query.OrderBy(x => x.FFlowName),
+            "lastPublishedTime" => desc
+                ? query.OrderByDescending(x => _dbContext.Set<CfFlowVersion>()
+                    .Where(v => v.FFlowDefinitionId == x.FID && v.FPublishTime != null)
+                    .Max(v => (DateTime?)v.FPublishTime))
+                : query.OrderBy(x => _dbContext.Set<CfFlowVersion>()
+                    .Where(v => v.FFlowDefinitionId == x.FID && v.FPublishTime != null)
+                    .Max(v => (DateTime?)v.FPublishTime)),
+            _ => desc
+                ? query.OrderByDescending(x => x.FCreatedTime)
+                : query.OrderBy(x => x.FCreatedTime),
+        };
+
+        var pagedDefinitions = await ordered
             .Skip((request.Page - 1) * request.PageSize)
             .Take(request.PageSize)
             .ToListAsync();
@@ -55,7 +81,10 @@ public class FlowDefinitionService : IFlowDefinitionService
             .Where(v => definitionIds.Contains(v.FFlowDefinitionId) && v.FStatus == "draft")
             .Select(v => new { v.FFlowDefinitionId, v.FVersionNumber })
             .ToListAsync();
-        var draftMap = draftInfos.ToDictionary(d => d.FFlowDefinitionId);
+        // 防御：同一定义若存在多条草稿（历史脏数据）取最新，避免 ToDictionary 重复键抛 500
+        var draftMap = draftInfos
+            .GroupBy(d => d.FFlowDefinitionId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(d => d.FVersionNumber).First());
 
         var items = pagedDefinitions.Select(x =>
         {
@@ -118,6 +147,7 @@ public class FlowDefinitionService : IFlowDefinitionService
             CreatedTime = entity.FCreatedTime,
             TriggerConfigJson = entity.FTriggerConfigJson,
             AccountSetId = entity.FAccountSetId,
+            MatchPattern = entity.FMatchPattern,
             CurrentVersion = publishedVersion
         };
     }
@@ -134,6 +164,7 @@ public class FlowDefinitionService : IFlowDefinitionService
             FTitleTemplate = request.TitleTemplate,
             FAllowedRolesJson = request.AllowedRolesJson,
             FFlowGroupId = request.FlowGroupId,
+            FMatchPattern = request.MatchPattern,
             FOrgId = 0, // 让 DbContext 的 FillOrgIdForNewEntities 自动填充当前组织
             FCreatorId = operatorId,
             FCreatedTime = DateTime.Now
@@ -161,7 +192,8 @@ public class FlowDefinitionService : IFlowDefinitionService
 
     public async Task<FlowDefinitionDto> UpdateAsync(long id, UpdateFlowDefinitionRequest request, long operatorId)
     {
-        var entity = await _dbContext.Set<CfFlowDefinition>().FirstOrDefaultAsync(x => x.FID == id)
+        // 注意：由于全局配置了 NoTracking，必须使用 AsTracking() 才能正确更新
+        var entity = await _dbContext.Set<CfFlowDefinition>().AsTracking().FirstOrDefaultAsync(x => x.FID == id)
             ?? throw new InvalidOperationException("流程定义不存在");
 
         if (!string.IsNullOrEmpty(request.FlowName))
@@ -176,6 +208,8 @@ public class FlowDefinitionService : IFlowDefinitionService
             entity.FAllowedRolesJson = request.AllowedRolesJson;
         if (request.FlowGroupId.HasValue)
             entity.FFlowGroupId = request.FlowGroupId;
+        if (request.MatchPattern != null)
+            entity.FMatchPattern = string.IsNullOrWhiteSpace(request.MatchPattern) ? null : request.MatchPattern;
 
         entity.FUpdatedTime = DateTime.Now;
         await _dbContext.SaveChangesAsync();
@@ -194,6 +228,56 @@ public class FlowDefinitionService : IFlowDefinitionService
             OrgId = entity.FOrgId,
             CreatedTime = entity.FCreatedTime
         };
+    }
+
+    public async Task DeleteAsync(long id, long operatorId)
+    {
+        var entity = await _dbContext.Set<CfFlowDefinition>().FirstOrDefaultAsync(x => x.FID == id)
+            ?? throw new InvalidOperationException("流程定义不存在");
+
+        if (entity.FStatus != "draft")
+            throw new InvalidOperationException("仅草稿状态的流程定义可以删除，已发布过的流程请使用归档");
+
+        var versionIds = await _dbContext.Set<CfFlowVersion>()
+            .Where(v => v.FFlowDefinitionId == id)
+            .Select(v => v.FID)
+            .ToListAsync();
+
+        var hasPublished = await _dbContext.Set<CfFlowVersion>()
+            .AnyAsync(v => v.FFlowDefinitionId == id && v.FPublishTime != null);
+        if (hasPublished)
+            throw new InvalidOperationException("该流程存在已发布版本，不能删除，请使用归档");
+
+        var hasCards = await _dbContext.Set<CfCard>().AnyAsync(c => c.FFlowDefinitionId == id);
+        if (hasCards)
+            throw new InvalidOperationException("该流程已存在卡片实例，不能删除");
+
+        var hasBatches = await _dbContext.Set<CfBatch>().AnyAsync(b => b.FFlowDefinitionId == id);
+        if (hasBatches)
+            throw new InvalidOperationException("该流程已存在导入批次，不能删除");
+
+        if (versionIds.Count > 0)
+        {
+            var stages = await _dbContext.Set<CfStageDefinition>()
+                .Where(s => versionIds.Contains(s.FFlowVersionId)).ToListAsync();
+            _dbContext.Set<CfStageDefinition>().RemoveRange(stages);
+
+            var routes = await _dbContext.Set<CfStageRouteRule>()
+                .Where(r => versionIds.Contains(r.FFlowVersionId)).ToListAsync();
+            _dbContext.Set<CfStageRouteRule>().RemoveRange(routes);
+
+            var policies = await _dbContext.Set<CfDynamicStagePolicy>()
+                .Where(p => versionIds.Contains(p.FFlowVersionId)).ToListAsync();
+            _dbContext.Set<CfDynamicStagePolicy>().RemoveRange(policies);
+
+            var versions = await _dbContext.Set<CfFlowVersion>()
+                .Where(v => v.FFlowDefinitionId == id).ToListAsync();
+            _dbContext.Set<CfFlowVersion>().RemoveRange(versions);
+        }
+
+        _dbContext.Set<CfFlowDefinition>().Remove(entity);
+        await _dbContext.SaveChangesAsync();
+        _logger.LogInformation("流程定义已删除：{DefinitionId}（{FlowName}），操作人 {OperatorId}", id, entity.FFlowName, operatorId);
     }
 
     public async Task PublishAsync(long id, long operatorId)
@@ -426,7 +510,9 @@ public class FlowDefinitionService : IFlowDefinitionService
 
     public async Task<FlowVersionDetailDto> SaveDraftVersionAsync(long definitionId, SaveDraftVersionRequest request, long operatorId)
     {
+        // 注意：由于全局配置了 NoTracking，必须使用 AsTracking() 才能正确更新已有草稿的 schema JSON
         var existingDraft = await _dbContext.Set<CfFlowVersion>()
+            .AsTracking()
             .FirstOrDefaultAsync(x => x.FFlowDefinitionId == definitionId && x.FStatus == "draft");
 
         if (existingDraft == null)
@@ -862,6 +948,30 @@ public class FlowDefinitionService : IFlowDefinitionService
             "replaceTargetHandlers" => "replaceTargetHandlers",
             var value => value
         };
+    }
+
+    public async Task DiscardDraftVersionAsync(long definitionId, long operatorId)
+    {
+        var draft = await _dbContext.Set<CfFlowVersion>()
+            .FirstOrDefaultAsync(x => x.FFlowDefinitionId == definitionId && x.FStatus == "draft")
+            ?? throw new InvalidOperationException("当前没有草稿版本");
+
+        var stages = await _dbContext.Set<CfStageDefinition>()
+            .Where(s => s.FFlowVersionId == draft.FID).ToListAsync();
+        _dbContext.Set<CfStageDefinition>().RemoveRange(stages);
+
+        var routes = await _dbContext.Set<CfStageRouteRule>()
+            .Where(r => r.FFlowVersionId == draft.FID).ToListAsync();
+        _dbContext.Set<CfStageRouteRule>().RemoveRange(routes);
+
+        var policies = await _dbContext.Set<CfDynamicStagePolicy>()
+            .Where(p => p.FFlowVersionId == draft.FID).ToListAsync();
+        _dbContext.Set<CfDynamicStagePolicy>().RemoveRange(policies);
+
+        _dbContext.Set<CfFlowVersion>().Remove(draft);
+        await _dbContext.SaveChangesAsync();
+        _logger.LogInformation("已放弃草稿版本：定义 {DefinitionId} v{Version}，操作人 {OperatorId}",
+            definitionId, draft.FVersionNumber, operatorId);
     }
 
     public async Task<FlowVersionDetailDto?> GetDraftVersionAsync(long definitionId)

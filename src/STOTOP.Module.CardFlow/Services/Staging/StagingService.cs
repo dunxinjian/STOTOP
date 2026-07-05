@@ -227,8 +227,8 @@ public class StagingService
                 stats.UnprocessedCount = await set.CountAsync(e => e.F处理状态 == 0, ct);
                 stats.ProcessedCount = await set.CountAsync(e => e.F处理状态 == 1, ct);
                 stats.FailedCount = await set.CountAsync(e => e.F处理状态 == 2, ct);
-                stats.TotalIncome = await set.SumAsync(e => e.F发生金额 ?? 0, ct);
-                stats.TotalExpense = 0;
+                stats.TotalIncome = await set.SumAsync(e => e.F发生额收入 ?? 0, ct);
+                stats.TotalExpense = await set.SumAsync(e => e.F发生额支出 ?? 0, ct);
                 break;
             }
             case "STG申通总部交易明细":
@@ -249,8 +249,8 @@ public class StagingService
                 stats.UnprocessedCount = await set.CountAsync(e => e.F处理状态 == 0, ct);
                 stats.ProcessedCount = await set.CountAsync(e => e.F处理状态 == 1, ct);
                 stats.FailedCount = await set.CountAsync(e => e.F处理状态 == 2, ct);
-                stats.TotalIncome = await set.SumAsync(e => e.F交易金额, ct);
-                stats.TotalExpense = 0;
+                stats.TotalIncome = await set.SumAsync(e => e.F发生额收入, ct);
+                stats.TotalExpense = await set.SumAsync(e => e.F发生额支出, ct);
                 break;
             }
             case "STG费用支出记录":

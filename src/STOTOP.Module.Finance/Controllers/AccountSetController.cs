@@ -7,6 +7,8 @@ using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Entities;
 using STOTOP.Module.Finance.Services;
 
+using STOTOP.Module.System.Filters;
+
 namespace STOTOP.Module.Finance.Controllers;
 
 [Authorize]
@@ -42,6 +44,7 @@ public class AccountSetController : ControllerBase
     }
 
     [HttpPost]
+    [RequirePermission(FinancePermissions.AccountSetManage)]
     public async Task<ApiResult<AccountSetDto>> Create([FromBody] CreateAccountSetRequest request)
     {
         try
@@ -73,6 +76,7 @@ public class AccountSetController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [RequirePermission(FinancePermissions.AccountSetManage)]
     public async Task<ApiResult<AccountSetDto>> Update(long id, [FromBody] AccountSetDto dto)
     {
         try
@@ -91,6 +95,7 @@ public class AccountSetController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [RequirePermission(FinancePermissions.AccountSetManage)]
     public async Task<ApiResult> Delete(long id)
     {
         try
@@ -109,6 +114,7 @@ public class AccountSetController : ControllerBase
     }
 
     [HttpPost("{id}/initialize")]
+    [RequirePermission(FinancePermissions.AccountSetManage)]
     public async Task<IActionResult> Initialize(long id, [FromQuery] bool force = false,
         [FromQuery] string? templateType = null,
         [FromQuery] string? industryCode = null,

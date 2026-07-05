@@ -303,6 +303,12 @@ public class AccountSetService
             return (false, $"该账套已初始化（已有{existingAccountCount}个科目），如需重新初始化请选择强制模式", existingAccountCount, 0);
         }
     
+        // 清库 + 定源 + 复制科目 + 建期间 + 初始化余额 全程一个显式事务（F45）：
+        // 强制重新初始化会先清空旧科目/余额/期间，若后续定源/复制中途抛异常（源科目为空、参数非法等），
+        // 无事务时账套被清残且不可回滚。包进事务后任一步异常整体回滚，恢复清库前状态。
+        using var _initTx = _context.Database.IsRelational() ? await _context.Database.BeginTransactionAsync() : null;
+        try
+        {
         // 如果强制模式且已有科目，先清除旧数据
         if (existingAccountCount > 0 && force)
         {
@@ -550,7 +556,14 @@ public class AccountSetService
             _ => $"初始化成功：复制了{accountCount}个科目，创建了{periodCount}个会计期间"
         };
     
+        if (_initTx != null) await _initTx.CommitAsync();
         return (true, message, accountCount, periodCount);
+        }
+        catch
+        {
+            if (_initTx != null) await _initTx.RollbackAsync();
+            throw;
+        }
     }
     
     /// <summary>

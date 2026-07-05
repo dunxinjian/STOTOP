@@ -72,6 +72,7 @@ const statusTags = [
   { key: 'processing', label: '处理中' },
   { key: 'pending', label: '待确认' },
   { key: 'error', label: '有异常' },
+  { key: 'partial', label: '部分完成' },
   { key: 'success', label: '已完成' },
 ] as const
 </script>

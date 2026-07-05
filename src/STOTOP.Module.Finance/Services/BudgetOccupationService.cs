@@ -241,7 +241,9 @@ public class BudgetOccupationService : IBudgetOccupationService
                 o.FBudgetVersionId == budgetVersion.FID &&
                 o.FOrgId == request.OrgId &&
                 o.FPeriod == request.Period &&
-                (o.FStatus == "occupied" || o.FStatus == "locked"));
+                // consumed 必须计入占用合计：付款后 ConsumeAsync 把行落为已消耗(FAmount=实际发生额)，
+                // 若排除则已花额度回弹为可用，导致同一预算被反复占用/超支。
+                (o.FStatus == "occupied" || o.FStatus == "locked" || o.FStatus == "consumed"));
 
         if (request.SourceId.HasValue && request.SourceId.Value > 0)
         {

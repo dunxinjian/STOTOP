@@ -1,4 +1,5 @@
 using STOTOP.Module.CardFlow.Services.Import;
+using STOTOP.Module.CardFlow.Tests.TestInfra;
 using Xunit;
 
 namespace STOTOP.Module.CardFlow.Tests.Import;
@@ -14,8 +15,10 @@ public class ExcelParserSheetTests
 {
     // 真 OLE2(.xls)，含 3 个 sheet：及时性汇总（按天）/完整性汇总（按天）/准确性汇总（按天）
     // 其中「完整性」sheet 独有列「揽收缺失量」
-    private const string 物流信息指数Xls =
-        @"E:\STOTOP_Fable\Taicang\网点质控数据\申通网点\申通数据展示页\excel（物流信息指数）.xls";
+    private const string 物流信息指数Rel =
+        @"网点质控数据\申通网点\申通数据展示页\excel（物流信息指数）.xls";
+    private static readonly string 物流信息指数Xls =
+        Path.Combine(SampleFileFactAttribute.ResolveSampleDir(), 物流信息指数Rel);
 
     private static async Task<List<string>> ReadHeadersViaParseAsync(string path, string declaredFileName, string? sheetName)
     {
@@ -28,14 +31,14 @@ public class ExcelParserSheetTests
         return headers;
     }
 
-    [Fact]
+    [SampleFileFact(物流信息指数Rel)]
     public async Task ParseAsync_WithSheetName_ReadsThatSheet()
     {
         var headers = await ReadHeadersViaParseAsync(物流信息指数Xls, "x.xls", "完整性汇总（按天）");
         Assert.Contains("揽收缺失量", headers); // 完整性 sheet 独有列
     }
 
-    [Fact]
+    [SampleFileFact(物流信息指数Rel)]
     public async Task ParseAsync_WithoutSheetName_ReadsFirstSheet()
     {
         // 不传 sheetName 时行为不变：读首个「及时性」sheet，不含「揽收缺失量」
@@ -43,7 +46,7 @@ public class ExcelParserSheetTests
         Assert.DoesNotContain("揽收缺失量", headers);
     }
 
-    [Fact]
+    [SampleFileFact(物流信息指数Rel)]
     public async Task ParseAsync_WithUnknownSheetName_FallsBackToFirstSheet()
     {
         // sheetName 不存在时安全退回首表

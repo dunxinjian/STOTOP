@@ -11,8 +11,8 @@ public interface IWorkItemService
     Task<WorkItemDto?> GetByIdAsync(long id);
     Task<WorkItemDto?> GetByUidAsync(string uid);
 
-    // 查询我的待办
-    Task<List<WorkItemDto>> GetPendingItemsAsync(long userId, string? module = null);
+    // 查询我的待办（take 非空时 DB 层封顶取前 N 条，供 WorkHub 聚合避免全量取数）
+    Task<List<WorkItemDto>> GetPendingItemsAsync(long userId, string? module = null, int? take = null);
 
     // 查询我的已办
     Task<List<WorkItemDto>> GetCompletedItemsAsync(long userId, int page = 1, int pageSize = 20);
@@ -46,4 +46,10 @@ public interface IWorkItemService
 
     // 统计
     Task<WorkItemStatsDto> GetStatsAsync(long userId);
+
+    /// <summary>
+    /// 按 F类型 分组统计当前用户的待办工作项数（WorkHub 角标口径：F处理人ID==userId 且 F状态==Pending）。
+    /// 返回 {FType: count}，供 WorkHub 按 type→category 映射摊入各角标。
+    /// </summary>
+    Task<Dictionary<int, int>> GetPendingCountByTypeAsync(long userId);
 }

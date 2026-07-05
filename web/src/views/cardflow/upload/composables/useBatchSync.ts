@@ -793,7 +793,7 @@ export function useBatchSync() {
         if (!batchId) continue
 
         const intStatusMap: Record<number, BatchStatus> = {
-          0: 'processing', 1: 'pending', 2: 'processing', 3: 'success',
+          0: 'processing', 1: 'pending', 2: 'processing', 3: 'processing',
           4: 'processing', 5: 'success', 6: 'error', 7: 'partial', 8: 'error',
         }
         const status: BatchStatus = (typeof q.status === 'number' ? intStatusMap[q.status] : q.status) as BatchStatus || 'processing'

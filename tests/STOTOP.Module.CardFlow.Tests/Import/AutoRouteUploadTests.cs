@@ -7,6 +7,7 @@ using STOTOP.Infrastructure.Data;
 using STOTOP.Module.CardFlow.Entities;
 using STOTOP.Module.CardFlow.Services;
 using STOTOP.Module.CardFlow.Services.Import;
+using STOTOP.Module.CardFlow.Tests.TestInfra;
 using STOTOP.Module.Finance.Entities;
 using STOTOP.Module.OA.Entities;
 using STOTOP.Module.System.Entities;
@@ -26,13 +27,15 @@ using Task = global::System.Threading.Tasks.Task;
 public class AutoRouteUploadTests
 {
     // 真 OLE2(.xls)，列含「运单号」「问题类型」
-    private const string 未到件Xls =
-        @"E:\STOTOP_Fable\Taicang\网点质控数据\申通网点\申通数据明细\excel (未到件).xls";
+    private const string 未到件Rel =
+        @"网点质控数据\申通网点\申通数据明细\excel (未到件).xls";
+    private static readonly string 未到件Xls =
+        Path.Combine(SampleFileFactAttribute.ResolveSampleDir(), 未到件Rel);
 
     // ─────────────────────────────────────────────
     // Step 1：ReadHeadersAsync 返回首行列名（真文件，无 DB）
     // ─────────────────────────────────────────────
-    [Fact]
+    [SampleFileFact(未到件Rel)]
     public async Task ReadHeadersAsync_ReturnsHeaderColumns()
     {
         var svc = new ExcelParserService();

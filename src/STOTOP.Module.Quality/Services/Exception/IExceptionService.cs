@@ -23,4 +23,8 @@ public interface IExceptionService
     Task<ApiResult<bool>> ReassignAsync(long orgId, long operatorId, long id, ReassignExceptionRequest request);
     /// <summary>各状态数量统计</summary>
     Task<ApiResult<ExceptionCountByStatusDto>> GetCountByStatusAsync(long orgId);
+    /// <summary>未关闭异常数量（WorkHub 角标口径：F组织ID==orgId 且 F状态&lt;3）</summary>
+    Task<int> GetOpenCountAsync(long orgId);
+    /// <summary>未关闭异常精简列表（WorkHub 瘦身：F状态&lt;3 下推 + Take(take)，含 TypeText/StatusText/AssigneeName）</summary>
+    Task<List<ExceptionListDto>> GetOpenAlertsLiteAsync(long orgId, int take = 20);
 }

@@ -141,4 +141,45 @@ public class StageViewProfileResolverTests
         using var doc = global::System.Text.Json.JsonDocument.Parse(result.RedactedDataJson);
         Assert.NotEqual("6222021234567890123", doc.RootElement.GetProperty("payeeAccountNo").GetString());
     }
+
+    [Fact]
+    public void Resolve_MultiTableDetail_NonDefaultSensitiveColumnGetsMaskedBaseline()
+    {
+        var resolver = new StageViewProfileResolver();
+        var card = new CfCard { FDataJson = "{}" };
+        var details = new List<CfCardDetail>
+        {
+            new()
+            {
+                FSortOrder = 0,
+                FDetailTableKey = "payees",
+                FDataJson = """{"payeeName":"张三","payeeAccountNo":"6222021234567890123"}"""
+            }
+        };
+        var config = new StageConfigEnvelope { Version = 2 };
+
+        var detailSchemaJson = """
+        {"version":2,"tables":[
+          {"detailTableKey":"default","label":"明细","columns":[{"key":"itemName"}]},
+          {"detailTableKey":"payees","label":"收款人","columns":[{"key":"payeeName"},{"key":"payeeAccountNo","sensitive":true,"maskPattern":"bankCard"}]}
+        ]}
+        """;
+
+        var result = resolver.Resolve(
+            "[]",
+            detailSchemaJson,
+            new CfStageDefinition { FStageName = "审批" },
+            card,
+            details,
+            operatorId: 1,
+            config);
+
+        // 修复前：BuildDetailAccess 只为 default 表建 baseline，payees.* 取不到规则 → fail-open 明文下发行值
+        Assert.True(result.DetailAccess.ContainsKey("payees.payeeAccountNo"));
+        Assert.Equal("masked", result.DetailAccess["payees.payeeAccountNo"].Access);
+
+        var payeeRow = result.RedactedDetails.Single(d => d.DetailTableKey == "payees");
+        using var doc = JsonDocument.Parse(payeeRow.DataJson);
+        Assert.NotEqual("6222021234567890123", doc.RootElement.GetProperty("payeeAccountNo").GetString());
+    }
 }

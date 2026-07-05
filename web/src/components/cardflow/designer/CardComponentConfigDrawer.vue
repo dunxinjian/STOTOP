@@ -204,7 +204,8 @@ function setOption(index: number, key: 'label' | 'value', value: string) {
         </label>
         <label>
           <span>组件类型</span>
-          <a-input v-model:value="draft.type" />
+          <!-- 类型决定运行态渲染与能力解析，自由改动会产生自相矛盾的组件，只读展示 -->
+          <a-input :value="draft.type" disabled />
         </label>
         <label>
           <span>占位提示</span>

@@ -8,6 +8,7 @@ using STOTOP.Module.CardFlow.AutoPlugin;
 using STOTOP.Module.CardFlow.Dtos;
 using STOTOP.Module.CardFlow.Entities;
 using STOTOP.Module.CardFlow.Models.Approval;
+using STOTOP.Module.CardFlow.Models.Schema;
 using STOTOP.Module.CardFlow.Services.Interfaces;
 using STOTOP.Module.Finance.Dtos;
 using STOTOP.Module.Finance.Services.Interfaces;
@@ -26,7 +27,7 @@ public class FlowEngineService : IFlowEngineService
     private readonly IStageConfigParser _stageConfigParser;
     private readonly IStageFieldAccessService _stageFieldAccess;
     private readonly IStageActionPolicyService _stageActionPolicy;
-    private readonly IConditionEvaluator _conditionEvaluator;
+    private readonly IConditionRuleEvaluator _conditionRuleEvaluator;
     private readonly IStageRouteResolver _stageRouteResolver;
     private readonly IDynamicStagePolicyResolver _dynamicStagePolicyResolver;
     private readonly IAuditSnapshotPolicyService _auditSnapshotPolicyService;
@@ -53,7 +54,7 @@ public class FlowEngineService : IFlowEngineService
         IStageConfigParser stageConfigParser,
         IStageFieldAccessService stageFieldAccess,
         IStageActionPolicyService stageActionPolicy,
-        IConditionEvaluator conditionEvaluator,
+        IConditionRuleEvaluator conditionRuleEvaluator,
         IApproverResolver approverResolver,
         IBudgetOccupationService budgetOccupationService,
         ITodoService todoService,
@@ -78,11 +79,11 @@ public class FlowEngineService : IFlowEngineService
         _stageConfigParser = stageConfigParser;
         _stageFieldAccess = stageFieldAccess;
         _stageActionPolicy = stageActionPolicy;
-        _conditionEvaluator = conditionEvaluator;
+        _conditionRuleEvaluator = conditionRuleEvaluator;
         _stageRouteResolver = stageRouteResolver
-            ?? new StageRouteResolver(dbContext, new ConditionRuleEvaluator(), new ConditionEvaluationContextBuilder(dbContext));
+            ?? new StageRouteResolver(dbContext, conditionRuleEvaluator, new ConditionEvaluationContextBuilder(dbContext));
         _dynamicStagePolicyResolver = dynamicStagePolicyResolver
-            ?? new DynamicStagePolicyResolver(dbContext, new ConditionRuleEvaluator(), new ConditionEvaluationContextBuilder(dbContext), approverResolver);
+            ?? new DynamicStagePolicyResolver(dbContext, conditionRuleEvaluator, new ConditionEvaluationContextBuilder(dbContext), approverResolver);
         _auditSnapshotPolicyService = auditSnapshotPolicyService ?? new AuditSnapshotPolicyService();
         _approverResolver = approverResolver;
         _budgetOccupationService = budgetOccupationService;
@@ -756,17 +757,21 @@ public class FlowEngineService : IFlowEngineService
                 assignee.FStatus = "rejected";
                 assignee.FOpinion = request.Opinion;
                 assignee.FCompletedTime = DateTime.Now;
+                // 全局 NoTracking 下必须显式标记，否则状态变更不落库
+                _dbContext.Entry(assignee).State = EntityState.Modified;
 
                 // 标记当前节点返回
                 stageInstance.FStatus = "returned";
                 stageInstance.FFinalAction = "rejected";
                 stageInstance.FOpinion = request.Opinion;
                 stageInstance.FCompletedTime = DateTime.Now;
+                _dbContext.Entry(stageInstance).State = EntityState.Modified;
 
                 // 卡片状态→returned
                 card.FStatus = "returned";
                 card.FUpdatedTime = DateTime.Now;
                 card.FCurrentStageInstanceId = null;
+                _dbContext.Entry(card).State = EntityState.Modified;
 
                 if (string.Equals(stageInstance.FApprovalMode, "sequential", StringComparison.OrdinalIgnoreCase))
                 {
@@ -774,6 +779,13 @@ public class FlowEngineService : IFlowEngineService
                         .Where(a => a.FStageInstanceId == stageInstance.FID)
                         .ToListAsync();
                     _sequentialRuntime.CancelOpenAssignees(assignees);
+                    // NoTracking 重查得到的是与上方 assignee 不同主键实例集合：操作人行已按 rejected 标记，
+                    // 此处排除该行只落其余被取消行，避免同主键双实例跟踪冲突并防止覆盖 rejected 状态
+                    foreach (var cancelled in assignees.Where(a =>
+                                 a.FID != assignee.FID && a.FStatus == "cancelled"))
+                    {
+                        _dbContext.Entry(cancelled).State = EntityState.Modified;
+                    }
                 }
 
                 // 取消所有pending待办
@@ -955,6 +967,8 @@ public class FlowEngineService : IFlowEngineService
                     {
                         stageInstance.FStatus = "cancelled";
                         stageInstance.FCompletedTime = DateTime.Now;
+                        // 全局 NoTracking 下必须显式标记，否则状态变更不落库
+                        _dbContext.Entry(stageInstance).State = EntityState.Modified;
                     }
 
                     // 取消所有待办
@@ -973,6 +987,7 @@ public class FlowEngineService : IFlowEngineService
                 card.FStatus = "draft";
                 card.FCurrentStageInstanceId = null;
                 card.FUpdatedTime = DateTime.Now;
+                _dbContext.Entry(card).State = EntityState.Modified;
 
                 await ReleaseBudgetAsync(card, "withdraw");
 
@@ -1024,6 +1039,9 @@ public class FlowEngineService : IFlowEngineService
                 card.FCurrentRound += 1;
                 card.FStatus = "active";
                 card.FUpdatedTime = DateTime.Now;
+                // 全局 NoTracking 下必须显式标记，否则状态变更不落库；
+                // 标记后实体转入跟踪态，下方 FCurrentStageInstanceId 赋值由变更检测自动落库
+                _dbContext.Entry(card).State = EntityState.Modified;
 
                 // 获取第一个阶段定义（重新提交从第一个节点开始）
                 var stages = await _dbContext.Set<CfStageDefinition>()
@@ -1106,6 +1124,8 @@ public class FlowEngineService : IFlowEngineService
                 {
                     stage.FStatus = "cancelled";
                     stage.FCompletedTime = DateTime.Now;
+                    // 全局 NoTracking 下必须显式标记，否则状态变更不落库
+                    _dbContext.Entry(stage).State = EntityState.Modified;
                     await CancelStageTodosAsync(stage.FID);
                 }
 
@@ -1117,6 +1137,7 @@ public class FlowEngineService : IFlowEngineService
                 {
                     balance.FStatus = "voided";
                     balance.FUpdatedTime = DateTime.Now;
+                    _dbContext.Entry(balance).State = EntityState.Modified;
                 }
 
                 // 清理外部推送
@@ -1131,6 +1152,7 @@ public class FlowEngineService : IFlowEngineService
                 card.FStatus = "voided";
                 card.FCurrentStageInstanceId = null;
                 card.FUpdatedTime = DateTime.Now;
+                _dbContext.Entry(card).State = EntityState.Modified;
 
                 await ReleaseBudgetAsync(card, "void");
 
@@ -1472,9 +1494,12 @@ public class FlowEngineService : IFlowEngineService
                 // 重新标记为active
                 failedStage.FStatus = "active";
                 failedStage.FActivatedTime = DateTime.Now;
+                // 全局 NoTracking 下必须显式标记，否则状态变更不落库
+                _dbContext.Entry(failedStage).State = EntityState.Modified;
                 card.FCurrentStageInstanceId = failedStage.FID;
                 card.FStatus = "active";
                 card.FUpdatedTime = DateTime.Now;
+                _dbContext.Entry(card).State = EntityState.Modified;
 
                 // 如果是自动节点，重新调度自动插件
                 if (string.Equals(failedStage.FType, "auto", StringComparison.OrdinalIgnoreCase) && failedStage.FStageDefinitionId.HasValue)
@@ -1681,15 +1706,18 @@ public class FlowEngineService : IFlowEngineService
 
         // 寻找下一个有效节点
         var dataDict = ParseCardData(card.FDataJson);
+        var conditionContext = new STOTOP.Module.CardFlow.Models.Rules.ConditionEvaluationContext
+        {
+            CardData = new Dictionary<string, object?>(dataDict, StringComparer.OrdinalIgnoreCase)
+        };
         for (int i = currentDefIdx + 1; i < stages.Count; i++)
         {
             var nextDef = stages[i];
 
-            // 评估条件
+            // 评估进入条件（JSON 规则树，统一走 ConditionRuleEvaluator；非法 JSON 按不匹配处理）
             if (!string.IsNullOrWhiteSpace(nextDef.FConditionJson))
             {
-                var schemaFields = GetSchemaFields(card.FFlowVersionId);
-                if (!_conditionEvaluator.Evaluate(nextDef.FConditionJson, dataDict, await schemaFields))
+                if (!_conditionRuleEvaluator.Evaluate(nextDef.FConditionJson, conditionContext).Matched)
                 {
                     // 条件不满足，跳过
                     continue;
@@ -2429,7 +2457,10 @@ public class FlowEngineService : IFlowEngineService
 
     private async Task ReleaseBudgetAsync(CfCard card, string action)
     {
-        await _budgetOccupationService.ReleaseAsync("cardflow_card", card.FID, $"card:{card.FID}:release:{action}");
+        // 释放幂等键须含当前轮次：卡片可在第 N 轮被驳回释放、重新提交(轮次+1)后再次被驳回，
+        // 若键不含轮次则第 N+1 轮 reject 撞上第 N 轮遗留键→ HasTransitionAsync 误判已处理→静默跳过释放，
+        // 导致新一轮占用永不释放、预算被长期虚占。与 Occupy 键(submit:auto:{FCurrentRound} 等)含轮次的约定对齐。
+        await _budgetOccupationService.ReleaseAsync("cardflow_card", card.FID, $"card:{card.FID}:release:{action}:{card.FCurrentRound}");
     }
 
     private async Task ConsumeBudgetIfConfirmedAsync(CfCard card)
@@ -2823,23 +2854,6 @@ public class FlowEngineService : IFlowEngineService
         catch
         {
             return new();
-        }
-    }
-
-    private async Task<List<SchemaFieldDefinition>> GetSchemaFields(long flowVersionId)
-    {
-        var version = await _dbContext.Set<CfFlowVersion>().FirstOrDefaultAsync(v => v.FID == flowVersionId);
-        if (version == null || string.IsNullOrWhiteSpace(version.FCardSchemaJson))
-            return new List<SchemaFieldDefinition>();
-
-        try
-        {
-            return JsonSerializer.Deserialize<List<SchemaFieldDefinition>>(version.FCardSchemaJson,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
-        }
-        catch
-        {
-            return new List<SchemaFieldDefinition>();
         }
     }
 

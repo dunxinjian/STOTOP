@@ -31,10 +31,16 @@
         <span class="progress-text">{{ progressText }}</span>
       </div>
       <div class="action-buttons" @click.stop>
-        <!-- pendingPipeline: 指定管道 -->
-        <a-tooltip title="指定管道" v-if="(batch.status as string) === 'pendingPipeline'">
+        <!-- 待认领（未绑定流程定义）: 指定流程 -->
+        <a-tooltip title="指定流程" v-if="isUnclaimed">
           <a-button type="text" size="small" @click="emit('action', { type: 'assignPipeline', batchId: batch.id })">
             <template #icon><BranchesOutlined /></template>
+          </a-button>
+        </a-tooltip>
+        <!-- pending（后端 1 已暂存）且已绑流程: 确认展开 -->
+        <a-tooltip title="确认展开" v-if="batch.status === 'pending' && !isUnclaimed">
+          <a-button type="text" size="small" @click="emit('action', { type: 'process', batchId: batch.id })">
+            <template #icon><PlayCircleOutlined /></template>
           </a-button>
         </a-tooltip>
         <a-tooltip title="验证计算" v-if="batch.status !== 'uploading'">
@@ -97,6 +103,7 @@ import {
   BranchesOutlined,
   WarningOutlined,
   CalculatorOutlined,
+  PlayCircleOutlined,
 } from '@ant-design/icons-vue'
 import BatchMiniStepper from './BatchMiniStepper.vue'
 import { getProgressBarInfo } from '../utils/batchStatus'
@@ -130,6 +137,10 @@ const progressInfo = computed(() => getProgressBarInfo(props.batch))
 
 /** 终态判断：已完成/部分完成时不再显示第二行 */
 const isTerminal = computed(() => ['success', 'partial'].includes(props.batch.status))
+
+/** 待认领：已暂存且未绑定流程定义（pipelineId/flowName 均为空），需人工指定流程 */
+const isUnclaimed = computed(() =>
+  props.batch.status === 'pending' && !props.batch.pipelineId && !props.batch.flowName)
 
 /** 文件大小格式化 */
 const fileSizeText = computed(() => {
