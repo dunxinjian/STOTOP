@@ -63,8 +63,9 @@ public class ShentongUnificationJob
                 // 设置上下文是为统一查询过滤器口径并与请求内行为一致）。
                 var orgCtx = scope.ServiceProvider.GetRequiredService<IOrgContextAccessor>();
                 orgCtx.CurrentOrgId = orgId;
-                // v2 多租户：后台 Job 无 HttpContext，须显式设租户(单客户=组织树根)，否则写 ITenantScoped 实体 fail-closed 抛异常。
-                orgCtx.CurrentTenantId = scope.ServiceProvider.GetService<ITenantResolver>()?.GetRootTenantId();
+                // v2 多租户：后台 Job 无 HttpContext 须显式设租户。按【组织自身】解析租户(ResolveTenantForOrg)而非一律根租户——
+                // 枚举 ListShentongOrgIdsAsync 用原生 SQL 跨租户返回全部有申通数据的组织，每组织须在其所属租户上下文内归一，避免串租户回填。
+                orgCtx.CurrentTenantId = scope.ServiceProvider.GetService<ITenantResolver>()?.ResolveTenantForOrg(orgId);
 
                 var svc = scope.ServiceProvider.GetRequiredService<IQualityUnificationService>();
                 var result = await svc.UnifyShentongAsync(orgId);

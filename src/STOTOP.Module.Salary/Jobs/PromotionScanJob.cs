@@ -26,21 +26,18 @@ public class PromotionScanJob
     private readonly STOTOPDbContext _db;
     private readonly ILogger<PromotionScanJob> _logger;
     private readonly IEventDispatcher _eventDispatcher;
-    private readonly IOrgContextAccessor _orgContext;
-    private readonly ITenantResolver _tenantResolver;
+    private readonly ITenantIterationService _iteration;
 
     public PromotionScanJob(
         STOTOPDbContext db,
         ILogger<PromotionScanJob> logger,
         IEventDispatcher eventDispatcher,
-        IOrgContextAccessor orgContext,
-        ITenantResolver tenantResolver)
+        ITenantIterationService iteration)
     {
         _db = db;
         _logger = logger;
         _eventDispatcher = eventDispatcher;
-        _orgContext = orgContext;
-        _tenantResolver = tenantResolver;
+        _iteration = iteration;
     }
 
     /// <summary>
@@ -49,13 +46,14 @@ public class PromotionScanJob
     /// <param name="specificEmployeeId">仅扫描指定员工（手动触发场景），不传则全量</param>
     public async Task Execute(long? specificEmployeeId = null)
     {
-        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
-        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
-
         _logger.LogInformation("PromotionScanJob 启动 | specificEmployee={Employee}",
             specificEmployeeId?.ToString() ?? "<all>");
 
-        // 1. 查询所有启用的晋升规则
+        // 多客户 per-tenant 迭代：逐活跃租户各扫描一遍（单客户下只循环 1 次，行为不变）。租户上下文由地基固化。
+        // 注：内层对某租户无规则时 return 仅退出当前租户的 action，继续下一租户。
+        await _iteration.ForEachActiveTenantAsync(async tenantId =>
+        {
+        // 1. 查询所有启用的晋升规则（当前租户）
         var rules = await _db.Set<PromotionRule>()
             .Where(r => r.F启用状态)
             .ToListAsync();
@@ -92,7 +90,7 @@ public class PromotionScanJob
                 totalScanned++;
                 try
                 {
-                    await ProcessEmployee(rule, archive, gradeMap);
+                    await ProcessEmployee(rule, archive, gradeMap, tenantId);
                     totalTriggered++;
                 }
                 catch (Exception ex)
@@ -108,17 +106,19 @@ public class PromotionScanJob
         _logger.LogInformation(
             "PromotionScanJob 完成 | rules={RuleCount} | scanned={Scanned} | triggered={Triggered} | failed={Failed}",
             rules.Count, totalScanned, totalTriggered, totalFailed);
+        }, "sal.promotion-scan");
     }
 
-    private async Task ProcessEmployee(PromotionRule rule, SalaryArchive archive, Dictionary<long, string> gradeMap)
+    private async Task ProcessEmployee(PromotionRule rule, SalaryArchive archive, Dictionary<long, string> gradeMap, long tenantId)
     {
         var employeeId = archive.F员工ID;
         var orgId = archive.FOrgId;
 
-        // 3a. 通过 raw SQL 查询 PM积分账户 A 分余额（避免跨模块引用）
+        // 3a. 通过 raw SQL 查询 PM积分账户 A 分余额（避免跨模块引用）。
+        // raw SQL 绕过 EF 租户过滤器 → 显式加 F租户ID={tenantId} 与 F组织ID 双重收敛（与 BScoreResetJob 一致），防串租户。
         var aScore = await _db.Database.SqlQueryRaw<int?>(
-            "SELECT TOP 1 F当前积分 AS [Value] FROM PM积分账户 WHERE F用户ID = {0} AND F账户类型 = 1 AND F组织ID = {1}",
-            employeeId, orgId).FirstOrDefaultAsync() ?? 0;
+            "SELECT TOP 1 F当前积分 AS [Value] FROM PM积分账户 WHERE F用户ID = {0} AND F账户类型 = 1 AND F组织ID = {1} AND F租户ID = {2}",
+            employeeId, orgId, tenantId).FirstOrDefaultAsync() ?? 0;
 
         // 3b. 判断 A 分是否达标
         if (aScore < rule.FA分阈值)

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.CardFlow.Entities;
 using STOTOP.Module.CardFlow.Hubs;
@@ -13,17 +14,20 @@ public class CardFlowTimeoutJob
     private readonly STOTOPDbContext _dbContext;
     private readonly IHubContext<CardFlowHub> _hubContext;
     private readonly INotificationDispatcher _notificationDispatcher;
+    private readonly ITenantIterationService _iteration;
     private readonly ILogger<CardFlowTimeoutJob> _logger;
 
     public CardFlowTimeoutJob(
         STOTOPDbContext dbContext,
         IHubContext<CardFlowHub> hubContext,
         INotificationDispatcher notificationDispatcher,
+        ITenantIterationService iteration,
         ILogger<CardFlowTimeoutJob> logger)
     {
         _dbContext = dbContext;
         _hubContext = hubContext;
         _notificationDispatcher = notificationDispatcher;
+        _iteration = iteration;
         _logger = logger;
     }
 
@@ -31,11 +35,17 @@ public class CardFlowTimeoutJob
     {
         _logger.LogInformation("CardFlow 节点超时检查开始");
 
+        // 多客户 per-tenant 迭代：逐活跃租户各查各自节点超时。CfStageInstance 本身无租户列 →
+        // 经 CfCard(ITenantScoped) 归属间接收敛(EXISTS 子查询)，使每租户只处理自己卡片的节点、且跳过停用租户。
+        // 单租户失败由地基隔离并记日志。
+        await _iteration.ForEachActiveTenantAsync(async _ =>
+        {
         try
         {
-            // 查询所有 active 且配置了超时的节点实例
+            // 查询当前租户 active 且配置了超时的节点实例（经卡片归属 EXISTS 收敛到本租户）
             var activeInstances = await _dbContext.Set<CfStageInstance>()
-                .Where(si => si.FStatus == "active" && si.FActivatedTime != null)
+                .Where(si => si.FStatus == "active" && si.FActivatedTime != null
+                    && _dbContext.Set<CfCard>().Any(c => c.FID == si.FCardId))
                 .ToListAsync();
 
             if (!activeInstances.Any())
@@ -146,5 +156,6 @@ public class CardFlowTimeoutJob
             _logger.LogError(ex, "CardFlow 节点超时检查异常");
             throw;
         }
+        }, "cardflow-stage-timeout");
     }
 }

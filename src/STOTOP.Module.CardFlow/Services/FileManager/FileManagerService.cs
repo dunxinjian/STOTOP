@@ -15,20 +15,16 @@ public class FileManagerService
     private readonly STOTOPDbContext _context;
     private readonly IConfiguration _configuration;
     private readonly ILogger<FileManagerService> _logger;
-    private readonly IOrgContextAccessor _orgContext;
-    private readonly ITenantResolver _tenantResolver;
 
     private const string UploadBaseDir = "uploads/datacenter";
 
 
 
-    public FileManagerService(STOTOPDbContext context, IConfiguration configuration, ILogger<FileManagerService> logger, IOrgContextAccessor orgContext, ITenantResolver tenantResolver)
+    public FileManagerService(STOTOPDbContext context, IConfiguration configuration, ILogger<FileManagerService> logger)
     {
         _context = context;
         _configuration = configuration;
         _logger = logger;
-        _orgContext = orgContext;
-        _tenantResolver = tenantResolver;
     }
 
     /// <summary>分页查询服务器上传文件列表</summary>
@@ -317,9 +313,6 @@ public class FileManagerService
     /// <summary>按指定策略执行清理（Hangfire 调用入口）</summary>
     public async Task<CleanupResultDto> ExecuteCleanupByPolicyAsync(long policyId, CancellationToken ct)
     {
-        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
-        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
-
         var policy = await _context.Set<CfFileCleanupPolicy>()
             .FirstOrDefaultAsync(p => p.FID == policyId, ct);
 
@@ -328,7 +321,10 @@ public class FileManagerService
 
         var cutoffDate = DateTime.Now.AddDays(-policy.FRetentionDays);
 
+        // 文件清理是跨租户的平台维护：策略为全局配置(CfFileCleanupPolicy 非租户隔离)，须清【所有租户】的过期批次文件。
+        // 故 IgnoreQueryFilters 扫全库(否则设根租户只清根租户、漏其它客户致磁盘堆积)。仅删物理文件 + 更新策略执行时间，无租户隔离写。
         var batches = await _context.Set<CfBatch>()
+            .IgnoreQueryFilters()
             .Where(b => b.FCreatedTime < cutoffDate && b.FStatus == CfBatchStatus.Completed)
             .ToListAsync(ct);
 

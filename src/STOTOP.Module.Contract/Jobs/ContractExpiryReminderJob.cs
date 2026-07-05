@@ -20,8 +20,7 @@ public class ContractExpiryReminderJob
     private readonly IRepository<ConContract> _contractRepo;
     private readonly IRepository<ConContractReminder> _reminderRepo;
     private readonly IEventDispatcher _eventDispatcher;
-    private readonly IOrgContextAccessor _orgContext;
-    private readonly ITenantResolver _tenantResolver;
+    private readonly ITenantIterationService _iteration;
     private readonly ILogger<ContractExpiryReminderJob> _logger;
 
     /// <summary>
@@ -44,15 +43,13 @@ public class ContractExpiryReminderJob
         IRepository<ConContract> contractRepo,
         IRepository<ConContractReminder> reminderRepo,
         IEventDispatcher eventDispatcher,
-        IOrgContextAccessor orgContext,
-        ITenantResolver tenantResolver,
+        ITenantIterationService iteration,
         ILogger<ContractExpiryReminderJob> logger)
     {
         _contractRepo = contractRepo;
         _reminderRepo = reminderRepo;
         _eventDispatcher = eventDispatcher;
-        _orgContext = orgContext;
-        _tenantResolver = tenantResolver;
+        _iteration = iteration;
         _logger = logger;
     }
 
@@ -61,12 +58,11 @@ public class ContractExpiryReminderJob
     /// </summary>
     public async Task ExecuteAsync()
     {
-        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
-        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
-
         _logger.LogInformation("合同到期提醒Job开始执行...");
 
-        try
+        // 多客户 per-tenant 迭代：逐活跃租户各处理一遍（单客户下只循环 1 次，行为不变）。
+        // 租户上下文由迭代地基固化；单租户失败已被地基隔离并记日志，不再手动设根租户 / 抛出重试。
+        await _iteration.ForEachActiveTenantAsync(async _ =>
         {
             var today = DateTime.Today;
 
@@ -75,14 +71,9 @@ public class ContractExpiryReminderJob
 
             // 2. 自动更新已过期合同状态
             await UpdateExpiredContractsAsync(today);
+        }, "contract-expiry-reminder");
 
-            _logger.LogInformation("合同到期提醒Job执行完成");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "合同到期提醒Job执行失败");
-            throw; // 抛出让Hangfire自动重试
-        }
+        _logger.LogInformation("合同到期提醒Job执行完成");
     }
 
     /// <summary>

@@ -10,37 +10,28 @@ namespace STOTOP.Module.Workflow.Jobs;
 public class WorkItemTimeoutJob
 {
     private readonly IDispatchEngine _dispatchEngine;
-    private readonly IOrgContextAccessor _orgContext;
-    private readonly ITenantResolver _tenantResolver;
+    private readonly ITenantIterationService _iteration;
     private readonly ILogger<WorkItemTimeoutJob> _logger;
 
     public WorkItemTimeoutJob(
         IDispatchEngine dispatchEngine,
-        IOrgContextAccessor orgContext,
-        ITenantResolver tenantResolver,
+        ITenantIterationService iteration,
         ILogger<WorkItemTimeoutJob> logger)
     {
         _dispatchEngine = dispatchEngine;
-        _orgContext = orgContext;
-        _tenantResolver = tenantResolver;
+        _iteration = iteration;
         _logger = logger;
     }
 
     public async Task ExecuteAsync()
     {
-        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
-        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
-
         _logger.LogInformation("开始执行工作项超时检查...");
-        try
+        // 多客户 per-tenant 迭代：逐活跃租户各查各自超时工作项（WfWorkItem 是 ITenantScoped，过滤器按租户收敛）。
+        // 单租户下只循环 1 次、行为不变；单租户失败已被地基隔离并记日志。
+        await _iteration.ForEachActiveTenantAsync(async _ =>
         {
             await _dispatchEngine.ProcessTimeoutsAsync();
-            _logger.LogInformation("工作项超时检查完成");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "工作项超时处理 Job 执行失败");
-            throw; // 让 Hangfire 自动重试
-        }
+        }, "workflow-item-timeout");
+        _logger.LogInformation("工作项超时检查完成");
     }
 }

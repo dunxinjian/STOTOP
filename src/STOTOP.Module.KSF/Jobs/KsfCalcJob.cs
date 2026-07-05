@@ -37,8 +37,7 @@ public class KsfCalcJob
     private readonly IEmployeeOrgQueryService _employeeOrgService;
     private readonly IEventDispatcher _eventDispatcher;
     private readonly IServiceProvider _serviceProvider;
-    private readonly IOrgContextAccessor _orgContext;
-    private readonly ITenantResolver _tenantResolver;
+    private readonly ITenantIterationService _iteration;
     private readonly ILogger<KsfCalcJob> _logger;
 
     /// <summary>运行上下文缓存（指标取数结果，跨员工复用），仅在单次 Job 运行内有效。</summary>
@@ -49,16 +48,14 @@ public class KsfCalcJob
         IEmployeeOrgQueryService employeeOrgService,
         IEventDispatcher eventDispatcher,
         IServiceProvider serviceProvider,
-        IOrgContextAccessor orgContext,
-        ITenantResolver tenantResolver,
+        ITenantIterationService iteration,
         ILogger<KsfCalcJob> logger)
     {
         _db = db;
         _employeeOrgService = employeeOrgService;
         _eventDispatcher = eventDispatcher;
         _serviceProvider = serviceProvider;
-        _orgContext = orgContext;
-        _tenantResolver = tenantResolver;
+        _iteration = iteration;
         _logger = logger;
     }
 
@@ -71,16 +68,18 @@ public class KsfCalcJob
     [AutomaticRetry(Attempts = 0)]
     public async Task ExecuteAsync(string? period = null, long? specificEmployeeId = null)
     {
-        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
-        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
-
         period ??= DateTime.Now.AddMonths(-1).ToString("yyyyMM");
         var periodEndDate = GetPeriodEndDate(period);
 
         _logger.LogInformation("KsfCalcJob 启动 | period={Period} | endDate={EndDate:O} | specificEmployee={Employee}",
             period, periodEndDate, specificEmployeeId?.ToString() ?? "<all>");
 
-        // 1. 全部启用方案（按组织聚合，方便后续按方案 / 员工迭代）
+        // 多客户 per-tenant 迭代：逐活跃租户各核算一遍（单客户下只循环 1 次，行为不变）。租户上下文由地基固化。
+        await _iteration.ForEachActiveTenantAsync(async _ =>
+        {
+        _indicatorCache.Clear();  // 每租户独立取数缓存，避免跨租户串用
+
+        // 1. 全部启用方案（当前租户，按组织聚合，方便后续按方案 / 员工迭代）
         var plans = await _db.Set<KsfPlan>()
             .Where(p => p.F启用状态
                 && p.F生效起期 <= periodEndDate
@@ -134,6 +133,7 @@ public class KsfCalcJob
         _logger.LogInformation(
             "KsfCalcJob 完成 | period={Period} | plans={PlanCount} | employees={EmpCount} | ok={Ok} | fail={Fail}",
             period, plans.Count, totalEmployees, totalSucceeded, totalFailed);
+        }, "ksf.calc-monthly");
     }
 
     private async Task CalcForEmployee(KsfPlan plan, List<KsfPlanDetail> details, long employeeId, string period, DateTime periodEndDate)

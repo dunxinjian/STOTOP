@@ -9,4 +9,11 @@ public interface ITenantResolver
 {
     /// <summary>当前库根客户(单客户过渡期租户)的 id；解析不到返回 null。</summary>
     long? GetRootTenantId();
+
+    /// <summary>
+    /// 解析指定组织所属的租户 id（读 SYS组织架构.F租户ID）。
+    /// 供批次 / 后台链路按批次组织确定租户，避免一律用 <see cref="GetRootTenantId"/> 导致多客户下串租户 / 漏处理。
+    /// 组织无有效租户列（存量 0 / 未回填）、orgId 非法或查询失败 → 兜底 <see cref="GetRootTenantId"/>。结果按 org 缓存。
+    /// </summary>
+    long? ResolveTenantForOrg(long orgId);
 }

@@ -31,8 +31,7 @@ public class BScoreResetJob
     private readonly IServiceProvider _serviceProvider;
     private readonly IEventDispatcher _eventDispatcher;
     private readonly ISalaryConfigService _configService;
-    private readonly IOrgContextAccessor _orgContext;
-    private readonly ITenantResolver _tenantResolver;
+    private readonly ITenantIterationService _iteration;
 
     public BScoreResetJob(
         STOTOPDbContext db,
@@ -40,16 +39,14 @@ public class BScoreResetJob
         IServiceProvider serviceProvider,
         IEventDispatcher eventDispatcher,
         ISalaryConfigService configService,
-        IOrgContextAccessor orgContext,
-        ITenantResolver tenantResolver)
+        ITenantIterationService iteration)
     {
         _db = db;
         _logger = logger;
         _serviceProvider = serviceProvider;
         _eventDispatcher = eventDispatcher;
         _configService = configService;
-        _orgContext = orgContext;
-        _tenantResolver = tenantResolver;
+        _iteration = iteration;
     }
 
     /// <summary>
@@ -59,26 +56,27 @@ public class BScoreResetJob
     /// <param name="specificEmployeeId">仅处理指定员工（手动重跑场景），不传则全量</param>
     public async Task Execute(string? period = null, long? specificEmployeeId = null)
     {
-        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
-        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
-
         period ??= DateTime.Now.AddMonths(-1).ToString("yyyyMM");
 
         _logger.LogInformation("BScoreResetJob 启动 | period={Period} | specificEmployee={Employee}",
             period, specificEmployeeId?.ToString() ?? "<all>");
 
-        // 1. 查询所有 B 分余额 > 0 的账户（F账户类型=2 即 B 分）
+        // 多客户 per-tenant 迭代：逐活跃租户各清各自 B 分账户（单客户下只循环 1 次，行为不变）。
+        // ⚠ 原生 SQL 绕过 EF 租户过滤器 → 必须用迭代传入的 tid 显式加 F租户ID 过滤，否则每租户都会抓全库账户导致重复清零。
+        await _iteration.ForEachActiveTenantAsync(async tid =>
+        {
+        // 1. 查询当前租户 B 分余额 > 0 的账户（F账户类型=2 即 B 分；F租户ID 显式收敛到 tid）
         List<BScoreAccountInfo> bScoreAccounts;
         if (specificEmployeeId.HasValue)
         {
             bScoreAccounts = await _db.Database.SqlQuery<BScoreAccountInfo>(
-                $"SELECT F用户ID AS UserId, F组织ID AS OrgId, F当前积分 AS Balance FROM PM积分账户 WHERE F账户类型 = 2 AND F当前积分 > 0 AND F用户ID = {specificEmployeeId.Value}"
+                $"SELECT F用户ID AS UserId, F组织ID AS OrgId, F当前积分 AS Balance FROM PM积分账户 WHERE F账户类型 = 2 AND F当前积分 > 0 AND F租户ID = {tid} AND F用户ID = {specificEmployeeId.Value}"
             ).ToListAsync();
         }
         else
         {
             bScoreAccounts = await _db.Database.SqlQuery<BScoreAccountInfo>(
-                $"SELECT F用户ID AS UserId, F组织ID AS OrgId, F当前积分 AS Balance FROM PM积分账户 WHERE F账户类型 = 2 AND F当前积分 > 0"
+                $"SELECT F用户ID AS UserId, F组织ID AS OrgId, F当前积分 AS Balance FROM PM积分账户 WHERE F账户类型 = 2 AND F当前积分 > 0 AND F租户ID = {tid}"
             ).ToListAsync();
         }
 
@@ -148,6 +146,7 @@ public class BScoreResetJob
         _logger.LogInformation(
             "BScoreResetJob 完成 | period={Period} | total={Total} | ok={Ok} | fail={Fail} | convertedAmount={Amount:F2}",
             period, bScoreAccounts.Count, totalProcessed, totalFailed, totalConvertedAmount);
+        }, "sal.bscore-monthly-reset");
     }
 
     /// <summary>

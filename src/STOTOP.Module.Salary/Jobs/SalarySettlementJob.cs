@@ -27,21 +27,18 @@ public class SalarySettlementJob
     private readonly STOTOPDbContext _db;
     private readonly ILogger<SalarySettlementJob> _logger;
     private readonly ISalaryConfigService _configService;
-    private readonly IOrgContextAccessor _orgContext;
-    private readonly ITenantResolver _tenantResolver;
+    private readonly ITenantIterationService _iteration;
 
     public SalarySettlementJob(
         STOTOPDbContext db,
         ILogger<SalarySettlementJob> logger,
         ISalaryConfigService configService,
-        IOrgContextAccessor orgContext,
-        ITenantResolver tenantResolver)
+        ITenantIterationService iteration)
     {
         _db = db;
         _logger = logger;
         _configService = configService;
-        _orgContext = orgContext;
-        _tenantResolver = tenantResolver;
+        _iteration = iteration;
     }
 
     /// <summary>
@@ -51,15 +48,15 @@ public class SalarySettlementJob
     /// <param name="specificEmployeeId">仅结算指定员工（手动重跑场景），不传则全量</param>
     public async Task Execute(string? period = null, long? specificEmployeeId = null)
     {
-        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
-        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
-
         period ??= DateTime.Now.AddMonths(-1).ToString("yyyyMM");
 
         _logger.LogInformation("SalarySettlementJob 启动 | period={Period} | specificEmployee={Employee}",
             period, specificEmployeeId?.ToString() ?? "<all>");
 
-        // 1. 查询有薪酬档案的员工
+        // 多客户 per-tenant 迭代：逐活跃租户各结算一遍（单客户下只循环 1 次，行为不变）。租户上下文由地基固化。
+        await _iteration.ForEachActiveTenantAsync(async _ =>
+        {
+        // 1. 查询有薪酬档案的员工（当前租户）
         var archives = await _db.Set<SalaryArchive>()
             .Where(a => specificEmployeeId == null || a.F员工ID == specificEmployeeId)
             .ToListAsync();
@@ -90,6 +87,7 @@ public class SalarySettlementJob
         _logger.LogInformation(
             "SalarySettlementJob 完成 | period={Period} | employees={EmpCount} | ok={Ok} | fail={Fail}",
             period, totalEmployees, totalSucceeded, totalFailed);
+        }, "sal.monthly-settlement");
     }
 
     private async Task SettleForEmployee(SalaryArchive archive, string period)

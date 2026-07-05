@@ -177,8 +177,8 @@ public class FlowEngineService : IFlowEngineService
         if (orgAccessor != null)
         {
             orgAccessor.CurrentOrgId = batch.FOrgId;
-            // v2 多租户：后台批次链无 HttpContext，须显式设租户(单客户=组织树根)，否则写 ITenantScoped 实体 fail-closed 抛异常。
-            orgAccessor.CurrentTenantId = _serviceProvider.GetService<ITenantResolver>()?.GetRootTenantId();
+            // v2 多租户：按【批次组织】解析租户(ResolveTenantForOrg)而非一律根租户，避免多客户下批次链串租户/漏处理。
+            orgAccessor.CurrentTenantId = _serviceProvider.GetService<ITenantResolver>()?.ResolveTenantForOrg(batch.FOrgId);
         }
 
         // 1. 获取流程当前发布版本

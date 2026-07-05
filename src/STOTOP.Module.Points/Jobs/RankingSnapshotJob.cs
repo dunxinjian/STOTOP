@@ -2,6 +2,7 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using STOTOP.Core.Models;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.Points.Entities;
 using STOTOP.Module.Points.Services;
@@ -17,12 +18,14 @@ public class RankingSnapshotJob
 {
     private readonly STOTOPDbContext _db;
     private readonly IRankingService _rankingService;
+    private readonly ITenantIterationService _iteration;
     private readonly ILogger<RankingSnapshotJob> _logger;
 
-    public RankingSnapshotJob(STOTOPDbContext db, IRankingService rankingService, ILogger<RankingSnapshotJob> logger)
+    public RankingSnapshotJob(STOTOPDbContext db, IRankingService rankingService, ITenantIterationService iteration, ILogger<RankingSnapshotJob> logger)
     {
         _db = db;
         _rankingService = rankingService;
+        _iteration = iteration;
         _logger = logger;
     }
 
@@ -37,7 +40,11 @@ public class RankingSnapshotJob
         var lastMonth = DateTime.Now.AddMonths(-1);
         var period = lastMonth.ToString("yyyy-MM");
 
-        // 获取所有组织ID
+        // 多客户 per-tenant 迭代：逐活跃租户各生成各自排名快照（PmPointAccount 是 ITenantScoped，EF 过滤器按租户收敛）。
+        // 注：本 Job 当前未在 Program.cs 注册为 RecurringJob（未接线）；此处按 per-tenant 转换以保证接线后正确、与兄弟 Job 一致。
+        await _iteration.ForEachActiveTenantAsync(async _ =>
+        {
+        // 获取当前租户所有组织ID
         var orgIds = await _db.Set<PmPointAccount>()
             .Select(a => a.FOrgId)
             .Distinct()
@@ -64,5 +71,6 @@ public class RankingSnapshotJob
         }
 
         _logger.LogInformation("RankingSnapshotJob 执行完成，处理 {Count} 个组织", orgIds.Count);
+        }, "points-ranking-snapshot");
     }
 }

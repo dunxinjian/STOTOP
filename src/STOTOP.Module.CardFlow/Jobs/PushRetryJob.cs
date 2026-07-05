@@ -13,29 +13,26 @@ public class PushRetryJob
 
     private readonly STOTOPDbContext _dbContext;
     private readonly INotificationDispatcher _notificationDispatcher;
-    private readonly IOrgContextAccessor _orgContextAccessor;
-    private readonly ITenantResolver _tenantResolver;
+    private readonly ITenantScopeFactory _tenantScope;
     private readonly ILogger<PushRetryJob> _logger;
 
     public PushRetryJob(
         STOTOPDbContext dbContext,
         INotificationDispatcher notificationDispatcher,
-        IOrgContextAccessor orgContextAccessor,
-        ITenantResolver tenantResolver,
+        ITenantScopeFactory tenantScope,
         ILogger<PushRetryJob> logger)
     {
         _dbContext = dbContext;
         _notificationDispatcher = notificationDispatcher;
-        _orgContextAccessor = orgContextAccessor;
-        _tenantResolver = tenantResolver;
+        _tenantScope = tenantScope;
         _logger = logger;
     }
 
     public async Task ExecuteAsync()
     {
-        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
-        _orgContextAccessor.CurrentTenantId = _tenantResolver.GetRootTenantId();
-
+        // 保持 global：一次批处理跨全部租户的失败推送 top50（推送重试是基础设施、非业务，不做 per-tenant 迭代）。
+        // 查询用 IgnoreQueryFilters 跨租户扫描；但每条在其【自身租户】上下文内重试（见下），
+        // 避免 RetryPush 内部写入（如分发日志）按错误租户回填 → 串租户。
         _logger.LogInformation("CardFlow 推送失败重试任务开始");
 
         try
@@ -60,28 +57,46 @@ public class PushRetryJob
 
             foreach (var todo in failedItems)
             {
-                _dbContext.Attach(todo);
-                todo.FRetryCount++;
-
-                try
+                // 整段 per-item 工作单元（改计数→重试→查状态→改状态→落库）都在该待办【自身租户】上下文内，
+                // 杜绝 RetryPush 内部写入 / 状态回写按错误租户回填或跨租户串扰；每条独立落库，作用域退出即复位。
+                using (_tenantScope.Enter(todo.FTenantId, "cardflow-push-retry"))
                 {
-                    await _notificationDispatcher.RetryPushAsync(todo.FID);
+                    _dbContext.Attach(todo);
+                    todo.FRetryCount++;
 
-                    // 重新查询推送状态
-                    var updated = await _dbContext.Set<CfTodoItem>()
-                        .IgnoreQueryFilters()
-                        .FirstOrDefaultAsync(t => t.FID == todo.FID);
-
-                    if (updated?.FPushStatus == "success")
+                    try
                     {
-                        successCount++;
-                        _logger.LogInformation("推送重试成功: TodoItemId={Id}, RetryCount={Count}",
-                            todo.FID, todo.FRetryCount);
+                        await _notificationDispatcher.RetryPushAsync(todo.FID);
+
+                        // 重新查询推送状态
+                        var updated = await _dbContext.Set<CfTodoItem>()
+                            .IgnoreQueryFilters()
+                            .FirstOrDefaultAsync(t => t.FID == todo.FID);
+
+                        if (updated?.FPushStatus == "success")
+                        {
+                            successCount++;
+                            _logger.LogInformation("推送重试成功: TodoItemId={Id}, RetryCount={Count}",
+                                todo.FID, todo.FRetryCount);
+                        }
+                        else
+                        {
+                            failCount++;
+                            // 超过最大重试次数，标记永久失败
+                            if (todo.FRetryCount >= MaxRetryCount)
+                            {
+                                todo.FPushStatus = "permanently_failed";
+                                permanentFailCount++;
+                                _logger.LogWarning("推送重试达到上限，标记永久失败: TodoItemId={Id}", todo.FID);
+                            }
+                        }
                     }
-                    else
+                    catch (Exception ex)
                     {
                         failCount++;
-                        // 超过最大重试次数，标记永久失败
+                        _logger.LogError(ex, "推送重试异常: TodoItemId={Id}, RetryCount={Count}",
+                            todo.FID, todo.FRetryCount);
+
                         if (todo.FRetryCount >= MaxRetryCount)
                         {
                             todo.FPushStatus = "permanently_failed";
@@ -89,23 +104,11 @@ public class PushRetryJob
                             _logger.LogWarning("推送重试达到上限，标记永久失败: TodoItemId={Id}", todo.FID);
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    failCount++;
-                    _logger.LogError(ex, "推送重试异常: TodoItemId={Id}, RetryCount={Count}",
-                        todo.FID, todo.FRetryCount);
 
-                    if (todo.FRetryCount >= MaxRetryCount)
-                    {
-                        todo.FPushStatus = "permanently_failed";
-                        permanentFailCount++;
-                        _logger.LogWarning("推送重试达到上限，标记永久失败: TodoItemId={Id}", todo.FID);
-                    }
+                    await _dbContext.SaveChangesAsync();  // 每条在其租户上下文内落库
                 }
             }
 
-            await _dbContext.SaveChangesAsync();
             _logger.LogInformation(
                 "CardFlow 推送失败重试完成: 成功={Success}, 失败={Fail}, 永久失败={PermanentFail}",
                 successCount, failCount, permanentFailCount);

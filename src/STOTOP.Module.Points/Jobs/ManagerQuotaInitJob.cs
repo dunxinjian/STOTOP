@@ -1,6 +1,7 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.Points.Entities;
 
@@ -15,11 +16,13 @@ namespace STOTOP.Module.Points.Jobs;
 public class ManagerQuotaInitJob
 {
     private readonly STOTOPDbContext _db;
+    private readonly ITenantIterationService _iteration;
     private readonly ILogger<ManagerQuotaInitJob> _logger;
 
-    public ManagerQuotaInitJob(STOTOPDbContext db, ILogger<ManagerQuotaInitJob> logger)
+    public ManagerQuotaInitJob(STOTOPDbContext db, ITenantIterationService iteration, ILogger<ManagerQuotaInitJob> logger)
     {
         _db = db;
+        _iteration = iteration;
         _logger = logger;
     }
 
@@ -30,6 +33,10 @@ public class ManagerQuotaInitJob
     {
         _logger.LogInformation("ManagerQuotaInitJob 开始执行...");
 
+        // 多客户 per-tenant 迭代：逐活跃租户各初始化各自配额（PmManagerQuota 是 ITenantScoped，EF 过滤器按租户收敛）。
+        // 注：本 Job 当前未在 Program.cs 注册为 RecurringJob（未接线）；此处按 per-tenant 转换以保证接线后正确、与兄弟 Job 一致。
+        await _iteration.ForEachActiveTenantAsync(async _ =>
+        {
         // 1. 将上月未完成的配额标记为已过期（FStatus: 0=正常, 1=已过期）
         var lastMonth = DateTime.Now.AddMonths(-1).ToString("yyyy-MM");
         var expiredQuotas = await _db.Set<PmManagerQuota>()
@@ -82,5 +89,6 @@ public class ManagerQuotaInitJob
 
         _logger.LogInformation("ManagerQuotaInitJob 执行完成，过期 {ExpiredCount} 条，新建 {NewCount} 条配额",
             expiredQuotas.Count, newQuotaCount);
+        }, "points-manager-quota-init");
     }
 }

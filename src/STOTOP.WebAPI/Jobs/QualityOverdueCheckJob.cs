@@ -14,29 +14,25 @@ namespace STOTOP.WebAPI.Jobs;
 public class QualityOverdueCheckJob
 {
     private readonly STOTOPDbContext _context;
-    private readonly IOrgContextAccessor _orgContext;
-    private readonly ITenantResolver _tenantResolver;
+    private readonly ITenantIterationService _iteration;
     private readonly ILogger<QualityOverdueCheckJob> _logger;
 
     public QualityOverdueCheckJob(
         STOTOPDbContext context,
-        IOrgContextAccessor orgContext,
-        ITenantResolver tenantResolver,
+        ITenantIterationService iteration,
         ILogger<QualityOverdueCheckJob> logger)
     {
         _context = context;
-        _orgContext = orgContext;
-        _tenantResolver = tenantResolver;
+        _iteration = iteration;
         _logger = logger;
     }
 
     public async Task ExecuteAsync()
     {
-        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
-        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
-
         _logger.LogInformation("开始执行质量问题超时检查...");
-        try
+        // 多客户 per-tenant 迭代：逐活跃租户各查各自质量工作项（WfWorkItem 是 ITenantScoped，过滤器按租户收敛）。
+        // CfQualityIssueType 为共享配置（非租户隔离），各租户读同一份超时配置。单租户失败由地基隔离并记日志。
+        await _iteration.ForEachActiveTenantAsync(async _ =>
         {
             var now = DateTime.UtcNow;
 
@@ -96,11 +92,6 @@ public class QualityOverdueCheckJob
                     .SetProperty(w => w.FUpdateTime, DateTime.Now));
 
             _logger.LogInformation("质量问题超时检查完成，共标记 {Count} 条工作项为超时", updated);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "质量问题超时检查 Job 执行失败");
-            throw; // 让 Hangfire 自动重试
-        }
+        }, "quality-overdue-check");
     }
 }

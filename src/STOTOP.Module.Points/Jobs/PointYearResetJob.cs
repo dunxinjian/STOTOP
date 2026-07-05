@@ -30,31 +30,25 @@ public class PointYearResetJob
     private readonly STOTOPDbContext _db;
     private readonly IPointService _pointService;
     private readonly IEventDispatcher _eventDispatcher;
-    private readonly IOrgContextAccessor _orgContext;
-    private readonly ITenantResolver _tenantResolver;
+    private readonly ITenantIterationService _iteration;
     private readonly ILogger<PointYearResetJob> _logger;
 
     public PointYearResetJob(
         STOTOPDbContext db,
         IPointService pointService,
         IEventDispatcher eventDispatcher,
-        IOrgContextAccessor orgContext,
-        ITenantResolver tenantResolver,
+        ITenantIterationService iteration,
         ILogger<PointYearResetJob> logger)
     {
         _db = db;
         _pointService = pointService;
         _eventDispatcher = eventDispatcher;
-        _orgContext = orgContext;
-        _tenantResolver = tenantResolver;
+        _iteration = iteration;
         _logger = logger;
     }
 
     public async global::System.Threading.Tasks.Task ExecuteAsync()
     {
-        // Hangfire 无 HttpContext，显式设根租户上下文以过 fail-closed 硬墙（读不空、写回填 FTenantId）。
-        _orgContext.CurrentTenantId = _tenantResolver.GetRootTenantId();
-
         var now = DateTime.Now;
         var thisYearFirst = new DateTime(now.Year, 1, 1);
         var atDate = thisYearFirst.AddTicks(-1);                    // 上一年最后一刻
@@ -63,6 +57,9 @@ public class PointYearResetJob
 
         _logger.LogInformation("PointYearResetJob 启动 | period={Period} | atDate={AtDate:O}", periodKey, atDate);
 
+        // 多客户 per-tenant 迭代：逐活跃租户各清各自 B 分账户（PmPointAccount 是 ITenantScoped，EF 过滤器按租户收敛）。
+        await _iteration.ForEachActiveTenantAsync(async _ =>
+        {
         var orgIds = await _db.Set<PmPointAccount>()
             .Where(a => a.F账户类型 == PointAccountTypes.B)
             .Select(a => a.FOrgId)
@@ -82,6 +79,7 @@ public class PointYearResetJob
         _logger.LogInformation(
             "PointYearResetJob 完成 | period={Period} | orgs={OrgCount} | processed={Processed} | succeeded={Succeeded} | failed={Failed}",
             periodKey, orgIds.Count, totalProcessed, totalSucceeded, totalFailed);
+        }, "points-year-reset");
     }
 
     private async Task<(int processed, int succeeded, int failed)> ProcessOrgAsync(long orgId, DateTime atDate, string periodKey)

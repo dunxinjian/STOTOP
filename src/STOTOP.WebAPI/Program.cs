@@ -312,6 +312,9 @@ builder.Services.AddScoped<IOrgContextAccessor, HttpOrgContextAccessor>();
 // 受控平台作用域工厂：与 IOrgContextAccessor 同 Scoped，共享实例——Enter 置位后本作用域 DbContext 立即放行租户硬墙。
 builder.Services.AddScoped<IPlatformScopeFactory, STOTOP.Module.System.Services.PlatformScopeFactory>();
 builder.Services.AddSingleton<STOTOP.Core.Services.ITenantResolver, STOTOP.Module.System.Services.TenantResolver>();
+// 租户级作用域工厂（只设 CurrentTenantId、不放行全库）+ per-tenant 后台迭代地基（阶段4 收尾：后台 Job 逐活跃租户处理）。
+builder.Services.AddScoped<STOTOP.Core.Services.ITenantScopeFactory, STOTOP.Module.System.Services.TenantScopeFactory>();
+builder.Services.AddScoped<STOTOP.Core.Services.ITenantIterationService, STOTOP.Module.System.Services.TenantIterationService>();
 
 // System Module
 builder.Services.AddSystemModule();
