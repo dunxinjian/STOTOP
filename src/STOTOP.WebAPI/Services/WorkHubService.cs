@@ -593,10 +593,10 @@ public class WorkHubService : IWorkHubService
                     Key = "view",
                     Label = "进入处理",
                     Type = "primary",
-                    Route = $"/cardflow/cards/{todo.CardId}"
+                    Route = $"/cardflow/approve/{todo.CardId}"
                 }
             },
-            DetailRoute = $"/cardflow/cards/{todo.CardId}",
+            DetailRoute = $"/cardflow/approve/{todo.CardId}",
             Metadata = new Dictionary<string, object>
             {
                 ["cardflowTodoId"] = todo.Id,
