@@ -103,6 +103,9 @@ public class CreatePeriodRequest
 
 public class UpdatePeriodRequest
 {
+    /// <summary>生效日期（可空）。非空时更新期间生效日期；为空表示本次不改日期，避免清空。</summary>
+    public DateTime? EffectiveDate { get; set; }
+    /// <summary>矩阵 JSON（可空）。为空表示本次不改矩阵（仅改生效日期时不得覆写清空矩阵）。</summary>
     public string? MatrixJson { get; set; }
 }
 

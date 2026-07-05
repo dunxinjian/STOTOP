@@ -216,6 +216,9 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
     /// 从计费结果表读取已计费成功的应收运单，构建 CostWaybillInput 列表。
     /// 查询条件：F计算状态=1 AND F参与方角色=1。
     /// 通过 F批次ID + F组织ID 过滤，仅处理当前批次和组织的运单。
+    /// 多层计费下同一运单会产生多条 F参与方角色=1（仅 F层级 不同）的结果行；物理成本对一票只发生一次，
+    /// 故按 F运单编号 取【最小层级】的单一基准行（同时消除源表 LEFT JOIN 可能带来的行扇出），
+    /// 避免成本按命中层级数被重复计入。成本随后回写到该基准行的 F成本合计。
     /// </summary>
     private async Task<List<CostWaybillInput>> ReadSuccessBillingResults(string resultTable, string sourceTable, long batchId, long orgId)
     {
@@ -233,27 +236,38 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
             ? "              AND ISNULL(s.[FIsRevoked], 0) = 0"
             : "";
 
+        // 用 ROW_NUMBER 按 F运单编号 分区、取最小层级（同层级再按 FID）为唯一基准行，
+        // 保证一票只产出一条成本输入，物理成本不被多层级/源表扇出重复计入。
         var sql = $@"
-            SELECT 
-                r.FID, r.[F运单编号], r.[F品牌编码],
-                r.[F计费重量], r.[F运单日期], r.[F目的省份ID],
-                r.[F归属网点编号],
-                ISNULL(np.[F组织ID], 0) AS [F归属网点ID],
-                {citySelect},
-                {shopSelect}
-            FROM [{resultTable}] r
-            LEFT JOIN [{sourceTable}] s
-              ON s.[F运单编号] = r.[F运单编号]
-             AND s.[F批次ID] = @batchId
-             AND s.[FOrgId] = @orgId
+            SELECT FID, [F运单编号], [F品牌编码], [F计费重量], [F运单日期], [F目的省份ID],
+                   [F归属网点编号], [F归属网点ID], [F目的城市], [F店铺账号]
+            FROM (
+                SELECT
+                    r.FID, r.[F运单编号], r.[F品牌编码],
+                    r.[F计费重量], r.[F运单日期], r.[F目的省份ID],
+                    r.[F归属网点编号],
+                    ISNULL(np.[F组织ID], 0) AS [F归属网点ID],
+                    {citySelect},
+                    {shopSelect},
+                    ROW_NUMBER() OVER (
+                        PARTITION BY r.[F运单编号]
+                        ORDER BY r.[F层级] ASC, r.FID ASC
+                    ) AS __rn
+                FROM [{resultTable}] r
+                LEFT JOIN [{sourceTable}] s
+                  ON s.[F运单编号] = r.[F运单编号]
+                 AND s.[F批次ID] = @batchId
+                 AND s.[FOrgId] = @orgId
 {revokedPredicate}
-            LEFT JOIN [EXP快递网点] np
-              ON np.[F编号] = r.[F归属网点编号]
-             AND (np.[F所属组织ID] = @orgId OR np.[F组织ID] = @orgId)
-            WHERE r.[F计算状态] = 1
-              AND r.[F参与方角色] = 1
-              AND r.[F批次ID] = @batchId
-              AND r.[F组织ID] = @orgId";
+                LEFT JOIN [EXP快递网点] np
+                  ON np.[F编号] = r.[F归属网点编号]
+                 AND (np.[F所属组织ID] = @orgId OR np.[F组织ID] = @orgId)
+                WHERE r.[F计算状态] = 1
+                  AND r.[F参与方角色] = 1
+                  AND r.[F批次ID] = @batchId
+                  AND r.[F组织ID] = @orgId
+            ) q
+            WHERE q.[__rn] = 1";
 
         var waybills = new List<CostWaybillInput>();
         using var connection = new SqlConnection(_connectionString);

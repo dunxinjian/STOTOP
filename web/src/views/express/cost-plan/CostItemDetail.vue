@@ -958,12 +958,19 @@ async function handleDeletePeriod(periodId: number) {
 async function handleUpdatePeriodDate(record: CostPlanItemPeriodDto, newDate: string) {
   if (!newDate) return
   try {
+    // 仅传 effectiveDate；后端按部分更新只改日期、不再清空该期间的成本矩阵
     await updateCostPlanItemPeriod(planId.value, itemId.value, record.id, { effectiveDate: newDate })
     record.effectiveDate = newDate
     // 重新排序
     periods.value = [...periods.value].sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate))
   } catch {
-    message.error('修改生效日期失败')
+    // 后端已由响应拦截器提示具体错误（如生效日期重复）；重新拉取以回滚日期选择器显示
+    try {
+      const periodList = await getCostPlanItemPeriods(planId.value, itemId.value)
+      periods.value = periodList.sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate))
+    } catch {
+      /* 忽略回滚拉取失败 */
+    }
   }
 }
 

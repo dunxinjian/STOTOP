@@ -810,7 +810,24 @@ public class CostPlanService : ICostPlanService
             .FirstOrDefaultAsync(p => p.FID == periodId && p.FItemId == itemId);
         if (entity == null) return null;
 
-        entity.FMatrixJson = request.MatrixJson;
+        // 部分更新：仅更新请求显式提供的字段。
+        // 关键修复：只改生效日期时前端不会带 MatrixJson，若无条件赋值会把 null 覆写进去、清空整套成本矩阵。
+        if (request.EffectiveDate.HasValue)
+        {
+            var newDate = request.EffectiveDate.Value.Date;
+            if (newDate != entity.FEffectiveDate.Date)
+            {
+                var duplicate = await _periodRepo.Query()
+                    .AnyAsync(p => p.FItemId == itemId && p.FID != periodId && p.FEffectiveDate == newDate);
+                if (duplicate)
+                    throw new InvalidOperationException($"生效日期 {newDate:yyyy-MM-dd} 已存在");
+                entity.FEffectiveDate = newDate;
+            }
+        }
+
+        if (request.MatrixJson != null)
+            entity.FMatrixJson = request.MatrixJson;
+
         entity.FUpdatedTime = DateTime.Now;
         await _periodRepo.UpdateAsync(entity);
 

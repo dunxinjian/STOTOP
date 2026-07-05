@@ -121,6 +121,18 @@ public class CostEngine
                     waybill.BillableWeight, waybill.WaybillDate, waybill.ShopName);
                 var costList = calcResult.Items.Select(c => (c.CostItemId, c.Amount)).ToList();
 
+                // 一口价命中却未算出一口价金额（主成本已被互斥剔除，结果仅剩加收项）：判为失败，避免静默写入缩水成本
+                if (calcResult.FixedPriceUnresolved)
+                {
+                    errors.Add(new CostError
+                    {
+                        WaybillId = waybill.RowId,
+                        WaybillNo = waybill.WaybillNo,
+                        ErrorMessage = $"一口价模式命中但未算出一口价金额（检查目的地价格矩阵）：品牌={waybill.BrandCode}, 目的省份ID={waybill.DestinationProvinceId}, 重量={waybill.BillableWeight}, 日期={waybill.WaybillDate:yyyy-MM-dd}"
+                    });
+                    return;
+                }
+
                 if (costList.Count == 0)
                 {
                     errors.Add(new CostError

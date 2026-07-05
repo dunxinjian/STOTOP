@@ -297,8 +297,9 @@ public class CostPlanCache
         if (planId == null)
             return result;
 
-        // 一口价模式判定：运单店铺命中方案内某一口价项的关联店铺（未配置店铺的一口价项不生效）
-        var fixedPriceItem = ResolveFixedPriceItem(planId.Value, shopName);
+        // 一口价模式判定：运单店铺命中方案内某一口价项的关联店铺，且该项在运单日期有生效期间、适用当前网点
+        // （否则不进入一口价模式，避免主成本被互斥掉却又无一口价补上）。
+        var fixedPriceItem = ResolveFixedPriceItem(planId.Value, shopName, networkPointId, waybillDate);
         var excludedItemIds = fixedPriceItem != null
             ? ResolveExclusions(planId.Value, waybillDate)
             : null;
@@ -329,6 +330,11 @@ public class CostPlanCache
             }
         }
 
+        // 一口价命中但一口价项本身金额为 0（有生效期间与网点，却缺目的地价格单元格）：主成本已被互斥剔除、
+        // 结果仅剩加收项，不可信 → 标记未解析，交由 CostEngine 判为失败而非静默写入缩水成本。
+        if (fixedPriceItem != null && result.Items.All(i => i.CostItemId != fixedPriceItem.ItemId))
+            result.FixedPriceUnresolved = true;
+
         return result;
     }
 
@@ -349,15 +355,22 @@ public class CostPlanCache
         return excludedItemIds == null || !excludedItemIds.Contains(costItemId);
     }
 
-    /// <summary>店铺命中方案内的一口价成本项（关联店铺为空的一口价项视为未启用）</summary>
-    private FixedPriceItemEntry? ResolveFixedPriceItem(long planId, string? shopName)
+    /// <summary>
+    /// 店铺命中方案内的一口价成本项。命中须同时满足：关联店铺非空且命中；该项在运单日期有生效期间；适用当前网点。
+    /// 任一不满足则返回 null（回退标准模式），避免"命中店铺→互斥掉标准项→一口价却算不出"导致主成本蒸发。
+    /// </summary>
+    private FixedPriceItemEntry? ResolveFixedPriceItem(long planId, string? shopName, long networkPointId, DateTime waybillDate)
     {
         if (string.IsNullOrWhiteSpace(shopName)
             || !_fixedPriceIndex.TryGetValue(planId, out var entries))
             return null;
 
         var trimmed = shopName.Trim();
-        return entries.FirstOrDefault(e => e.ShopNames.Count > 0 && e.ShopNames.Contains(trimmed));
+        return entries.FirstOrDefault(e =>
+            e.ShopNames.Count > 0
+            && e.ShopNames.Contains(trimmed)
+            && CostItemAppliesToNetworkPoint(planId, e.ItemId, networkPointId)
+            && ResolvePeriod(planId, e.ItemId, waybillDate) != null);
     }
 
     /// <summary>按运单日期取生效的互斥规则（列表已按日期降序）</summary>
@@ -412,7 +425,7 @@ public class CostPlanCache
             return result;
         }
 
-        var fixedPriceItem = ResolveFixedPriceItem(planId.Value, shopName);
+        var fixedPriceItem = ResolveFixedPriceItem(planId.Value, shopName, networkPointId, waybillDate);
         var excludedItemIds = fixedPriceItem != null
             ? ResolveExclusions(planId.Value, waybillDate)
             : null;
@@ -454,6 +467,11 @@ public class CostPlanCache
             if (item != null)
                 result.Items.Add(item);
         }
+
+        // 一口价命中但未算出一口价金额（缺目的地价格单元格）：主成本已被互斥剔除，计价不可信
+        if (fixedPriceItem != null && result.Items.All(i => i.CostItemId != fixedPriceItem.ItemId))
+            result.ConfigurationIssues.Add(
+                $"一口价命中但未算出一口价金额（检查该项在运单日期的目的地价格矩阵）：成本项={fixedPriceItem.ItemId}");
 
         if (result.Items.Count == 0 && result.ConfigurationIssues.Count == 0)
             result.ConfigurationIssues.Add("命中成本方案但未命中任何成本项矩阵");
@@ -792,6 +810,8 @@ public class CostCalcResult
     public int CostMode { get; set; } = 1;
     /// <summary>一口价模式下命中的方案成本项ID</summary>
     public int? FixedPriceItemId { get; set; }
+    /// <summary>一口价命中但一口价项本身未算出金额（缺目的地价格单元格）：结果不可信，应判为失败而非部分成功。</summary>
+    public bool FixedPriceUnresolved { get; set; }
 }
 
 public class CostExplainResult

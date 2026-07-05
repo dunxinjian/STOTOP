@@ -21,7 +21,8 @@ public class CostPlanCacheFixedPriceTests
 
     private static CostPlanCache CreateCache(
         bool fixedPriceHasShops = true,
-        bool withExclusion = true)
+        bool withExclusion = true,
+        bool fixedPriceHasPeriod = true)
     {
         var cache = new CostPlanCache();
 
@@ -30,13 +31,15 @@ public class CostPlanCacheFixedPriceTests
             [(0, "ST")] = [new CostPlanEntry { PlanId = PlanId, EffectiveDate = DateTime.MinValue }]
         });
 
-        SetPrivateField(cache, "_itemPeriodIndex", new Dictionary<(long, int), List<CostItemPeriod>>
+        var periodIndex = new Dictionary<(long, int), List<CostItemPeriod>>
         {
-            [(PlanId, FixedPriceItemId)] = [NationalPeriod(1.58m)],
             [(PlanId, LabelItemId)] = [NationalPeriod(0.91m)],
             [(PlanId, DispatchItemId)] = [NationalPeriod(2.00m)],
             [(PlanId, AddonItemId)] = [NationalPeriod(0.30m)]
-        });
+        };
+        if (fixedPriceHasPeriod)
+            periodIndex[(PlanId, FixedPriceItemId)] = [NationalPeriod(1.58m)];
+        SetPrivateField(cache, "_itemPeriodIndex", periodIndex);
 
         var fixedEntry = new FixedPriceItemEntry { ItemId = FixedPriceItemId };
         if (fixedPriceHasShops)
@@ -170,4 +173,95 @@ public class CostPlanCacheFixedPriceTests
         Assert.Contains(result.MatchNotes, n => n.Contains("互斥规则生效"));
         Assert.Equal(1.58m + 0.30m, result.TotalAmount);
     }
+
+    // === P0：一口价命中但算不出主成本时不得静默缩水（回退标准模式或判失败）===
+
+    [Fact]
+    public void Fixed_price_item_without_effective_period_falls_back_to_standard_mode()
+    {
+        // 命中店铺但一口价项在运单日期无生效期间 → 不进入一口价模式，避免互斥掉标准项后主成本蒸发
+        var cache = CreateCache(fixedPriceHasPeriod: false);
+        var result = Calc(cache, shopName: "一口价店铺A");
+
+        Assert.Equal(1, result.CostMode);
+        Assert.False(result.FixedPriceUnresolved);
+        Assert.DoesNotContain(result.Items, i => i.CostItemId == FixedPriceItemId);
+        // 标准模式：互斥规则不生效，标准项照常叠加
+        Assert.Equal(3, result.Items.Count);
+        Assert.Equal(0.91m + 2.00m + 0.30m, result.Items.Sum(i => i.Amount));
+    }
+
+    [Fact]
+    public void Fixed_price_item_restricted_to_other_network_falls_back_to_standard_mode()
+    {
+        // 命中店铺但一口价项限定到别的网点 → 不进入一口价模式
+        var cache = CreateCache();
+        SetPrivateField(cache, "_itemOutletIndex", new Dictionary<(long, int), HashSet<long>>
+        {
+            [(PlanId, FixedPriceItemId)] = new HashSet<long> { 999L } // 仅网点999适用；运单网点=0 不在其中
+        });
+
+        var result = Calc(cache, shopName: "一口价店铺A");
+
+        Assert.Equal(1, result.CostMode);
+        Assert.False(result.FixedPriceUnresolved);
+        Assert.DoesNotContain(result.Items, i => i.CostItemId == FixedPriceItemId);
+    }
+
+    [Fact]
+    public void Fixed_price_mode_with_missing_price_cell_is_marked_unresolved()
+    {
+        // 一口价项有生效期间且网点适用，但目的地价格单元格缺失 → 算不出金额，
+        // 标记 FixedPriceUnresolved，交由引擎判为失败而非写入仅剩加收项的缩水成本
+        var cache = new CostPlanCache();
+        SetPrivateField(cache, "_planIndex", new Dictionary<(long, string), List<CostPlanEntry>>
+        {
+            [(0, "ST")] = [new CostPlanEntry { PlanId = PlanId, EffectiveDate = DateTime.MinValue }]
+        });
+        SetPrivateField(cache, "_itemPeriodIndex", new Dictionary<(long, int), List<CostItemPeriod>>
+        {
+            // 一口价项为省份矩阵，但只配了省份99的单元格，无省份31、无全国回退 → 命中不了
+            [(PlanId, FixedPriceItemId)] = [ProvinceOnlyPeriod(99, 1.58m)],
+            [(PlanId, AddonItemId)] = [NationalPeriod(0.30m)]
+        });
+        var fixedEntry = new FixedPriceItemEntry { ItemId = FixedPriceItemId };
+        fixedEntry.ShopNames.Add("一口价店铺A");
+        SetPrivateField(cache, "_fixedPriceIndex", new Dictionary<long, List<FixedPriceItemEntry>>
+        {
+            [PlanId] = [fixedEntry]
+        });
+        SetPrivateField(cache, "_fixedPriceItemIds", new HashSet<int> { FixedPriceItemId });
+
+        var result = cache.CalcAllCosts(0, "ST", 31, null, 1m, WaybillDate, "一口价店铺A");
+
+        Assert.Equal(2, result.CostMode);
+        Assert.True(result.FixedPriceUnresolved);
+        Assert.DoesNotContain(result.Items, i => i.CostItemId == FixedPriceItemId);
+    }
+
+    private static CostItemPeriod ProvinceOnlyPeriod(int provinceId, decimal basePrice) => new()
+    {
+        EffectiveDate = DateTime.MinValue,
+        PricingScope = "province",
+        Segments =
+        [
+            new PricingSegment
+            {
+                SegmentIndex = 1,
+                WeightFrom = 0m,
+                WeightTo = null,
+                Cells =
+                [
+                    new PricingCell
+                    {
+                        ProvinceId = provinceId,
+                        BasePrice = basePrice,
+                        ContinuePrice = 0m,
+                        FirstWeight = 0m,
+                        ContinueStep = 1m
+                    }
+                ]
+            }
+        ]
+    };
 }
