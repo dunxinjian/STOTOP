@@ -39,6 +39,9 @@ public static class ExpressSeeder
             new(22, "阶段2C(M5): EXP快递网点 加 F网点公司ID/F品牌编码 + (公司,品牌)过滤唯一索引 + 回填品牌(自F快递品牌) + 退役死字段 F实体公司/F快递品牌 (2026-07-02)", MigrateV22),
             new(23, "极兔网点注册: EXP快递网点 种入 3 个极兔网点(3512907南郊/3512894城区/3512906陆渡→浏河)，按 SYS网点公司名称解析 F网点公司ID + 挂经营实体组织节点 + 品牌JT + 租户 (2026-07-03)", MigrateV23),
             new(24, "阶段0收尾: EXP快递报价及子表 11个非租户列硬化为 NOT NULL(存量0 NULL行;F状态/F品牌编码需落索引重建) (2026-07-05)", MigrateV24),
+            new(25, "修复V7一口价迁移: F成本项类型=2且有关联店铺的成本项改为4(一口价) (2026-07-05)", MigrateV25),
+            new(26, "成本项时间段加 F失效日期 列(可空;缺月价不再静默沿用旧月价格) (2026-07-05)", MigrateV26),
+            new(27, "补种成本方案/成本项目动作权限码到 SYS功能权限并授予 admin 角色(非 admin 此前恒 403) (2026-07-05)", MigrateV27),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -97,6 +100,78 @@ public static class ExpressSeeder
             ALTER TABLE [EXP快递报价_出港加收] ALTER COLUMN [F品牌编码] nchar(2) NOT NULL;
             CREATE INDEX [IX_EXP快递报价_出港加收_业务对象品牌启用] ON [EXP快递报价_出港加收] ([F业务对象ID],[F品牌编码],[F启用]);
         END");
+    }
+
+    /// <summary>
+    /// V25: 修复 V7 一口价迁移缺陷。V7 步骤2b 把旧一口价成本迁移为方案成本项时误写 F成本项类型=2(省份矩阵)，
+    /// 现行引擎只对类型4建一口价索引/店铺门控/互斥，导致这些项被当省份矩阵对所有运单无条件叠加成本。
+    /// 幂等修复：仅把"当前类型2且存在关联店铺"的行改为4(一口价)——省份矩阵项不关联店铺，故此条件精确锁定 V7 血统行。
+    /// </summary>
+    private static void MigrateV25(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+IF OBJECT_ID(N'[EXP成本方案_成本项]', N'U') IS NOT NULL
+   AND OBJECT_ID(N'[EXP成本方案_成本项_关联店铺]', N'U') IS NOT NULL
+BEGIN
+    UPDATE ci SET ci.[F成本项类型] = 4
+    FROM [EXP成本方案_成本项] ci
+    WHERE ci.[F成本项类型] = 2
+      AND EXISTS (SELECT 1 FROM [EXP成本方案_成本项_关联店铺] s WHERE s.[F成本项ID] = ci.FID);
+END");
+    }
+
+    /// <summary>
+    /// V26: 成本项时间段(EXP成本方案_成本项_时间段) 增加可空 [F失效日期] 列。为空=无失效上限(旧行为)；
+    /// 非空时超过该日期的运单不再命中本期间——避免新月份未录价时静默沿用旧月价格(政策按月发布、有效期严格)。
+    /// </summary>
+    private static void MigrateV26(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+IF COL_LENGTH('EXP成本方案_成本项_时间段', 'F失效日期') IS NULL
+    ALTER TABLE [EXP成本方案_成本项_时间段] ADD [F失效日期] DATETIME NULL;");
+    }
+
+    /// <summary>
+    /// V27: 补种成本方案/成本项目的动作权限码到 SYS功能权限并授予 admin 角色。
+    /// 控制器用 express:costplan:*/express:costitem:* 鉴权，但 baseline 只种了 express:cost-plan/express:cost-item 菜单码，
+    /// 动作码从未存在 → 非 admin 用户对全部成本 CRUD 端点权限查询恒 0 → 恒 403。幂等补种为"按钮"类型挂到对应菜单下。
+    /// </summary>
+    private static void MigrateV27(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+DECLARE @CostPlanMenuId BIGINT = (SELECT [FID] FROM [SYS功能权限] WHERE [F编码] = N'express:cost-plan' AND [F类型] = N'菜单');
+DECLARE @CostItemMenuId BIGINT = (SELECT [FID] FROM [SYS功能权限] WHERE [F编码] = N'express:cost-item' AND [F类型] = N'菜单');
+
+IF @CostPlanMenuId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM [SYS功能权限] WHERE [F编码] = N'express:costplan:view')
+    INSERT INTO [SYS功能权限] ([F名称],[F编码],[F类型],[F父ID],[F排序],[F状态],[F是否可见]) VALUES (N'查看成本方案',N'express:costplan:view',N'按钮',@CostPlanMenuId,1,1,1);
+IF @CostPlanMenuId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM [SYS功能权限] WHERE [F编码] = N'express:costplan:create')
+    INSERT INTO [SYS功能权限] ([F名称],[F编码],[F类型],[F父ID],[F排序],[F状态],[F是否可见]) VALUES (N'创建成本方案',N'express:costplan:create',N'按钮',@CostPlanMenuId,2,1,1);
+IF @CostPlanMenuId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM [SYS功能权限] WHERE [F编码] = N'express:costplan:edit')
+    INSERT INTO [SYS功能权限] ([F名称],[F编码],[F类型],[F父ID],[F排序],[F状态],[F是否可见]) VALUES (N'编辑成本方案',N'express:costplan:edit',N'按钮',@CostPlanMenuId,3,1,1);
+IF @CostPlanMenuId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM [SYS功能权限] WHERE [F编码] = N'express:costplan:delete')
+    INSERT INTO [SYS功能权限] ([F名称],[F编码],[F类型],[F父ID],[F排序],[F状态],[F是否可见]) VALUES (N'删除成本方案',N'express:costplan:delete',N'按钮',@CostPlanMenuId,4,1,1);
+
+IF @CostItemMenuId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM [SYS功能权限] WHERE [F编码] = N'express:costitem:view')
+    INSERT INTO [SYS功能权限] ([F名称],[F编码],[F类型],[F父ID],[F排序],[F状态],[F是否可见]) VALUES (N'查看成本项目',N'express:costitem:view',N'按钮',@CostItemMenuId,1,1,1);
+IF @CostItemMenuId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM [SYS功能权限] WHERE [F编码] = N'express:costitem:create')
+    INSERT INTO [SYS功能权限] ([F名称],[F编码],[F类型],[F父ID],[F排序],[F状态],[F是否可见]) VALUES (N'创建成本项目',N'express:costitem:create',N'按钮',@CostItemMenuId,2,1,1);
+IF @CostItemMenuId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM [SYS功能权限] WHERE [F编码] = N'express:costitem:edit')
+    INSERT INTO [SYS功能权限] ([F名称],[F编码],[F类型],[F父ID],[F排序],[F状态],[F是否可见]) VALUES (N'编辑成本项目',N'express:costitem:edit',N'按钮',@CostItemMenuId,3,1,1);
+
+-- 授予 admin 角色(F角色ID=1)这些新增权限(幂等)
+INSERT INTO [SYS角色权限] ([F角色ID], [F权限ID])
+SELECT 1, p.FID FROM [SYS功能权限] p
+WHERE p.[F编码] IN (
+    N'express:costplan:view', N'express:costplan:create', N'express:costplan:edit', N'express:costplan:delete',
+    N'express:costitem:view', N'express:costitem:create', N'express:costitem:edit'
+)
+AND NOT EXISTS (SELECT 1 FROM [SYS角色权限] WHERE [F角色ID] = 1 AND [F权限ID] = p.FID);");
     }
 
     /// <summary>

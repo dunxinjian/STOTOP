@@ -11,6 +11,9 @@ public class ExpCostPlanItemPeriod : BaseEntity
     public long FItemId { get; set; }
     /// <summary>生效日期</summary>
     public DateTime FEffectiveDate { get; set; }
+    /// <summary>失效日期（可空）。为空表示无失效上限（沿用旧行为）；非空时，超过该日期的运单不再命中本期间，
+    /// 避免"新月份未录价时静默沿用旧月价格"（政策按月发布、有效期严格）。缺月价将表现为成本项覆盖缺口并被诊断。</summary>
+    public DateTime? FExpiryDate { get; set; }
     /// <summary>矩阵JSON（该时段的完整报价矩阵，含重量段+目的省份）</summary>
     public string? FMatrixJson { get; set; }
     /// <summary>创建时间</summary>

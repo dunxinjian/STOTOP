@@ -2168,7 +2168,8 @@ public class AmoebaPLService
                     ISNULL(SUM([F计费重量]), 0) AS TotalWeight
                 FROM [EXP出港运单_计费结果]
                 WHERE [F运单日期] >= {0} AND [F运单日期] < {1}
-                    AND [F组织ID] = {2}";
+                    AND [F组织ID] = {2}
+                    AND [F参与方角色] = 1";
 
         // 半开区间 [起, 末日+1)：F运单日期可能带时分(import 保留)，闭区间 <=末日(0点) 会把末日带时分的运单漏掉；
         // 与 AggregateVoucherData 的 < end.AddDays(1) 口径一致。[批次5-S3] day 粒度下尤为关键(否则整日全丢)。
@@ -3454,7 +3455,8 @@ public class AmoebaPLService
                     " + amountExpression + @" AS Amount
                 FROM [EXP出港运单_计费结果] br
                 WHERE br.[F运单日期] >= {0} AND br.[F运单日期] <= {1}
-                    AND br.[F组织ID] = {2}";
+                    AND br.[F组织ID] = {2}
+                    AND br.[F参与方角色] = 1";
 
         var parameters = new List<object> { request.StartDate, request.EndDate, orgId };
         int paramIdx = 3;

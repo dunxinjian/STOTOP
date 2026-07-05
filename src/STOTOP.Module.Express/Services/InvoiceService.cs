@@ -150,6 +150,9 @@ public class InvoiceService : IInvoiceService
     public async Task<InvoiceDto> GenerateInvoiceAsync(string clientId, string brandCode, DateTime periodStart, DateTime periodEnd)
     {
         // 1. 汇总账期内所有 BillingResult（FCalcStatus=1 且 FInvoiceId 为空, FPartyRole=1 应收）
+        // 账期用半开区间 [periodStart, periodEnd+1)：F运单日期可能带时分(import 保留)，
+        // 闭区间 <= 末日(0点) 会把末日带时分的运单漏出账单（与报表/阿米巴口径统一）。
+        var periodEndExclusive = periodEnd.Date.AddDays(1);
         var billingResults = await _billingResultRepo.Query()
             .Where(b => b.FPartyClientId == clientId
                 && b.FBrandCode == brandCode
@@ -157,7 +160,7 @@ public class InvoiceService : IInvoiceService
                 && b.FInvoiceId == null
                 && b.FPartyRole == 1
                 && b.FWaybillDate >= periodStart
-                && b.FWaybillDate <= periodEnd)
+                && b.FWaybillDate < periodEndExclusive)
             .ToListAsync();
 
         var totalWaybills = billingResults.Count;

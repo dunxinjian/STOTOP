@@ -444,25 +444,6 @@ public class CostPlanController : ControllerBase
         return ApiResult.Ok("删除互斥配置成功");
     }
 
-    // === 运单成本计算 ===
-
-    /// <summary>
-    /// 计算运单有效成本
-    /// </summary>
-    [HttpGet("effective-cost")]
-    [RequirePermission(ExpressPermissions.CostPlanView)]
-    public async Task<ApiResult<EffectiveCostResult>> GetEffectiveCost(
-        [FromQuery] string brandCode,
-        [FromQuery] long outletId,
-        [FromQuery] string? shopName,
-        [FromQuery] DateTime businessDate)
-    {
-        var result = await _costPlanService.GetEffectiveCostAsync(brandCode, outletId, shopName, businessDate);
-        if (result == null)
-            return ApiResult<EffectiveCostResult>.Fail("未找到匹配的成本方案");
-        return ApiResult<EffectiveCostResult>.Success(result);
-    }
-
     // === 城市查询 ===
 
     /// <summary>

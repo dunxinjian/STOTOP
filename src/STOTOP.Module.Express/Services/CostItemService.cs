@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using STOTOP.Core.Interfaces;
 using STOTOP.Module.Express.Dtos;
 using STOTOP.Module.Express.Entities;
+using STOTOP.Module.Express.Services.Billing;
 
 namespace STOTOP.Module.Express.Services;
 
@@ -11,10 +12,12 @@ namespace STOTOP.Module.Express.Services;
 public class CostItemService : ICostItemService
 {
     private readonly IRepository<ExpCostItem> _repository;
+    private readonly IRepository<ExpCostPlanItem> _planItemRepo;
 
-    public CostItemService(IRepository<ExpCostItem> repository)
+    public CostItemService(IRepository<ExpCostItem> repository, IRepository<ExpCostPlanItem> planItemRepo)
     {
         _repository = repository;
+        _planItemRepo = planItemRepo;
     }
 
     public async Task<List<CostItemDto>> GetAllAsync()
@@ -71,7 +74,21 @@ public class CostItemService : ICostItemService
         if (string.IsNullOrWhiteSpace(request.Name))
             throw new InvalidOperationException("成本项目名称不能为空");
 
-        entity.FName = request.Name.Trim();
+        // 计费侧靠"全局成本项目名称 ↔ 方案成本项名称"（规范化后忽略大小写/空白）匹配返利标志与编码索引，两表无外键。
+        // 若改名导致规范化名称变化且旧名被方案成本项引用，匹配会被静默切断（返利被当正向成本、算错钱），故拦截。
+        var newName = request.Name.Trim();
+        var oldNorm = CostPlanCache.NormalizeItemName(entity.FName);
+        var newNorm = CostPlanCache.NormalizeItemName(newName);
+        if (!string.Equals(oldNorm, newNorm, StringComparison.OrdinalIgnoreCase))
+        {
+            var referenced = (await _planItemRepo.Query().Select(i => i.FItemName).ToListAsync())
+                .Any(n => string.Equals(CostPlanCache.NormalizeItemName(n), oldNorm, StringComparison.OrdinalIgnoreCase));
+            if (referenced)
+                throw new InvalidOperationException(
+                    $"成本项目「{entity.FName}」已被成本方案项按名称引用，改名会切断返利/编码标志匹配（导致返利被当正向成本算错），请先调整引用的方案成本项名称后再改名");
+        }
+
+        entity.FName = newName;
         entity.FIsRebate = request.IsRebate;
         entity.FSortOrder = request.SortOrder;
         await _repository.UpdateAsync(entity);

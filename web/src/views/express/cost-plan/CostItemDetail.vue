@@ -468,9 +468,11 @@ function deserializeMatrix(entry: CostItemEntryDto) {
     return
   }
 
-  // 反序列化重量段
+  // 反序列化重量段：按下界(weightFrom)排序，与后端计费缓存(CostPlanCache 按 WeightFrom 排序)一致。
+  // 此前按 segmentIndex 排序，非末段二次拆分后列序会与实际重量区间错位，相邻合并会造出重叠/空洞段。
   segments.value = entry.segments
-    .sort((a, b) => a.segmentIndex - b.segmentIndex)
+    .slice()
+    .sort((a, b) => (a.weightFrom ?? 0) - (b.weightFrom ?? 0))
     .map(s => ({
       sortOrder: s.segmentIndex,
       startWeight: s.weightFrom ?? 0,
@@ -788,9 +790,42 @@ async function handleSave() {
   }
 }
 
+// 校验重量段连续性（无重叠、无空洞；开放上限只能在末段）——与后端 ValidateSegmentContinuity 同口径。
+// 不强制首段从 0 起（如"大货派费仅 >3kg"是合法配置）。落入空洞/重叠的重量计费会算 0，须在保存前拦截。
+function validateSegmentContinuity(): string | null {
+  const ordered = segments.value
+    .slice()
+    .sort((a, b) => (a.startWeight ?? 0) - (b.startWeight ?? 0))
+  for (let i = 0; i < ordered.length; i++) {
+    const s = ordered[i]
+    const from = s.startWeight ?? 0
+    if (s.endWeight != null && s.endWeight <= from) {
+      return `重量段区间非法（上界须大于下界）：[${from}, ${s.endWeight})`
+    }
+    if (i > 0) {
+      const prev = ordered[i - 1]
+      if (prev.endWeight == null) {
+        return '开放上限（无上界）的重量段只能是最末段，其后不得再有段'
+      }
+      if (from > prev.endWeight) {
+        return `重量段存在空洞：[${prev.endWeight}, ${from}) 无覆盖，落入该区间的重量成本会算 0`
+      }
+      if (from < prev.endWeight) {
+        return `重量段存在重叠：上一段止于 ${prev.endWeight}，本段从 ${from} 开始`
+      }
+    }
+  }
+  return null
+}
+
 async function handleSaveMatrix() {
   if (segments.value.length === 0) {
     message.warning('请至少添加一个重量段')
+    return
+  }
+  const continuityError = validateSegmentContinuity()
+  if (continuityError) {
+    message.warning(continuityError)
     return
   }
   saving.value = true

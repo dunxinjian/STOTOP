@@ -43,6 +43,7 @@ public class WaybillArchiveService : IWaybillArchiveService
         // 归档范围限定：仅归档当前组织（及租户）的数据，防止跨组织/租户物理删除
         var (orgId, tenantId) = ResolveArchiveScope();
         var tenantBrPredicate = tenantId.HasValue ? " AND br.[F租户ID] = @tenantId" : string.Empty;
+        var tenantBr2Predicate = tenantId.HasValue ? " AND br2.[F租户ID] = @tenantId" : string.Empty;
         var tenantDirectPredicate = tenantId.HasValue ? " AND [F租户ID] = @tenantId" : string.Empty;
 
         void AddScopeParams(SqlCommand cmd)
@@ -57,7 +58,8 @@ public class WaybillArchiveService : IWaybillArchiveService
 
         while (true)
         {
-            // 查找符合归档条件的运单ID（账单已归档且归档时间距今超过90天），限定在当前组织/租户的计费结果内
+            // 查找符合归档条件的运单ID：不仅"任一账单已归档超90天"，而是【该运单全部应收/计费结果行均已开票
+            // 且其账单均已归档超90天】才归档，避免整票搬迁时把未开票层级行一并删除、导致其永远无法开票（收入损失）。
             var findSql = $@"
                 SELECT TOP ({BatchSize}) w.FID
                 FROM [EXP出港运单] w
@@ -66,6 +68,16 @@ public class WaybillArchiveService : IWaybillArchiveService
                 WHERE inv.[F已归档] = 1
                   AND inv.[F归档时间] <= DATEADD(DAY, -{ArchiveAfterDays}, GETDATE())
                   AND br.[F组织ID] = @orgId{tenantBrPredicate}
+                  AND NOT EXISTS (
+                      SELECT 1 FROM [EXP出港运单_计费结果] br2
+                      WHERE br2.[F运单编号] = w.[F运单编号]
+                        AND br2.[F组织ID] = @orgId{tenantBr2Predicate}
+                        AND (br2.[F账单ID] IS NULL
+                             OR NOT EXISTS (
+                                 SELECT 1 FROM [EXP出港账单] inv2
+                                 WHERE inv2.FID = br2.[F账单ID]
+                                   AND inv2.[F已归档] = 1
+                                   AND inv2.[F归档时间] <= DATEADD(DAY, -{ArchiveAfterDays}, GETDATE()))))
                 GROUP BY w.FID";
 
             var waybillIds = new List<long>();
@@ -117,11 +129,11 @@ public class WaybillArchiveService : IWaybillArchiveService
                         (FID, [F批次ID], [F运单编号], [F运单日期], [F业务对象编号], [F参与方角色], [F层级], [F品牌编码],
                          [F计费日期], [F计费重量], [F基础运费], [F保价费], [F加收费用], [F减免金额],
                          [F佣金金额], [F应收金额], [F业务对象类型], [F报价ID], [F报价编号], [F佣金规则ID], [F计算状态],
-                         [F异常信息], [F账单ID], [F目的省份ID], [F目的省份], [F归属网点编号], [F成本合计], [F组织ID], [F归档时间])
+                         [F异常信息], [F账单ID], [F目的省份ID], [F目的省份], [F归属网点编号], [F成本合计], [F组织ID], [F租户ID], [F归档时间])
                     SELECT FID, [F批次ID], [F运单编号], [F运单日期], [F业务对象编号], [F参与方角色], [F层级], [F品牌编码],
                            [F计费日期], [F计费重量], [F基础运费], [F保价费], [F加收费用], [F减免金额],
                            [F佣金金额], [F应收金额], [F业务对象类型], [F报价ID], [F报价编号], [F佣金规则ID], [F计算状态],
-                           [F异常信息], [F账单ID], [F目的省份ID], [F目的省份], [F归属网点编号], [F成本合计], [F组织ID], GETDATE()
+                           [F异常信息], [F账单ID], [F目的省份ID], [F目的省份], [F归属网点编号], [F成本合计], [F组织ID], [F租户ID], GETDATE()
                     FROM [EXP出港运单_计费结果]
                     WHERE [F组织ID] = @orgId{tenantDirectPredicate}
                       AND [F运单编号] IN (SELECT [F运单编号] FROM [EXP出港运单] WHERE FID IN ({idList}))";
@@ -137,8 +149,8 @@ public class WaybillArchiveService : IWaybillArchiveService
                 // 3. INSERT INTO 成本明细历史
                 var archiveCostSql = $@"
                     INSERT INTO [EXP出港运单_计费结果_成本明细_历史]
-                        (FID, [F计费结果ID], [F成本项目ID], [F金额], [F归档时间])
-                    SELECT cbd.FID, cbd.[F计费结果ID], cbd.[F成本项目ID], cbd.[F金额], GETDATE()
+                        (FID, [F计费结果ID], [F成本项目ID], [F金额], [F组织ID], [F租户ID], [F归档时间])
+                    SELECT cbd.FID, cbd.[F计费结果ID], cbd.[F成本项目ID], cbd.[F金额], cbd.[F组织ID], cbd.[F租户ID], GETDATE()
                     FROM [EXP出港运单_计费结果_成本明细] cbd
                     INNER JOIN [EXP出港运单_计费结果] br ON br.FID = cbd.[F计费结果ID]
                     WHERE br.[F组织ID] = @orgId{tenantBrPredicate}

@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using STOTOP.Core.Interfaces;
+using STOTOP.Core.Services;
 using STOTOP.Module.CardFlow.AutoPlugin;
 using STOTOP.Module.Express.Entities;
 
@@ -20,19 +21,22 @@ public class CostEngine
     private readonly BillingBulkWriter _bulkWriter;
     private readonly IProgressNotifier _progressNotifier;
     private readonly ILogger<CostEngine> _logger;
+    private readonly IOrgContextAccessor _orgContextAccessor;
 
     public CostEngine(
         IRepository<ExpCostPlan> costPlanRepo,
         IRepository<ExpCostItem> costItemRepo,
         BillingBulkWriter bulkWriter,
         IProgressNotifier progressNotifier,
-        ILogger<CostEngine> logger)
+        ILogger<CostEngine> logger,
+        IOrgContextAccessor orgContextAccessor)
     {
         _costPlanRepo = costPlanRepo;
         _costItemRepo = costItemRepo;
         _bulkWriter = bulkWriter;
         _progressNotifier = progressNotifier;
         _logger = logger;
+        _orgContextAccessor = orgContextAccessor;
     }
 
     /// <summary>
@@ -80,6 +84,9 @@ public class CostEngine
         if (costCache.DuplicateGlobalItemNames.Count > 0)
             _logger.LogWarning("CostEngine: {Count} 个全局成本项目规范化后重名（仅首个生效，可能张冠李戴，请去重）: {Names}",
                 costCache.DuplicateGlobalItemNames.Count, string.Join(" | ", costCache.DuplicateGlobalItemNames));
+        if (costCache.CorruptPeriodCount > 0)
+            _logger.LogWarning("CostEngine: {Count} 个成本项期间的矩阵 JSON 非法被跳过（该期间成本未参与计算，请修复矩阵配置）",
+                costCache.CorruptPeriodCount);
 
         if (costCache.PlanCount == 0 || costCache.SegmentCount == 0)
         {
@@ -108,6 +115,7 @@ public class CostEngine
         var errors = new ConcurrentBag<CostError>();
         int successCount = 0;
         int processedCount = 0;
+        int coverageGapWaybills = 0;
         int totalWaybillCount = waybills.Count;
 
         Parallel.ForEach(waybills, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
@@ -120,6 +128,10 @@ public class CostEngine
                     waybill.DestinationProvinceId, waybill.DestinationCityName,
                     waybill.BillableWeight, waybill.WaybillDate, waybill.ShopName);
                 var costList = calcResult.Items.Select(c => (c.CostItemId, c.Amount)).ToList();
+
+                // 覆盖缺口诊断：有生效期间却算出 0 的成本项（成本被少算但未报错），累计告警
+                if (calcResult.CoverageGapItemIds.Count > 0)
+                    Interlocked.Increment(ref coverageGapWaybills);
 
                 // 一口价命中却未算出一口价金额（主成本已被互斥剔除，结果仅剩加收项）：判为失败，避免静默写入缩水成本
                 if (calcResult.FixedPriceUnresolved)
@@ -165,6 +177,10 @@ public class CostEngine
             }
         });
 
+        if (coverageGapWaybills > 0)
+            _logger.LogWarning("CostEngine: {Count} 单存在成本项覆盖缺口（有生效期间却算出 0：重量落段外/段间空洞或缺目的地单元格），成本可能被少算，请核对成本矩阵段与单元格覆盖",
+                coverageGapWaybills);
+
         // === 第三阶段：查询 BillingResultId 映射并批量写入 ===
         int costBreakdownCount = 0;
         if (costDataMap.Count > 0)
@@ -203,7 +219,8 @@ public class CostEngine
                                     FBillingResultId = billingResultId,
                                     FCostItemId = costItemId,
                                     FAmount = amount,
-                                    FOrgId = orgId
+                                    FOrgId = orgId,
+                                    FTenantId = _orgContextAccessor.CurrentTenantId ?? 0L
                                 });
                             }
                         }

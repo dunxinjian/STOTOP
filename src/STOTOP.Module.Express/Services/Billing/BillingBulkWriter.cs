@@ -70,6 +70,7 @@ public class BillingBulkWriter
         table.Columns.Add("F归属网点编号", typeof(string));
         table.Columns.Add("F成本合计", typeof(decimal));
         table.Columns.Add("F组织ID", typeof(long));
+        table.Columns.Add("F租户ID", typeof(long));
 
         foreach (var r in results)
         {
@@ -102,6 +103,7 @@ public class BillingBulkWriter
             row["F归属网点编号"] = (object?)r.FNetworkPointCode ?? DBNull.Value;
             row["F成本合计"] = r.FTotalCost;
             row["F组织ID"] = r.FOrgId;
+            row["F租户ID"] = r.FTenantId;
             table.Rows.Add(row);
         }
 
@@ -172,6 +174,7 @@ public class BillingBulkWriter
         table.Columns.Add("F成本项目ID", typeof(int));
         table.Columns.Add("F金额", typeof(decimal));
         table.Columns.Add("F组织ID", typeof(long));
+        table.Columns.Add("F租户ID", typeof(long));
 
         foreach (var b in breakdowns)
         {
@@ -180,6 +183,7 @@ public class BillingBulkWriter
             row["F成本项目ID"] = b.FCostItemId;
             row["F金额"] = b.FAmount;
             row["F组织ID"] = b.FOrgId;
+            row["F租户ID"] = b.FTenantId;
             table.Rows.Add(row);
         }
 
