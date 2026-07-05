@@ -110,6 +110,25 @@ export const layoutRoute: RouteRecordRaw = {
       component: () => import('@/views/system/TenantInvites.vue'),
       meta: { title: '租户邀请', permission: '*', hidden: true },
     },
+    // 平台管理台（多租户阶段4；仅平台超管，经用户下拉菜单进入，不在侧栏）
+    {
+      path: 'platform/tenants',
+      name: 'PlatformTenants',
+      component: () => import('@/views/platform/TenantManage.vue'),
+      meta: { title: '租户管理', permission: '*', hidden: true, module: 'platform' },
+    },
+    {
+      path: 'platform/plans',
+      name: 'PlatformPlans',
+      component: () => import('@/views/platform/PlanManage.vue'),
+      meta: { title: '套餐管理', permission: '*', hidden: true, module: 'platform' },
+    },
+    {
+      path: 'platform/subscriptions',
+      name: 'PlatformSubscriptions',
+      component: () => import('@/views/platform/SubscriptionManage.vue'),
+      meta: { title: '订阅续费', permission: '*', hidden: true, module: 'platform' },
+    },
     // 系统管理子路由
     {
       path: 'system/users',

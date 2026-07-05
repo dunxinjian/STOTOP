@@ -126,7 +126,8 @@ public class AuthService : IAuthService
                 Email = user.FEmail,
                 Roles = roles,
                 Permissions = permissions,
-                Menus = menus
+                Menus = menus,
+                IsPlatformAdmin = user.FIsPlatformAdmin
             }
         };
 
@@ -186,7 +187,8 @@ public class AuthService : IAuthService
             Email = user.FEmail,
             Roles = roles,
             Permissions = permissions,
-            Menus = menus
+            Menus = menus,
+            IsPlatformAdmin = user.FIsPlatformAdmin
         };
 
         return ApiResult<UserInfoDto>.Success(userInfo);

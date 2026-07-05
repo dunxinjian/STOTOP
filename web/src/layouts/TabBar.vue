@@ -40,6 +40,10 @@
         <template #overlay>
           <a-menu>
             <a-menu-item key="profile" @click="goPersonalSettings">个人设置</a-menu-item>
+            <template v-if="userStore.isPlatformAdmin">
+              <a-menu-divider />
+              <a-menu-item key="platform" @click="goPlatformAdmin">平台管理</a-menu-item>
+            </template>
             <a-menu-divider />
             <a-menu-item key="logout" @click="logout">退出登录</a-menu-item>
           </a-menu>
@@ -114,6 +118,10 @@ const userInitial = computed(() => pinyinInitial(displayName.value) || 'U')
 
 function goPersonalSettings() {
   router.push('/profile')
+}
+function goPlatformAdmin() {
+  markNavSource('menu')
+  router.push('/platform/tenants')
 }
 async function logout() {
   await userStore.logout()

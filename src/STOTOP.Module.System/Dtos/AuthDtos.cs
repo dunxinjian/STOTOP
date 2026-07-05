@@ -58,4 +58,7 @@ public class UserInfoDto
     public List<string> Roles { get; set; } = new();
     public List<string> Permissions { get; set; } = new();
     public List<MenuDto> Menus { get; set; } = new();
+    /// <summary>是否平台超管（多租户阶段4）。前端据此控制平台管理台入口可见性；
+    /// 真授权仍由后端 [PlatformOnly] 按 SysUser.F是否平台超管 兜底。</summary>
+    public bool IsPlatformAdmin { get; set; }
 }

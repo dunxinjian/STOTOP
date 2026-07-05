@@ -7,7 +7,9 @@ import type { UserInfo } from '@/utils/auth'
 import type { LoginParams } from '@/api/auth'
 
 // ===== sessionStorage 缓存常量 =====
-const USERINFO_CACHE_KEY = 'stotop_userinfo_cache'
+// 键名带结构版本号：UserInfoResult 结构变化时 bump，令旧结构缓存自然失效、走 API 重取。
+// v2：新增 isPlatformAdmin（否则既有会话在 TTL 内读旧缓存 → 平台超管入口不显示）。
+const USERINFO_CACHE_KEY = 'stotop_userinfo_cache_v2'
 const CACHE_MAX_AGE = 30 * 60 * 1000 // 30 分钟
 
 export const useUserStore = defineStore('user', () => {
@@ -15,6 +17,7 @@ export const useUserStore = defineStore('user', () => {
   const userInfo = ref<UserInfo | null>(null)
   const roles = ref<string[]>([])
   const permissions = ref<string[]>([])
+  const isPlatformAdmin = ref<boolean>(false)
 
   async function login(params: LoginParams) {
     const result = await loginApi(params)
@@ -46,6 +49,7 @@ export const useUserStore = defineStore('user', () => {
           userInfo.value = info
           roles.value = data.roles
           permissions.value = data.permissions || []
+          isPlatformAdmin.value = data.isPlatformAdmin === true
           setUserInfo(info)
           localStorage.setItem('stotop_user_id', String(data.id))
           // 重新加载 sidebar 配置（确保登录后恢复用户的固定菜单）
@@ -70,6 +74,7 @@ export const useUserStore = defineStore('user', () => {
     userInfo.value = info
     roles.value = result.roles
     permissions.value = result.permissions || []
+    isPlatformAdmin.value = result.isPlatformAdmin === true
     setUserInfo(info)
     localStorage.setItem('stotop_user_id', String(result.id))
     // 重新加载 sidebar 配置（确保登录后恢复用户的固定菜单）
@@ -103,6 +108,7 @@ export const useUserStore = defineStore('user', () => {
     userInfo.value = null
     roles.value = []
     permissions.value = []
+    isPlatformAdmin.value = false
     removeToken()
     removeUserInfo()
     removeRefreshToken()
@@ -116,6 +122,7 @@ export const useUserStore = defineStore('user', () => {
     userInfo.value = null
     roles.value = []
     permissions.value = []
+    isPlatformAdmin.value = false
   }
 
   function updateUserInfo(partialInfo: Partial<UserInfo>) {
@@ -145,6 +152,7 @@ export const useUserStore = defineStore('user', () => {
     userInfo,
     roles,
     permissions,
+    isPlatformAdmin,
     login,
     fetchUserInfo,
     logout,

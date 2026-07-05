@@ -22,6 +22,8 @@ export interface UserInfoResult {
   roles: string[]
   permissions: string[]
   menus: MenuItem[]
+  /** 是否平台超管（多租户阶段4）；前端据此控制平台管理台入口可见性 */
+  isPlatformAdmin?: boolean
 }
 
 export interface MenuItem {
