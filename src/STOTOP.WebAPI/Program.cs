@@ -797,7 +797,7 @@ try
     {
         RecurringJob.AddOrUpdate<IDingTalkService>(
             "dingtalk-auto-sync",
-            service => service.FullSyncFromDingTalkAsync(),
+            service => service.FullSyncAllTenantsAsync(),
             dingTalkConfig.SyncCron);
         app.Logger.LogInformation("已注册钉钉定时自动同步任务，Cron: {Cron}", dingTalkConfig.SyncCron);
     }

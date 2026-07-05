@@ -27,6 +27,8 @@ public static class SystemModuleExtensions
         services.AddScoped<IOrgContextService, OrgContextService>();
         services.AddScoped<IScopeGrantService, ScopeGrantService>();
         services.AddScoped<IDingTalkService, DingTalkService>();
+        // 钉钉 per-tenant 配置解析（阶段4·钉钉地基：根租户=JSON全局 / 非根=SYS钉钉配置表）
+        services.AddScoped<IDingTalkTenantConfigService, DingTalkTenantConfigService>();
 
         // 平台层服务（阶段4B：PLT租户/套餐/订阅 跨租户管理，供 /api/platform/* 平台超管消费）
         services.AddScoped<IPlatformService, PlatformService>();

@@ -9,8 +9,11 @@ public interface IDingTalkService
     Task<List<DingTalkUserDto>> PullUsersAsync();
     Task<List<DingTalkPositionDto>> PullPositionsAsync();
 
-    // 全量同步
+    // 全量同步（当前上下文租户）
     Task<SyncResultDto> FullSyncFromDingTalkAsync();
+
+    /// <summary>多客户全量同步：逐活跃租户读各自钉钉配置后同步（单客户=1 次，行为不变）。供 dingtalk-auto-sync 调用。</summary>
+    Task FullSyncAllTenantsAsync();
 
     /// <summary>同步指定钉钉用户</summary>
     Task<SyncResultDto> SyncSpecificUsersAsync(List<string> dingTalkUserIds);

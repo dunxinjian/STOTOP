@@ -3,8 +3,10 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using STOTOP.Core.Interfaces;
+using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Infrastructure.Events;
 using STOTOP.Module.System.Dtos;
@@ -22,9 +24,12 @@ public class DingTalkService : IDingTalkService
     private readonly IDingTalkSyncProgressNotifier _progressNotifier;
     private readonly IEventDispatcher _eventDispatcher;
     private readonly Interfaces.IOrgContextService _orgContextService;
+    private readonly Interfaces.IDingTalkTenantConfigService _configSvc;
+    private readonly ITenantIterationService _iteration;
+    private readonly IServiceScopeFactory _scopeFactory;
 
-    // Token 缓存：按配置ID区分（全局配置用 key=0）
-    private static readonly ConcurrentDictionary<long, (string Token, DateTime ExpireTime)> _tokenCache = new();
+    // Token 缓存：按【钉钉 AppKey】区分（access token 是每 app 一个；跨租户不同 app→不同 key，杜绝根/非根 Id 空间碰撞串 token）。
+    private static readonly ConcurrentDictionary<string, (string Token, DateTime ExpireTime)> _tokenCache = new();
     
     // 同步状态追踪
     private static readonly object _syncLock = new object();
@@ -89,7 +94,10 @@ public class DingTalkService : IDingTalkService
         ILogger<DingTalkService> logger,
         IDingTalkSyncProgressNotifier progressNotifier,
         IEventDispatcher eventDispatcher,
-        Interfaces.IOrgContextService orgContextService)
+        Interfaces.IOrgContextService orgContextService,
+        Interfaces.IDingTalkTenantConfigService configSvc,
+        ITenantIterationService iteration,
+        IServiceScopeFactory scopeFactory)
     {
         _context = context;
         _httpClientFactory = httpClientFactory;
@@ -97,6 +105,9 @@ public class DingTalkService : IDingTalkService
         _progressNotifier = progressNotifier;
         _eventDispatcher = eventDispatcher;
         _orgContextService = orgContextService;
+        _configSvc = configSvc;
+        _iteration = iteration;
+        _scopeFactory = scopeFactory;
     }
 
     #region 从钉钉拉取
@@ -255,6 +266,30 @@ public class DingTalkService : IDingTalkService
 
     #region 全量同步
     
+    /// <summary>
+    /// 多客户全量同步：逐活跃租户读各自钉钉配置（启用且完整）后同步其通讯录。
+    /// 单客户下只循环 1 次（= 根租户 JSON 配置），行为不变。供 dingtalk-auto-sync 定时任务调用。
+    /// </summary>
+    public async Task FullSyncAllTenantsAsync()
+    {
+        await _iteration.ForEachActiveTenantAsync(async tid =>
+        {
+            // 每租户独立 DI scope + 干净 DbContext：FullSync 大量跟踪 SysOrganization（非 ITenantScoped、无租户过滤器），
+            // 若复用同一 scoped DbContext，上一租户已跟踪的组织会被下一租户的查询命中(EF identity resolution)→挂错父→
+            // OrgTreeMaterializer.RebuildAll 按祖先链回填错 FTenantId（跨租户损坏）。照 ShentongUnificationJob 逐租户独立 scope 隔离。
+            using var scope = _scopeFactory.CreateScope();
+            var configSvc = scope.ServiceProvider.GetRequiredService<Interfaces.IDingTalkTenantConfigService>();
+            var cfg = await configSvc.GetForTenantAsync(tid);
+            // 该租户未配置钉钉或已停用 → 跳过（避免对无配置租户空跑 / 因取不到 token 抛异常）。
+            if (cfg == null || cfg.IsEnabled != 1
+                || string.IsNullOrWhiteSpace(cfg.AppKey) || string.IsNullOrWhiteSpace(cfg.CorpId))
+                return;
+            // 迭代已设 CurrentTenantId=tid（静态 AsyncLocal 穿透子作用域）→ 新 scope 的 DingTalkService 读到该租户配置。
+            var svc = scope.ServiceProvider.GetRequiredService<IDingTalkService>();
+            await svc.FullSyncFromDingTalkAsync();
+        }, "dingtalk-auto-sync");
+    }
+
     public async Task<SyncResultDto> FullSyncFromDingTalkAsync()
     {
         var syncResult = new SyncResultDto { Errors = new List<string>() };
@@ -349,12 +384,8 @@ public class DingTalkService : IDingTalkService
     
             await NotifyProgress("positions", $"职位同步完成，共处理 {positionProcessed} 个", positionProcessed, positions.Count, 95);
     
-            // 4. 更新最后同步时间（仅更新时间字段，不覆盖其他配置）
-            var globalConfig = GetConfigRecord();
-            if (globalConfig != null)
-            {
-                DingTalkConfigHelper.UpdateLastSyncTime(globalConfig.Id);
-            }
+            // 4. 更新【当前租户】配置的最后同步时间（仅时间字段，不覆盖其他配置）
+            await _configSvc.TouchLastSyncForCurrentTenantAsync();
     
             syncResult.TotalCount = syncResult.SuccessCount + syncResult.FailCount + syncResult.SkipCount;
     
@@ -706,13 +737,14 @@ public class DingTalkService : IDingTalkService
         await _progressNotifier.NotifyProgressAsync(stage, message, current, total, percent, result);
     }
     
-    private DingTalkConfigRecord? GetConfigRecord()
-        => DingTalkConfigHelper.GetGlobalConfig();
+    /// <summary>取【当前上下文租户】的钉钉配置（根租户=JSON全局 / 非根=SYS钉钉配置表），替代原静态全局读。</summary>
+    private Task<DingTalkConfigRecord?> GetConfigRecordAsync()
+        => _configSvc.GetForCurrentTenantAsync();
 
     public async Task<string> GetAccessTokenAsync()
     {
-        // 获取全局配置的 Token
-        var config = GetConfigRecord()
+        // 获取当前租户配置的 Token
+        var config = await GetConfigRecordAsync()
             ?? throw new InvalidOperationException("钉钉配置不存在，请先配置钉钉应用信息");
 
         // 验证配置字段有效性
@@ -733,7 +765,9 @@ public class DingTalkService : IDingTalkService
     /// <summary>按配置获取 AccessToken（核心方法）</summary>
     private async Task<string> GetAccessTokenByConfigAsync(DingTalkConfigRecord config)
     {
-        var cacheKey = config.Id;
+        // access token 按【钉钉 app（AppKey）】缓存，而非 config.Id——根租户(JSON id 空间)与非根租户(DB FID 空间)
+        // 的 Id 会碰撞，按 Id 缓存会跨租户串 token；AppKey 唯一标识钉钉应用，是正确的缓存维度。
+        var cacheKey = config.AppKey;
 
         // 1. 检查内存缓存
         if (_tokenCache.TryGetValue(cacheKey, out var cached) && DateTime.Now < cached.ExpireTime)
