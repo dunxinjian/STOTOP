@@ -1,5 +1,6 @@
-import type { DynamicStagePolicyRequest, SchemaFieldDefinition, StageRouteRuleRequest } from '@/types/cardflow'
+import type { CardComponentDefinition, DynamicStagePolicyRequest, SchemaFieldDefinition, StageRouteRuleRequest } from '@/types/cardflow'
 import type { StageDefinition } from '@/components/cardflow/StageDefinitionEditor.vue'
+import { resolveComponentCapability } from '@/components/cardflow/designer/cardComponentCapabilities'
 
 /**
  * CardFlow 设计期诊断单一真源：规则健康检查（默认分支 / 分支完整性 / 规则重叠 /
@@ -274,4 +275,169 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
     result.push({ level: 'ok', title: '规则健康', detail: '默认分支、条件完整性、死路节点、循环路径、无法到达节点和处理人策略均未发现明显问题。' })
   }
   return result
+}
+
+// ==================== 发布校验（CardFlow2 配置）====================
+// 抽自 FlowDefinitionEditPage.validateCardFlow2Config，纯函数，返回中文风险文案（string[]）。
+// 与 runRuleHealthChecks 同源，避免"节点链校验"与"规则健康面板"两处逐步漂移。
+
+export interface PublishValidationContext {
+  stages: StageDefinition[]
+  routes: StageRouteRuleRequest[]
+  dynamicPolicies: DynamicStagePolicyRequest[]
+  cardSchema: SchemaFieldDefinition[]
+  detailSchema: SchemaFieldDefinition[]
+  cardComponents: CardComponentDefinition[]
+  approvalAdminUserIds: number[]
+}
+
+function tryParseObject(json?: string | null): any {
+  if (!json) return null
+  try {
+    const parsed = JSON.parse(json)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function collectConditionFields(condition: any, fields: Set<string>) {
+  if (!condition) return
+  if (Array.isArray(condition.conditions)) {
+    for (const item of condition.conditions) collectConditionFields(item, fields)
+    return
+  }
+  if (typeof condition.field === 'string' && condition.field) {
+    fields.add(condition.field)
+  }
+}
+
+/** 发布/预览前的配置风险校验，返回中文风险文案；空数组表示可发布。 */
+export function validatePublishConfig(ctx: PublishValidationContext): string[] {
+  const { stages, routes, dynamicPolicies, cardSchema, detailSchema, cardComponents, approvalAdminUserIds } = ctx
+
+  const validateStageReferenceKeys = (stage: StageDefinition, index: number): string[] => {
+    const msgs: string[] = []
+    const cardKeys = new Set(cardSchema.map(field => field.key))
+    const detailKeys = new Set(detailSchema.map(field => `default.${field.key}`))
+    const stageName = stage.name || `第 ${index + 1} 个节点`
+
+    for (const key of stage.inputFields || []) {
+      if (!cardKeys.has(key)) msgs.push(`节点[${stageName}]补充字段[${key}]不存在`)
+    }
+
+    for (const [key, rule] of Object.entries(stage.viewProfile?.fieldAccess || {})) {
+      const accessRule = rule as any
+      if (!cardKeys.has(key)) msgs.push(`节点[${stageName}]字段权限[${key}]不存在`)
+      if ((accessRule.access === 'hidden' || accessRule.access === 'masked') && accessRule.required) {
+        msgs.push(`节点[${stageName}]字段权限[${key}]不能同时隐藏/脱敏且必填`)
+      }
+    }
+
+    for (const [key, rule] of Object.entries(stage.viewProfile?.detailAccess || {})) {
+      const accessRule = rule as any
+      if (!detailKeys.has(key)) msgs.push(`节点[${stageName}]明细字段权限[${key}]不存在`)
+      if ((accessRule.access === 'hidden' || accessRule.access === 'masked') && accessRule.required) {
+        msgs.push(`节点[${stageName}]明细字段权限[${key}]不能同时隐藏/脱敏且必填`)
+      }
+    }
+
+    for (const key of stage.viewProfile?.summary?.fields || []) {
+      if (!cardKeys.has(key)) msgs.push(`节点[${stageName}]摘要字段[${key}]不存在`)
+    }
+
+    if (stage.conditionJson) {
+      const condition = tryParseObject(stage.conditionJson)
+      const fields = new Set<string>()
+      collectConditionFields(condition, fields)
+      for (const key of fields) {
+        if (!cardKeys.has(key)) msgs.push(`节点[${stageName}]进入条件字段[${key}]不存在`)
+      }
+    }
+
+    return msgs
+  }
+
+  const validateCardComponentPublishability = (): string[] => {
+    const msgs: string[] = []
+    cardComponents.forEach((component, index) => {
+      const componentName = component.title || `第 ${index + 1} 个组件`
+      const capability = resolveComponentCapability(component.type, component.props || {})
+      const componentStatus = component.props?.componentStatus || (capability.publishable ? 'ready' : 'deferred')
+      const requiresRuntimeIntegration = !!(component.props?.requiresRuntimeIntegration || capability.requiresRuntimeIntegration)
+
+      if (!capability.publishable || component.props?.publishable === false || componentStatus === 'deferred' || requiresRuntimeIntegration) {
+        msgs.push(`组件[${componentName}]暂未支持发布：${capability.unsupportedReason || component.props?.unsupportedReason || '缺少运行态集成能力'}`)
+      }
+
+      if (component.binding?.source && !capability.supportedBindings.includes(component.binding.source)) {
+        msgs.push(`组件[${componentName}]绑定来源[${component.binding.source}]不符合该组件能力边界`)
+      }
+    })
+    return msgs
+  }
+
+  const msgs: string[] = []
+  const stageKeys = new Set(stages.map(stage => stage.id))
+  msgs.push(...validateCardComponentPublishability())
+  stages.forEach((stage, index) => {
+    const stageName = stage.name || `第 ${index + 1} 个节点`
+    if (!stage.name?.trim()) msgs.push(`节点[${stageName}]名称不能为空`)
+
+    if (stage.type === 'manual') {
+      const config = tryParseObject(stage.assigneeConfigJson)
+      if (!stage.assigneeStrategy) {
+        msgs.push(`节点[${stageName}]处理人策略未配置`)
+      } else if (stage.assigneeStrategy === 'role' && !config?.roleCode) {
+        msgs.push(`节点[${stageName}]按角色处理人未选择角色`)
+      } else if (stage.assigneeStrategy === 'fixed' && !(config?.users || []).length) {
+        msgs.push(`节点[${stageName}]指定人员未选择处理人`)
+      } else if (stage.assigneeStrategy === 'fieldUsers' && !config?.fieldKey) {
+        msgs.push(`节点[${stageName}]按字段取人未选择人员字段`)
+      }
+
+      if (config?.fallback?.type === 'flowAdmin' && approvalAdminUserIds.length === 0) {
+        msgs.push(`节点[${stageName}]使用审批管理员兜底，但流程配置未选择审批管理员`)
+      }
+
+      if (!stage.actionPolicy?.allowedActions?.length) {
+        msgs.push(`节点[${stageName}]允许动作不能为空`)
+      }
+
+      if (stage.ccConfigJson && !tryParseObject(stage.ccConfigJson)) {
+        msgs.push(`节点[${stageName}]抄送配置不是合法的 JSON 对象`)
+      }
+
+      msgs.push(...validateStageReferenceKeys(stage, index))
+    }
+
+    if (stage.type === 'auto' && !stage.pluginRegistryId) {
+      msgs.push(`节点[${stageName}]自动插件未选择`)
+    }
+  })
+
+  const routeSourceKeys = new Set(routes.map(route => route.fromStageKey))
+  routeSourceKeys.forEach(sourceKey => {
+    if (!routes.some(route => route.fromStageKey === sourceKey && route.isDefault)) {
+      msgs.push(`节点[${stages.find(stage => stage.id === sourceKey)?.name || sourceKey}]条件流转缺少默认分支`)
+    }
+  })
+  routes.forEach(route => {
+    if (!stageKeys.has(route.fromStageKey)) msgs.push(`流转规则[${route.routeName}]来源节点不存在`)
+    if (!stageKeys.has(route.toStageKey)) msgs.push(`流转规则[${route.routeName}]目标节点不存在`)
+    if (!route.isDefault && !route.conditionJson) msgs.push(`流转规则[${route.routeName}]未配置流转条件`)
+  })
+  dynamicPolicies.forEach(policy => {
+    if (!stageKeys.has(policy.sourceStageKey)) msgs.push(`动态策略[${policy.policyName}]来源节点不存在`)
+    if (!policy.fallbackJson) msgs.push(`动态策略[${policy.policyName}]未配置处理人 fallback`)
+    if ((policy.maxInsertCount || 20) > 20) msgs.push(`动态策略[${policy.policyName}]最大插入数不能超过 20`)
+    // 后端发布校验：afterRouteBeforeTarget 时机必须配置续接节点，否则发布必失败
+    const timing = policy.triggerTiming || 'afterRouteBeforeTarget'
+    if (timing === 'afterRouteBeforeTarget' && !policy.continuationStageKey) {
+      msgs.push(`动态策略[${policy.policyName}]触发时机为"路由后、目标前"时必须选择继续节点`)
+    } else if (policy.continuationStageKey && !stageKeys.has(policy.continuationStageKey)) {
+      msgs.push(`动态策略[${policy.policyName}]的继续节点不存在`)
+    }
+  })
+  return msgs
 }
