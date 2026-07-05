@@ -63,6 +63,15 @@
                   @change="(_val: string | Dayjs, dateString: string) => handleUpdatePeriodDate(record as CostPlanItemPeriodDto, dateString)"
                 />
               </template>
+              <template v-if="column.dataIndex === 'expiryDate'">
+                <a-date-picker
+                  :value="record.expiryDate?.slice(0, 10)"
+                  size="small"
+                  value-format="YYYY-MM-DD"
+                  placeholder="无失效(可选)"
+                  @change="(_val: string | Dayjs, dateString: string) => handleUpdatePeriodExpiry(record as CostPlanItemPeriodDto, dateString)"
+                />
+              </template>
               <!-- 全国单价类型：直接在列表里显示价格输入 -->
               <template v-if="column.dataIndex === 'price'">
                 <template v-if="itemForm.itemType === 1">
@@ -287,6 +296,7 @@ const weightSegmentEditorRef = ref<InstanceType<typeof WeightSegmentEditor> | nu
 const periodColumns = computed(() => {
   const cols: any[] = [
     { title: '生效日期', dataIndex: 'effectiveDate', width: 140 },
+    { title: '失效日期', dataIndex: 'expiryDate', width: 150 },
   ]
   if (itemForm.itemType === 1) {
     cols.push({ title: '全国单价', dataIndex: 'price', width: 200 })
@@ -985,6 +995,24 @@ async function handleDeletePeriod(periodId: number) {
     }
   } catch {
     message.error('删除时间段失败')
+  }
+}
+
+// 更新期间失效日期（可空能力已就绪；后端部分更新只在非空时写，故此处为"设置/改期"。
+// 清除失效日期请删除该期间后重建——避免部分更新无法区分"未提供"与"清空"）。
+async function handleUpdatePeriodExpiry(record: CostPlanItemPeriodDto, newDate: string) {
+  if (!newDate) return
+  try {
+    await updateCostPlanItemPeriod(planId.value, itemId.value, record.id, { expiryDate: newDate })
+    record.expiryDate = newDate
+  } catch {
+    // 后端已由拦截器提示(如失效日期早于生效日期)；重新拉取以回滚显示
+    try {
+      const periodList = await getCostPlanItemPeriods(planId.value, itemId.value)
+      periods.value = periodList.sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate))
+    } catch {
+      /* 忽略回滚拉取失败 */
+    }
   }
 }
 

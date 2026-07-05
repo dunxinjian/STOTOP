@@ -124,6 +124,9 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
             _logger.LogInformation("CostPlugin: 成本计算完成，成功{Success}单，失败{Fail}单，明细{Breakdowns}条，耗时{Duration}",
                 result.SuccessCount, result.ErrorCount, result.CostBreakdownsCreated, result.Duration);
 
+            // 诊断（名称未匹配/坏矩阵JSON/覆盖缺口）升级为批次级 Warning 质量问题，质量中心可见可处置（不仅日志）
+            var hasDiagnostics = await ReportCostDiagnosticsAsync(batchId, orgId, result);
+
             // 5. 构建返回结果
             if (result.ErrorCount > 0)
             {
@@ -141,7 +144,7 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
                 }
 
                 await DispatchCostIssuesAsync(batchId, orgId);
-	
+
                 return new PluginResult
                 {
                     Success = false,
@@ -151,6 +154,10 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
                     FailedRows = result.ErrorCount
                 };
             }
+
+            // 成功但有诊断告警：派发以便质量中心可见（不影响批次成功）
+            if (hasDiagnostics)
+                await DispatchCostIssuesAsync(batchId, orgId);
 
             return PluginResult.Ok(
                 $"成本计算完成: 总计{result.TotalWaybills}单, 成功{result.SuccessCount}单",
@@ -360,6 +367,47 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
         public int ReceivableSuccessRows { get; set; }
     }
 
+    /// <summary>
+    /// 把成本诊断（名称未匹配 / 坏矩阵JSON / 覆盖缺口）上报为批次级 Warning 质量问题（先按类型清旧，避免重跑堆积）。
+    /// 返回是否上报了任何诊断。
+    /// </summary>
+    private async Task<bool> ReportCostDiagnosticsAsync(long batchId, long orgId, CostExecutionResult result)
+    {
+        var reported = false;
+
+        if (result.UnmatchedCostItemNames.Count > 0)
+        {
+            await DeleteExistingErrorsAsync(batchId, "WARN_COST_UNMATCHED_ITEM");
+            await ReportIssueAsync(batchId, orgId, "WARN_COST_UNMATCHED_ITEM", "Warning",
+                message: $"{result.UnmatchedCostItemNames.Count} 个方案成本项名称匹配不到全局成本项目（返利标志缺失，返利可能被当正向成本）：{string.Join(" | ", result.UnmatchedCostItemNames.Take(20))}",
+                suggestedFix: "核对方案成本项名称与 EXP成本项目 一致（忽略大小写与空白）",
+                dimension: "Cost");
+            reported = true;
+        }
+
+        if (result.CorruptPeriodCount > 0)
+        {
+            await DeleteExistingErrorsAsync(batchId, "WARN_COST_BAD_MATRIX");
+            await ReportIssueAsync(batchId, orgId, "WARN_COST_BAD_MATRIX", "Warning",
+                message: $"{result.CorruptPeriodCount} 个成本项期间的矩阵 JSON 非法被跳过（该期间成本未参与计算）",
+                suggestedFix: "重新保存对应成本项矩阵以修复 JSON",
+                dimension: "Cost");
+            reported = true;
+        }
+
+        if (result.CoverageGapWaybills > 0)
+        {
+            await DeleteExistingErrorsAsync(batchId, "WARN_COST_COVERAGE_GAP");
+            await ReportIssueAsync(batchId, orgId, "WARN_COST_COVERAGE_GAP", "Warning",
+                message: $"{result.CoverageGapWaybills} 单存在成本项覆盖缺口（有生效期间却算出 0：重量落段外/段间空洞或缺目的地单元格），成本可能被少算",
+                suggestedFix: "核对成本矩阵重量段连续性与目的地单元格覆盖",
+                dimension: "Cost");
+            reported = true;
+        }
+
+        return reported;
+    }
+
     private async Task ReportCostErrorsAsync(long batchId, long orgId, IReadOnlyList<CostError> errors)
     {
         foreach (var group in errors.GroupBy(e => MapCostErrorCode(e.ErrorMessage)))
@@ -491,6 +539,42 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
             SourceAutoPlugin: "CostPlugin",
             Description: "成本计算过程中发生未分类异常",
             SuggestedFix: "请检查成本方案配置、运单数据和系统日志"
+        );
+
+        yield return new QualityIssueTypeDefinition(
+            Code: "WARN_COST_UNMATCHED_ITEM",
+            Name: "成本项名称未匹配",
+            Module: "Express",
+            Category: "Cost",
+            SeverityLevel: "Warning",
+            DetailRoute: "/express/cost-plan",
+            SourceAutoPlugin: "CostPlugin",
+            Description: "方案成本项名称匹配不到全局成本项目，返利标志缺失（返利可能被当正向成本）",
+            SuggestedFix: "核对方案成本项名称与 EXP成本项目 一致（忽略大小写与空白）"
+        );
+
+        yield return new QualityIssueTypeDefinition(
+            Code: "WARN_COST_BAD_MATRIX",
+            Name: "成本矩阵JSON非法",
+            Module: "Express",
+            Category: "Cost",
+            SeverityLevel: "Warning",
+            DetailRoute: "/express/cost-plan",
+            SourceAutoPlugin: "CostPlugin",
+            Description: "成本项期间的矩阵 JSON 非法被跳过，该期间成本未参与计算",
+            SuggestedFix: "重新保存对应成本项矩阵以修复 JSON"
+        );
+
+        yield return new QualityIssueTypeDefinition(
+            Code: "WARN_COST_COVERAGE_GAP",
+            Name: "成本项覆盖缺口",
+            Module: "Express",
+            Category: "Cost",
+            SeverityLevel: "Warning",
+            DetailRoute: "/express/cost-plan",
+            SourceAutoPlugin: "CostPlugin",
+            Description: "运单有生效期间却算出0（重量落段外/段间空洞/缺目的地单元格），成本可能被少算",
+            SuggestedFix: "核对成本矩阵重量段连续性与目的地单元格覆盖"
         );
     }
 }

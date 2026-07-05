@@ -106,7 +106,10 @@ public class CostEngine
                         WaybillNo = waybills.FirstOrDefault()?.WaybillNo ?? string.Empty,
                         ErrorMessage = "未找到启用中的成本方案或成本矩阵，请先启用成本方案并维护成本项矩阵"
                     }
-                }
+                },
+                UnmatchedCostItemNames = costCache.UnmatchedCostItemNames.ToList(),
+                DuplicateGlobalItemNames = costCache.DuplicateGlobalItemNames.ToList(),
+                CorruptPeriodCount = costCache.CorruptPeriodCount
             };
         }
 
@@ -278,7 +281,11 @@ public class CostEngine
             ErrorCount = errors.Count,
             CostBreakdownsCreated = costBreakdownCount,
             Duration = sw.Elapsed,
-            Errors = errors.ToList()
+            Errors = errors.ToList(),
+            UnmatchedCostItemNames = costCache.UnmatchedCostItemNames.ToList(),
+            DuplicateGlobalItemNames = costCache.DuplicateGlobalItemNames.ToList(),
+            CorruptPeriodCount = costCache.CorruptPeriodCount,
+            CoverageGapWaybills = coverageGapWaybills
         };
     }
 
@@ -353,6 +360,16 @@ public class CostExecutionResult
     public int CostBreakdownsCreated { get; set; }
     public TimeSpan Duration { get; set; }
     public List<CostError> Errors { get; set; } = new();
+
+    // 诊断（供 CostPlugin 升级为批次级质量问题，而非仅日志）
+    /// <summary>方案成本项名称匹配不到全局成本项目（返利标志缺失，返利被当正向成本）。</summary>
+    public List<string> UnmatchedCostItemNames { get; set; } = new();
+    /// <summary>全局成本项目规范化后重名（仅首个生效）。</summary>
+    public List<string> DuplicateGlobalItemNames { get; set; } = new();
+    /// <summary>加载时因坏 JSON 被跳过的期间数（该期间成本未参与计算）。</summary>
+    public int CorruptPeriodCount { get; set; }
+    /// <summary>存在成本项覆盖缺口（有生效期间却算出0）的运单数，成本可能被少算。</summary>
+    public int CoverageGapWaybills { get; set; }
 }
 
 /// <summary>
