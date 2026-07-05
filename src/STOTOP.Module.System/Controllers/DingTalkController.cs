@@ -265,7 +265,7 @@ public class DingTalkController : ControllerBase
         {
             RecurringJob.AddOrUpdate<IDingTalkService>(
                 "dingtalk-auto-sync",
-                service => service.FullSyncFromDingTalkAsync(),
+                service => service.FullSyncAllTenantsAsync(),
                 request.CronExpression ?? "0 0 2 * * ?");
         }
         else

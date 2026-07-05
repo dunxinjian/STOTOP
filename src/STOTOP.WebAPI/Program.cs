@@ -387,6 +387,8 @@ builder.Services.AddScoped<ShentongUnificationJob>();
 
 // 钉钉群机器人 Webhook 推送（AlertBotJob / DailyReportBotJob / WeeklyReportBotJob / BotPushController 依赖）
 builder.Services.AddSingleton<DingTalkBotService>();
+// per-tenant 群机器人 webhook 解析（bot 逐租户分发到各自钉钉群；Scoped——依赖 Scoped 的租户配置服务）
+builder.Services.AddScoped<BotWebhookResolver>();
 
 // SignalR
 builder.Services.AddSignalR();
@@ -797,7 +799,7 @@ try
     {
         RecurringJob.AddOrUpdate<IDingTalkService>(
             "dingtalk-auto-sync",
-            service => service.FullSyncFromDingTalkAsync(),
+            service => service.FullSyncAllTenantsAsync(),
             dingTalkConfig.SyncCron);
         app.Logger.LogInformation("已注册钉钉定时自动同步任务，Cron: {Cron}", dingTalkConfig.SyncCron);
     }

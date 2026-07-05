@@ -116,7 +116,8 @@ public class DingTalkBotService
     /// <summary>
     /// 发送 ActionCard 消息（带跳转链接）
     /// </summary>
-    public Task<BotSendResult> SendActionCard(string title, string markdown, string linkTitle, string linkUrl)
+    public Task<BotSendResult> SendActionCard(string title, string markdown, string linkTitle, string linkUrl,
+        string? overrideWebhook = null, string? overrideSecret = null)
     {
         var body = new
         {
@@ -129,20 +130,21 @@ public class DingTalkBotService
                 singleURL = linkUrl
             }
         };
-        return SendMessage(body);
+        return SendMessage(body, overrideWebhook, overrideSecret);
     }
 
     /// <summary>
     /// 发送 Markdown 消息
     /// </summary>
-    public Task<BotSendResult> SendMarkdown(string title, string content)
+    public Task<BotSendResult> SendMarkdown(string title, string content,
+        string? overrideWebhook = null, string? overrideSecret = null)
     {
         var body = new
         {
             msgtype = "markdown",
             markdown = new { title, text = content }
         };
-        return SendMessage(body);
+        return SendMessage(body, overrideWebhook, overrideSecret);
     }
 
     /// <summary>
