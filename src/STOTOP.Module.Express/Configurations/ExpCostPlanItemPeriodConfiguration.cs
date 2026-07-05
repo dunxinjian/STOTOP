@@ -13,6 +13,7 @@ public class ExpCostPlanItemPeriodConfiguration : IEntityTypeConfiguration<ExpCo
         builder.Property(e => e.FID).HasColumnName("FID");
         builder.Property(e => e.FItemId).HasColumnName("F成本项ID");
         builder.Property(e => e.FEffectiveDate).HasColumnName("F生效日期");
+        builder.Property(e => e.FExpiryDate).HasColumnName("F失效日期");
         builder.Property(e => e.FMatrixJson).HasColumnName("F矩阵JSON");
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FUpdatedTime).HasColumnName("F更新时间");

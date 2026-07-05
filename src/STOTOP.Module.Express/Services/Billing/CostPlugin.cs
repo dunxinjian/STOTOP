@@ -124,6 +124,9 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
             _logger.LogInformation("CostPlugin: 成本计算完成，成功{Success}单，失败{Fail}单，明细{Breakdowns}条，耗时{Duration}",
                 result.SuccessCount, result.ErrorCount, result.CostBreakdownsCreated, result.Duration);
 
+            // 诊断（名称未匹配/坏矩阵JSON/覆盖缺口）升级为批次级 Warning 质量问题，质量中心可见可处置（不仅日志）
+            var hasDiagnostics = await ReportCostDiagnosticsAsync(batchId, orgId, result);
+
             // 5. 构建返回结果
             if (result.ErrorCount > 0)
             {
@@ -141,7 +144,7 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
                 }
 
                 await DispatchCostIssuesAsync(batchId, orgId);
-	
+
                 return new PluginResult
                 {
                     Success = false,
@@ -151,6 +154,10 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
                     FailedRows = result.ErrorCount
                 };
             }
+
+            // 成功但有诊断告警：派发以便质量中心可见（不影响批次成功）
+            if (hasDiagnostics)
+                await DispatchCostIssuesAsync(batchId, orgId);
 
             return PluginResult.Ok(
                 $"成本计算完成: 总计{result.TotalWaybills}单, 成功{result.SuccessCount}单",
@@ -165,7 +172,9 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
 
     public override Task RollbackAsync(PluginContext context)
     {
-        _logger.LogInformation("CostPlugin: 回撤完成，批次={BatchId}", context.BatchId);
+        // 成本插件无独立回撤动作：已写入的成本明细与主表 F成本合计 会在下一轮成本计算时按批次删旧覆盖，
+        // 不在此单独删除（避免与重跑清理重复/半程状态）。此处不做数据变更，仅记录，避免"回撤完成"误导。
+        _logger.LogInformation("CostPlugin: 无需回撤，成本数据将在重跑成本计算时按批次覆盖，批次={BatchId}", context.BatchId);
         return Task.CompletedTask;
     }
 
@@ -216,6 +225,9 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
     /// 从计费结果表读取已计费成功的应收运单，构建 CostWaybillInput 列表。
     /// 查询条件：F计算状态=1 AND F参与方角色=1。
     /// 通过 F批次ID + F组织ID 过滤，仅处理当前批次和组织的运单。
+    /// 多层计费下同一运单会产生多条 F参与方角色=1（仅 F层级 不同）的结果行；物理成本对一票只发生一次，
+    /// 故按 F运单编号 取【最小层级】的单一基准行（同时消除源表 LEFT JOIN 可能带来的行扇出），
+    /// 避免成本按命中层级数被重复计入。成本随后回写到该基准行的 F成本合计。
     /// </summary>
     private async Task<List<CostWaybillInput>> ReadSuccessBillingResults(string resultTable, string sourceTable, long batchId, long orgId)
     {
@@ -233,27 +245,38 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
             ? "              AND ISNULL(s.[FIsRevoked], 0) = 0"
             : "";
 
+        // 用 ROW_NUMBER 按 F运单编号 分区、取最小层级（同层级再按 FID）为唯一基准行，
+        // 保证一票只产出一条成本输入，物理成本不被多层级/源表扇出重复计入。
         var sql = $@"
-            SELECT 
-                r.FID, r.[F运单编号], r.[F品牌编码],
-                r.[F计费重量], r.[F运单日期], r.[F目的省份ID],
-                r.[F归属网点编号],
-                ISNULL(np.[F组织ID], 0) AS [F归属网点ID],
-                {citySelect},
-                {shopSelect}
-            FROM [{resultTable}] r
-            LEFT JOIN [{sourceTable}] s
-              ON s.[F运单编号] = r.[F运单编号]
-             AND s.[F批次ID] = @batchId
-             AND s.[FOrgId] = @orgId
+            SELECT FID, [F运单编号], [F品牌编码], [F计费重量], [F运单日期], [F目的省份ID],
+                   [F归属网点编号], [F归属网点ID], [F目的城市], [F店铺账号]
+            FROM (
+                SELECT
+                    r.FID, r.[F运单编号], r.[F品牌编码],
+                    r.[F计费重量], r.[F运单日期], r.[F目的省份ID],
+                    r.[F归属网点编号],
+                    ISNULL(np.[F组织ID], 0) AS [F归属网点ID],
+                    {citySelect},
+                    {shopSelect},
+                    ROW_NUMBER() OVER (
+                        PARTITION BY r.[F运单编号]
+                        ORDER BY r.[F层级] ASC, r.FID ASC
+                    ) AS __rn
+                FROM [{resultTable}] r
+                LEFT JOIN [{sourceTable}] s
+                  ON s.[F运单编号] = r.[F运单编号]
+                 AND s.[F批次ID] = @batchId
+                 AND s.[FOrgId] = @orgId
 {revokedPredicate}
-            LEFT JOIN [EXP快递网点] np
-              ON np.[F编号] = r.[F归属网点编号]
-             AND (np.[F所属组织ID] = @orgId OR np.[F组织ID] = @orgId)
-            WHERE r.[F计算状态] = 1
-              AND r.[F参与方角色] = 1
-              AND r.[F批次ID] = @batchId
-              AND r.[F组织ID] = @orgId";
+                LEFT JOIN [EXP快递网点] np
+                  ON np.[F编号] = r.[F归属网点编号]
+                 AND (np.[F所属组织ID] = @orgId OR np.[F组织ID] = @orgId)
+                WHERE r.[F计算状态] = 1
+                  AND r.[F参与方角色] = 1
+                  AND r.[F批次ID] = @batchId
+                  AND r.[F组织ID] = @orgId
+            ) q
+            WHERE q.[__rn] = 1";
 
         var waybills = new List<CostWaybillInput>();
         using var connection = new SqlConnection(_connectionString);
@@ -342,6 +365,47 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
         public int TotalRows { get; set; }
         public int SuccessRows { get; set; }
         public int ReceivableSuccessRows { get; set; }
+    }
+
+    /// <summary>
+    /// 把成本诊断（名称未匹配 / 坏矩阵JSON / 覆盖缺口）上报为批次级 Warning 质量问题（先按类型清旧，避免重跑堆积）。
+    /// 返回是否上报了任何诊断。
+    /// </summary>
+    private async Task<bool> ReportCostDiagnosticsAsync(long batchId, long orgId, CostExecutionResult result)
+    {
+        var reported = false;
+
+        if (result.UnmatchedCostItemNames.Count > 0)
+        {
+            await DeleteExistingErrorsAsync(batchId, "WARN_COST_UNMATCHED_ITEM");
+            await ReportIssueAsync(batchId, orgId, "WARN_COST_UNMATCHED_ITEM", "Warning",
+                message: $"{result.UnmatchedCostItemNames.Count} 个方案成本项名称匹配不到全局成本项目（返利标志缺失，返利可能被当正向成本）：{string.Join(" | ", result.UnmatchedCostItemNames.Take(20))}",
+                suggestedFix: "核对方案成本项名称与 EXP成本项目 一致（忽略大小写与空白）",
+                dimension: "Cost");
+            reported = true;
+        }
+
+        if (result.CorruptPeriodCount > 0)
+        {
+            await DeleteExistingErrorsAsync(batchId, "WARN_COST_BAD_MATRIX");
+            await ReportIssueAsync(batchId, orgId, "WARN_COST_BAD_MATRIX", "Warning",
+                message: $"{result.CorruptPeriodCount} 个成本项期间的矩阵 JSON 非法被跳过（该期间成本未参与计算）",
+                suggestedFix: "重新保存对应成本项矩阵以修复 JSON",
+                dimension: "Cost");
+            reported = true;
+        }
+
+        if (result.CoverageGapWaybills > 0)
+        {
+            await DeleteExistingErrorsAsync(batchId, "WARN_COST_COVERAGE_GAP");
+            await ReportIssueAsync(batchId, orgId, "WARN_COST_COVERAGE_GAP", "Warning",
+                message: $"{result.CoverageGapWaybills} 单存在成本项覆盖缺口（有生效期间却算出 0：重量落段外/段间空洞或缺目的地单元格），成本可能被少算",
+                suggestedFix: "核对成本矩阵重量段连续性与目的地单元格覆盖",
+                dimension: "Cost");
+            reported = true;
+        }
+
+        return reported;
     }
 
     private async Task ReportCostErrorsAsync(long batchId, long orgId, IReadOnlyList<CostError> errors)
@@ -475,6 +539,42 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
             SourceAutoPlugin: "CostPlugin",
             Description: "成本计算过程中发生未分类异常",
             SuggestedFix: "请检查成本方案配置、运单数据和系统日志"
+        );
+
+        yield return new QualityIssueTypeDefinition(
+            Code: "WARN_COST_UNMATCHED_ITEM",
+            Name: "成本项名称未匹配",
+            Module: "Express",
+            Category: "Cost",
+            SeverityLevel: "Warning",
+            DetailRoute: "/express/cost-plan",
+            SourceAutoPlugin: "CostPlugin",
+            Description: "方案成本项名称匹配不到全局成本项目，返利标志缺失（返利可能被当正向成本）",
+            SuggestedFix: "核对方案成本项名称与 EXP成本项目 一致（忽略大小写与空白）"
+        );
+
+        yield return new QualityIssueTypeDefinition(
+            Code: "WARN_COST_BAD_MATRIX",
+            Name: "成本矩阵JSON非法",
+            Module: "Express",
+            Category: "Cost",
+            SeverityLevel: "Warning",
+            DetailRoute: "/express/cost-plan",
+            SourceAutoPlugin: "CostPlugin",
+            Description: "成本项期间的矩阵 JSON 非法被跳过，该期间成本未参与计算",
+            SuggestedFix: "重新保存对应成本项矩阵以修复 JSON"
+        );
+
+        yield return new QualityIssueTypeDefinition(
+            Code: "WARN_COST_COVERAGE_GAP",
+            Name: "成本项覆盖缺口",
+            Module: "Express",
+            Category: "Cost",
+            SeverityLevel: "Warning",
+            DetailRoute: "/express/cost-plan",
+            SourceAutoPlugin: "CostPlugin",
+            Description: "运单有生效期间却算出0（重量落段外/段间空洞/缺目的地单元格），成本可能被少算",
+            SuggestedFix: "核对成本矩阵重量段连续性与目的地单元格覆盖"
         );
     }
 }

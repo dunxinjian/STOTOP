@@ -45,6 +45,8 @@ graph LR
 
 ### 2.1 核心实体表清单
 
+> ⚠️ 表名命名约定见 design/21：真实库表名为 **EXP+中文**（如 `EXP成本项目`/`EXP出港运单_计费结果`），DB 列为 `F+中文`。本节部分表沿用早期 `EXP_英文` 示意写法，**以各 `Configuration.ToTable(...)` 为准**；成本体系与暂存表已按真实名更新，其余模块表名待逐步校正。
+
 #### 基础数据（8张）
 
 | 表名 | 说明 | 主键 | 关键字段 |
@@ -74,13 +76,23 @@ graph LR
 | EXP_QuotationSurchargeLink | 加收关联（多对多） | BIGINT | QuotationId, SurchargeId |
 | EXP_QuotationCommission | 佣金配置 | BIGINT | QuotationId, Role, Rate |
 
-#### 成本体系（3张）
+#### 成本体系（9张）
 
-| 表名 | 说明 | 主键 | 关键字段 |
-|---|---|---|---|
-| EXP_CostItem | 成本项目（9种标准项） | BIGINT | Code, Name, Category |
-| EXP_CostPlan | 成本方案 | BIGINT | Name, BrandId, EffectiveDate |
-| EXP_CostDetail | 成本方案明细 | BIGINT | CostPlanId, CostItemId, ProvinceId, Price |
+> 表名以各 `Configuration.ToTable(...)` 为准（EXP+中文，见 design/21 命名约定）。成本矩阵（重量段×省份/城市×首续价）**不落明细表**，整体序列化存于 `EXP成本方案_成本项_时间段.F矩阵JSON`（与报价体系一致，故无独立"成本明细"配置表——旧文档的 `EXP_CostDetail` 并不存在）。
+
+| 表名 (实体) | 说明 | 关键字段 |
+|---|---|---|
+| EXP成本项目 (ExpCostItem) | 全局成本项目字典（种子内置 14 项，可经 API 扩展） | F编码, F名称, **F是否返利** |
+| EXP成本方案 (ExpCostPlan) | 成本方案（品牌×组织，聚合根） | F品牌编码, F组织ID, F状态 |
+| EXP成本方案_成本项 (ExpCostPlanItem) | 方案下成本项 | F方案ID, F成本项名称, **F成本项类型 1全国单价/2省份矩阵/3城市加收/4一口价**, F结算重量环节 |
+| EXP成本方案_成本项_时间段 (ExpCostPlanItemPeriod) | 按生效/失效日期的矩阵时间链 | F成本项ID, F生效日期, F失效日期, **F矩阵JSON** |
+| EXP成本方案_成本项_应用网点 (ExpCostPlanItemOutlet) | 成本项适用网点（空集合=当前组织全部网点适用） | F成本项ID, F网点ID(网点组织ID) |
+| EXP成本方案_成本项_关联店铺 (ExpCostPlanItemShop) | 一口价成本项（类型4）关联店铺，按店铺名命中 | F成本项ID, F店铺名称 |
+| EXP成本方案_互斥配置 (ExpCostPlanExclusion) | 方案级互斥：一口价命中时按生效日期排除的标准成本项集合 | F方案ID, F生效日期, F互斥规则JSON |
+| EXP出港运单_计费结果_成本明细 (ExpBillingCostBreakdown) | 计费结果的成本明细（**返利项按负数入明细**） | F计费结果ID, F成本项目ID, F金额 |
+| EXP出港运单_计费结果_成本明细_历史 (ExpBillingCostBreakdownHistory) | 成本明细归档历史 | F计费结果ID, F成本项目ID, F金额, F归档时间 |
+
+> 结构层次：成本方案 → 成本项[类型1-4] →（时间段 / 应用网点 / 关联店铺）+ 方案级互斥配置。计费产出的成本落 `EXP出港运单_计费结果_成本明细`。
 
 #### 运单与计费（5张）
 
@@ -143,7 +155,9 @@ graph LR
 ### 2.2 关键字段说明
 
 - **PartyRole（参与方角色）**：1=应收（客户层）、2=层级应收（代理/网代等中间层）、3=佣金
-- **F计算状态**：0=待计算、1=计算成功、2=计算失败待重试、3=需重算
+- **F计算状态**（两张同名列语义不同）：
+  - STG 暂存表：0/NULL=待计费、1=成功、2=失败、**3=预检阻断待人工处理**（空店铺/待配置店铺/未识别网点，由 PricingPlugin 预扫描落标，从不进计算引擎；质量中心处理后重置为 0 重算）。
+  - EXP出港运单_计费结果表：仅 1=正常 / 2=异常。
 - **Status（账单状态）**：未确认→待审核→已确认→已发送→已收款→已归档
 - **ReviewStatus（审核状态）**：0=待审核、1=自动通过、2=人工通过、3=人工驳回、4=反审核
 
@@ -168,8 +182,12 @@ erDiagram
 
     EXP_Invoice ||--o{ EXP_InvoiceReviewLog : "账单→审核日志"
 
-    EXP_CostPlan ||--o{ EXP_CostDetail : "成本方案→明细"
-    EXP_CostItem ||--o{ EXP_CostDetail : "成本项目→明细"
+    EXP_CostPlan ||--o{ EXP_CostPlanItem : "成本方案→成本项"
+    EXP_CostPlanItem ||--o{ EXP_CostPlanItemPeriod : "成本项→时间段(F矩阵JSON)"
+    EXP_CostPlanItem ||--o{ EXP_CostPlanItemOutlet : "成本项→应用网点"
+    EXP_CostPlanItem ||--o{ EXP_CostPlanItemShop : "成本项→关联店铺(一口价)"
+    EXP_CostPlan ||--o{ EXP_CostPlanExclusion : "成本方案→互斥配置"
+    EXP_BillingResult ||--o{ EXP_BillingCostBreakdown : "计费结果→成本明细"
 
     EXP_PolicyRebate ||--o{ EXP_PolicyRebateStep : "返利→阶梯"
     EXP_PolicyRebate ||--o{ EXP_PolicyRebateSettlement : "返利→结算"
@@ -319,7 +337,7 @@ erDiagram
 | PUT | /api/express/cost-plans/{id}/activate | 启用方案 |
 | PUT | /api/express/cost-plans/{id}/deactivate | 停用方案 |
 | DELETE | /api/express/cost-plans/{id} | 删除成本方案 |
-| GET | /api/express/cost-items | 成本项目主数据列表（9种标准项） |
+| GET | /api/express/cost-items | 成本项目主数据列表（种子内置 14 项，可扩展；真源见 ExpressSeeder V1/V4/V8） |
 | POST | /api/express/cost-items | 新建成本项目 |
 | PUT | /api/express/cost-items/{id} | 更新成本项目 |
 
@@ -472,31 +490,38 @@ flowchart TD
     K --> L[SuccessCount / ErrorCount / SkippedCount / PendingManualCount]
 ```
 
-#### CostAgent（成本计算）
+#### CostPlugin（成本计算，AutoPlugin → CostEngine）
 
 ```mermaid
 flowchart TD
-    A[读取规则配置] --> B[从计费结果表读取已成功运单]
-    B --> C[筛选PartyRole=1的记录]
-    C --> D[加载CostPlanCache]
+    A[读取插件配置 resultTable] --> B[从计费结果表读已成功运单每票取最小层级基准行]
+    B --> C[F计算状态=1 且 F参与方角色=1]
+    C --> D[加载 CostPlanCache 按组织]
     D --> E[并行计算成本 Parallel.ForEach]
-    E --> F[查询BillingResultId映射]
-    F --> G[构建成本明细对象]
-    G --> H[批量写入成本明细表-事务]
+    E --> F[事务内: 删本轮旧明细 → BulkInsert 成本明细 → 回写主表 F成本合计/F成本计算模式]
 ```
+
+> 写入的成本明细表为动态 `{resultTable}_成本明细`（规范表 `EXP出港运单_计费结果_成本明细`）；`CostWaybillInput.RowId` 即计费结果行 FID，成本明细/回写按此 FID 挂靠（无需再查 WaybillNo→FID 映射）。
+
+#### 成本计算口径（关键）
+
+- **返利项按负数入明细**：`ExpCostItem.F是否返利=1` 的成本项金额取 `-Math.Abs(amount)`，净额化后回写主表 `F成本合计`。
+- **回写主表**：事务内把 `F成本合计` 与 `F成本计算模式`（1=标准 / 2=一口价）回写 `EXP出港运单_计费结果`。
+- **一口价触发**：运单店铺命中方案内类型4一口价项（且该项在运单日期有生效期间、适用当前网点）→ 进一口价模式，按方案级**互斥配置**（按生效日期）排除标准项。
+- **方案两级回退 + 时间链**：ResolvePlanId 按 (网点, 品牌)→(0, 品牌) 回退取方案；ResolvePeriod 按运单日期取 `[生效, 失效)` 内最新期间；重量段 `[from, to)` 半开。
 
 #### Agent协作关系
 
 ```mermaid
 flowchart LR
-    STG[STG暂存表] --> PA[PricingAgent]
-    PA --> BR[EXP_BillingResult]
-    BR --> CA[CostAgent]
-    CA --> CD[EXP_CostDetail]
-    PA -.->|独立并行| CA
+    STG[STG暂存表] --> PA[PricingPlugin]
+    PA --> BR[EXP出港运单_计费结果]
+    BR --> CA[CostPlugin]
+    CA --> CD[EXP出港运单_计费结果_成本明细]
+    PA -->|CostPlugin 依赖 Pricing 输出, 须后置串行| CA
 ```
 
-> PricingAgent 和 CostAgent 完全独立，互不依赖，可并行执行。
+> **CostPlugin 强依赖 PricingPlugin 写出的计费结果**（读 F计算状态=1 行），二者**不可并行**，须后置串行——执行顺序由 CF流程节点的 F排序号（Pricing 在前）保证。
 
 ### 4.2 数据导入管道
 

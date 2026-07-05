@@ -191,8 +191,25 @@ export const CardFlowPermissions = {
 export type CardFlowPermissionCode = typeof CardFlowPermissions[keyof typeof CardFlowPermissions]
 
 /**
+ * 快递模块权限编码常量（与后端 ExpressPermissions 对齐）
+ */
+export const ExpressPermissions = {
+  // 成本方案
+  CostPlanView:   'express:costplan:view',
+  CostPlanCreate: 'express:costplan:create',
+  CostPlanEdit:   'express:costplan:edit',
+  CostPlanDelete: 'express:costplan:delete',
+  // 成本项目
+  CostItemView:   'express:costitem:view',
+  CostItemCreate: 'express:costitem:create',
+  CostItemEdit:   'express:costitem:edit',
+} as const
+
+export type ExpressPermissionCode = typeof ExpressPermissions[keyof typeof ExpressPermissions]
+
+/**
  * 权限检查组合式函数
- * 
+ *
  * @example
  * const { has, hasAny } = usePermission()
  * // 在模板中：v-if="has(FinancePermissions.VoucherCreate)"

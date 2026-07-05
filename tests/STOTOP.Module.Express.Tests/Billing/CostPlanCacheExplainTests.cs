@@ -31,6 +31,10 @@ public class CostPlanCacheExplainTests
     [InlineData("昆明", "昆明市")]
     [InlineData("德宏", "德宏傣族景颇族自治州")]
     [InlineData("红河", "红河哈尼族彝族自治州")]
+    // P1 #9：以"州"结尾的地级市，配置带"市"/运单不带（或反之）须仍匹配（剥"州"须保留>=2字，否则"广州"→"广"匹配失败）
+    [InlineData("广州", "广州市")]
+    [InlineData("杭州市", "杭州")]
+    [InlineData("苏州", "苏州市")]
     public void ExplainAllCosts_matches_city_surcharge_by_simplified_city_keyword(
         string waybillCityName,
         string matrixCityName)

@@ -21,6 +21,8 @@ public class CostPlanEntry
 public class CostItemPeriod
 {
     public DateTime EffectiveDate { get; set; }
+    /// <summary>失效日期（可空）。非空时超过该日期（含当日）之后的运单不再命中本期间。</summary>
+    public DateTime? ExpiryDate { get; set; }
     public List<PricingSegment> Segments { get; set; } = new();
     public string PricingScope { get; set; } = "province";
 }
@@ -70,6 +72,8 @@ public class CostPlanCache
     private readonly List<string> _unmatchedCostItemNames = new();
     /// <summary>诊断：规范化后重名的全局成本项目原始名称（仅首个生效，其余被丢弃，可能张冠李戴）。</summary>
     private readonly List<string> _duplicateGlobalItemNames = new();
+    /// <summary>诊断：加载时反序列化失败被跳过的坏 JSON 期间数（该期间成本不参与计算）。</summary>
+    private int _corruptPeriodCount;
 
     /// <summary>诊断属性：已加载的方案数</summary>
     public int PlanCount => _planIndex.Values.Sum(v => v.Count);
@@ -79,6 +83,8 @@ public class CostPlanCache
     public IReadOnlyList<string> UnmatchedCostItemNames => _unmatchedCostItemNames;
     /// <summary>诊断属性：规范化后重名的全局成本项目（重名脏数据）</summary>
     public IReadOnlyList<string> DuplicateGlobalItemNames => _duplicateGlobalItemNames;
+    /// <summary>诊断属性：加载时因坏 JSON 被跳过的期间数</summary>
+    public int CorruptPeriodCount => _corruptPeriodCount;
 
     /// <summary>
     /// 规范化成本项名称用于跨表匹配：去除首尾及全部内部空白（含半角空格、全角空格 U+3000、制表符等）。
@@ -215,7 +221,17 @@ public class CostPlanCache
                     if (string.IsNullOrWhiteSpace(period.FMatrixJson))
                         continue;
 
-                    var matrix = PricingMatrixSerializer.DeserializeCostPlan(period.FMatrixJson);
+                    CostPlanMatrix matrix;
+                    try
+                    {
+                        matrix = PricingMatrixSerializer.DeserializeCostPlan(period.FMatrixJson);
+                    }
+                    catch (JsonException)
+                    {
+                        // 坏 JSON 单期间降级跳过，不让整批成本计算加载崩溃（写入侧已加 round-trip 校验，此为兜底）
+                        _corruptPeriodCount++;
+                        continue;
+                    }
 
                     foreach (var entry in matrix.CostItems)
                     {
@@ -235,6 +251,7 @@ public class CostPlanCache
                         periodList.Add(new CostItemPeriod
                         {
                             EffectiveDate = period.FEffectiveDate,
+                            ExpiryDate = period.FExpiryDate,
                             Segments = sortedSegments,
                             PricingScope = entry.PricingScope ?? "province"
                         });
@@ -297,8 +314,9 @@ public class CostPlanCache
         if (planId == null)
             return result;
 
-        // 一口价模式判定：运单店铺命中方案内某一口价项的关联店铺（未配置店铺的一口价项不生效）
-        var fixedPriceItem = ResolveFixedPriceItem(planId.Value, shopName);
+        // 一口价模式判定：运单店铺命中方案内某一口价项的关联店铺，且该项在运单日期有生效期间、适用当前网点
+        // （否则不进入一口价模式，避免主成本被互斥掉却又无一口价补上）。
+        var fixedPriceItem = ResolveFixedPriceItem(planId.Value, shopName, networkPointId, waybillDate);
         var excludedItemIds = fixedPriceItem != null
             ? ResolveExclusions(planId.Value, waybillDate)
             : null;
@@ -327,7 +345,18 @@ public class CostPlanCache
                 var isRebate = _rebateIndex.GetValueOrDefault(costItemId);
                 result.Items.Add((costItemId, isRebate ? -Math.Abs(amount) : amount, isRebate));
             }
+            else if (ResolvePeriod(planId.Value, costItemId, waybillDate) != null)
+            {
+                // 该成本项在运单日期有生效期间却算出 0：重量落在段外/段间空洞，或目的地缺单元格 →
+                // 覆盖缺口（成本被少算但不报错），记录诊断供上层汇总告警，区别于"该项确无该日期配置"。
+                result.CoverageGapItemIds.Add(costItemId);
+            }
         }
+
+        // 一口价命中但一口价项本身金额为 0（有生效期间与网点，却缺目的地价格单元格）：主成本已被互斥剔除、
+        // 结果仅剩加收项，不可信 → 标记未解析，交由 CostEngine 判为失败而非静默写入缩水成本。
+        if (fixedPriceItem != null && result.Items.All(i => i.CostItemId != fixedPriceItem.ItemId))
+            result.FixedPriceUnresolved = true;
 
         return result;
     }
@@ -349,15 +378,22 @@ public class CostPlanCache
         return excludedItemIds == null || !excludedItemIds.Contains(costItemId);
     }
 
-    /// <summary>店铺命中方案内的一口价成本项（关联店铺为空的一口价项视为未启用）</summary>
-    private FixedPriceItemEntry? ResolveFixedPriceItem(long planId, string? shopName)
+    /// <summary>
+    /// 店铺命中方案内的一口价成本项。命中须同时满足：关联店铺非空且命中；该项在运单日期有生效期间；适用当前网点。
+    /// 任一不满足则返回 null（回退标准模式），避免"命中店铺→互斥掉标准项→一口价却算不出"导致主成本蒸发。
+    /// </summary>
+    private FixedPriceItemEntry? ResolveFixedPriceItem(long planId, string? shopName, long networkPointId, DateTime waybillDate)
     {
         if (string.IsNullOrWhiteSpace(shopName)
             || !_fixedPriceIndex.TryGetValue(planId, out var entries))
             return null;
 
         var trimmed = shopName.Trim();
-        return entries.FirstOrDefault(e => e.ShopNames.Count > 0 && e.ShopNames.Contains(trimmed));
+        return entries.FirstOrDefault(e =>
+            e.ShopNames.Count > 0
+            && e.ShopNames.Contains(trimmed)
+            && CostItemAppliesToNetworkPoint(planId, e.ItemId, networkPointId)
+            && ResolvePeriod(planId, e.ItemId, waybillDate) != null);
     }
 
     /// <summary>按运单日期取生效的互斥规则（列表已按日期降序）</summary>
@@ -412,7 +448,7 @@ public class CostPlanCache
             return result;
         }
 
-        var fixedPriceItem = ResolveFixedPriceItem(planId.Value, shopName);
+        var fixedPriceItem = ResolveFixedPriceItem(planId.Value, shopName, networkPointId, waybillDate);
         var excludedItemIds = fixedPriceItem != null
             ? ResolveExclusions(planId.Value, waybillDate)
             : null;
@@ -454,6 +490,11 @@ public class CostPlanCache
             if (item != null)
                 result.Items.Add(item);
         }
+
+        // 一口价命中但未算出一口价金额（缺目的地价格单元格）：主成本已被互斥剔除，计价不可信
+        if (fixedPriceItem != null && result.Items.All(i => i.CostItemId != fixedPriceItem.ItemId))
+            result.ConfigurationIssues.Add(
+                $"一口价命中但未算出一口价金额（检查该项在运单日期的目的地价格矩阵）：成本项={fixedPriceItem.ItemId}");
 
         if (result.Items.Count == 0 && result.ConfigurationIssues.Count == 0)
             result.ConfigurationIssues.Add("命中成本方案但未命中任何成本项矩阵");
@@ -534,12 +575,17 @@ public class CostPlanCache
         return outletIds.Count == 0 || outletIds.Contains(networkPointId);
     }
 
-    /// <summary>按运单日期取该成本项生效的时间段（首个 EffectiveDate &lt;= 运单日期，列表已按日期降序）</summary>
+    /// <summary>
+    /// 按运单日期取该成本项生效的时间段（首个 EffectiveDate &lt;= 运单日期 且未过失效日期，列表已按日期降序）。
+    /// 失效日期非空时，超过该日期（含当日之后）的运单不再命中本期间——避免新月份未录价时静默沿用旧月价格。
+    /// </summary>
     private CostItemPeriod? ResolvePeriod(long planId, int costItemId, DateTime waybillDate)
     {
         if (!_itemPeriodIndex.TryGetValue((planId, costItemId), out var periods))
             return null;
-        return periods.FirstOrDefault(p => p.EffectiveDate <= waybillDate);
+        return periods.FirstOrDefault(p =>
+            p.EffectiveDate <= waybillDate
+            && (p.ExpiryDate == null || waybillDate < p.ExpiryDate.Value.Date.AddDays(1)));
     }
 
     private decimal CalcSingleCost(long planId, int costItemId, int provinceId, string? cityName, decimal billableWeight, DateTime waybillDate)
@@ -739,7 +785,9 @@ public class CostPlanCache
 
             foreach (var suffix in suffixes.OrderByDescending(s => s.Length))
             {
-                if (name.EndsWith(suffix, StringComparison.Ordinal) && name.Length > suffix.Length)
+                // 剥离后至少保留 2 字，避免"广州/杭州/苏州"被单字"州"剥成"广/杭/苏"（1 字），
+                // 与配置侧"广州市"剥"市"得"广州"(2 字)不对称，导致城市加收匹配失败、静默回退省份价。
+                if (name.EndsWith(suffix, StringComparison.Ordinal) && name.Length - suffix.Length >= 2)
                 {
                     name = name[..^suffix.Length];
                     break;
@@ -792,6 +840,10 @@ public class CostCalcResult
     public int CostMode { get; set; } = 1;
     /// <summary>一口价模式下命中的方案成本项ID</summary>
     public int? FixedPriceItemId { get; set; }
+    /// <summary>一口价命中但一口价项本身未算出金额（缺目的地价格单元格）：结果不可信，应判为失败而非部分成功。</summary>
+    public bool FixedPriceUnresolved { get; set; }
+    /// <summary>诊断：有生效期间却算出 0 的成本项ID（重量落段外/段间空洞/缺目的地单元格），成本被少算但未报错。</summary>
+    public List<int> CoverageGapItemIds { get; } = [];
 }
 
 public class CostExplainResult

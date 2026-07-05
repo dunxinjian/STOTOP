@@ -1812,9 +1812,11 @@ public class CfImportController : ControllerBase
 
             if (!string.IsNullOrEmpty(actualTargetTable))
             {
+                // 成本明细删除须与结果行删除同口径（同带 F账单ID IS NULL）：否则已开票的结果行被保留、
+                // 其成本明细却被清空，产生"有成本合计无明细"的孤儿态（成本审计判为明细缺失）。
                 await BatchDeleteAsync(connection, transaction,
                     "EXP出港运单_计费结果_成本明细",
-                    "[F计费结果ID] IN (SELECT br.FID FROM [EXP出港运单_计费结果] br WHERE br.[F批次ID] = @batchId)",
+                    "[F计费结果ID] IN (SELECT br.FID FROM [EXP出港运单_计费结果] br WHERE br.[F批次ID] = @batchId AND br.[F账单ID] IS NULL)",
                     new SqlParameter[] { new SqlParameter("@batchId", batchId) });
 
                 await BatchDeleteAsync(connection, transaction,

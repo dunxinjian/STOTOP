@@ -176,7 +176,11 @@ public class ProfitAnalysisService : IProfitAnalysisService
 
     public async Task<List<ProfitByIntermediaryDto>> GetProfitByIntermediaryAsync(ReportQueryRequest request)
     {
-        var query = _billingRepo.Query().Where(b => b.FPartyRole == 2 && b.FCalcStatus == 1);
+        // 现行 PricingEngine 只产 FPartyRole=1（各层级统一为应收，FChainLevel 区分层级）与 =3（佣金），
+        // 不再产生 Role=2 层级应收行。中间层视角取 Role=1 且 FChainLevel>0（客户层 Level0 之上的代理/网代等中间层），
+        // 否则本报表对新数据恒为空。注：物理成本(F成本合计)只挂客户层基准行，中间层的 TotalCost≈0，
+        // 该视图口径为"各中间层应收合计"，非含上游成本的净毛利（上游成本需相邻层级应收差，属后续建模）。
+        var query = _billingRepo.Query().Where(b => b.FPartyRole == 1 && b.FChainLevel > 0 && b.FCalcStatus == 1);
         query = ApplyBillingDateAndBrandFilters(query, request);
 
         var data = await (

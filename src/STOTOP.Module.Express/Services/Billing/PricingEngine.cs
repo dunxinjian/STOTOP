@@ -6,6 +6,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using STOTOP.Core.Interfaces;
+using STOTOP.Core.Services;
 using STOTOP.Module.CardFlow.AutoPlugin;
 using STOTOP.Module.Express.Dtos;
 using STOTOP.Module.Express.Entities;
@@ -35,6 +36,7 @@ public class PricingEngine
     private readonly IRepository<ExpLastMileStation> _stationRepo;
     private readonly BillingBulkWriter _bulkWriter;
     private readonly ILogger<PricingEngine> _logger;
+    private readonly IOrgContextAccessor _orgContextAccessor;
 
     public PricingEngine(
         IRepository<ExpQuotation> quotationRepo,
@@ -50,7 +52,8 @@ public class PricingEngine
         IRepository<ExpFranchiseArea> franchiseAreaRepo,
         IRepository<ExpLastMileStation> stationRepo,
         BillingBulkWriter bulkWriter,
-        ILogger<PricingEngine> logger)
+        ILogger<PricingEngine> logger,
+        IOrgContextAccessor orgContextAccessor)
     {
         _quotationRepo = quotationRepo;
         _quotationShopRepo = quotationShopRepo;
@@ -66,6 +69,7 @@ public class PricingEngine
         _stationRepo = stationRepo;
         _bulkWriter = bulkWriter;
         _logger = logger;
+        _orgContextAccessor = orgContextAccessor;
     }
 
     /// <summary>
@@ -159,6 +163,7 @@ public class PricingEngine
                     FErrorMessage = $"{ex.ErrorCode}: {ex.Message}",
                     FBillingDate = DateTime.Today,
                     FOrgId = waybill.OrgId,
+                    FTenantId = _orgContextAccessor.CurrentTenantId ?? 0L,
                     FNetworkPointCode = waybill.NetworkPointCode,
                 });
             }
@@ -183,6 +188,7 @@ public class PricingEngine
                     FErrorMessage = $"ERR_UNKNOWN: {ex.Message}",
                     FBillingDate = DateTime.Today,
                     FOrgId = waybill.OrgId,
+                    FTenantId = _orgContextAccessor.CurrentTenantId ?? 0L,
                     FNetworkPointCode = waybill.NetworkPointCode,
                 });
             }
@@ -491,6 +497,7 @@ public class PricingEngine
                 FDestProvinceName = waybill.DestinationProvince,
                 FCalcStatus = 1,
                 FOrgId = waybill.OrgId,
+                FTenantId = _orgContextAccessor.CurrentTenantId ?? 0L,
             });
 
             hasAnyResult = true;
@@ -544,6 +551,7 @@ public class PricingEngine
                         FDestProvinceName = waybill.DestinationProvince,
                         FCalcStatus = 1,
                         FOrgId = waybill.OrgId,
+                        FTenantId = _orgContextAccessor.CurrentTenantId ?? 0L,
                     });
                 }
             }

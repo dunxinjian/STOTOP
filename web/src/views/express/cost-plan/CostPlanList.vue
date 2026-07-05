@@ -9,7 +9,7 @@
         <a-input-search v-model:value="searchForm.keyword" placeholder="搜索方案名称" allow-clear
           style="width: 200px" @search="handleSearch" @pressEnter="handleSearch" />
         <a-button @click="handleReset">重置</a-button>
-        <a-button type="primary" @click="openCreateModal">
+        <a-button v-if="canCreate" type="primary" @click="openCreateModal">
           <template #icon><PlusOutlined /></template>新建方案
         </a-button>
       </template>
@@ -44,14 +44,14 @@
             {{ record.createdTime?.slice(0, 16)?.replace('T', ' ') ?? '-' }}
           </template>
           <template v-if="column.dataIndex === 'action'">
-            <a-button type="link" size="small" @click="router.push(`/express/cost-plan/edit/${record.id}`)">编辑</a-button>
-            <a-popconfirm v-if="record.status === 0" title="确定启用此方案？" @confirm="handleActivate(record as CostPlanListItem)">
+            <a-button v-if="canEdit" type="link" size="small" @click="router.push(`/express/cost-plan/edit/${record.id}`)">编辑</a-button>
+            <a-popconfirm v-if="record.status === 0 && canEdit" title="确定启用此方案？" @confirm="handleActivate(record as CostPlanListItem)">
               <a-button type="link" size="small">启用</a-button>
             </a-popconfirm>
-            <a-popconfirm v-if="record.status === 1" title="确定停用此方案？" @confirm="handleDeactivate(record as CostPlanListItem)">
+            <a-popconfirm v-if="record.status === 1 && canEdit" title="确定停用此方案？" @confirm="handleDeactivate(record as CostPlanListItem)">
               <a-button type="link" size="small">停用</a-button>
             </a-popconfirm>
-            <a-popconfirm v-if="record.status !== 1" title="确定删除此方案？" @confirm="handleDelete(record as CostPlanListItem)">
+            <a-popconfirm v-if="record.status !== 1 && canDelete" title="确定删除此方案？" @confirm="handleDelete(record as CostPlanListItem)">
               <a-button type="link" size="small" danger>删除</a-button>
             </a-popconfirm>
           </template>
@@ -94,6 +94,7 @@ import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
+import { usePermission, ExpressPermissions } from '@/utils/permission'
 import {
   getCostPlanList,
   activateCostPlan,
@@ -105,6 +106,12 @@ import {
 } from '@/api/express'
 
 const router = useRouter()
+
+// ==================== 按钮级权限 ====================
+const { has } = usePermission()
+const canCreate = computed(() => has(ExpressPermissions.CostPlanCreate))
+const canEdit = computed(() => has(ExpressPermissions.CostPlanEdit))
+const canDelete = computed(() => has(ExpressPermissions.CostPlanDelete))
 
 // ==================== 品牌选项 ====================
 const brandOptions = ref<{ label: string; value: string }[]>([])
@@ -256,14 +263,14 @@ async function handleCreateConfirm() {
     })
     message.success('创建成功')
     createModalVisible.value = false
-    const newId = res?.id ?? res?.data?.id
+    const newId = res?.id
     if (newId) {
       router.push(`/express/cost-plan/edit/${newId}`)
     } else {
       fetchList()
     }
   } catch {
-    message.error('创建失败')
+    // 后端业务错误已由响应拦截器提示，避免二次泛化 toast
   } finally {
     createLoading.value = false
   }

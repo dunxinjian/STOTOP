@@ -63,6 +63,15 @@
                   @change="(_val: string | Dayjs, dateString: string) => handleUpdatePeriodDate(record as CostPlanItemPeriodDto, dateString)"
                 />
               </template>
+              <template v-if="column.dataIndex === 'expiryDate'">
+                <a-date-picker
+                  :value="record.expiryDate?.slice(0, 10)"
+                  size="small"
+                  value-format="YYYY-MM-DD"
+                  placeholder="无失效(可选)"
+                  @change="(_val: string | Dayjs, dateString: string) => handleUpdatePeriodExpiry(record as CostPlanItemPeriodDto, dateString)"
+                />
+              </template>
               <!-- 全国单价类型：直接在列表里显示价格输入 -->
               <template v-if="column.dataIndex === 'price'">
                 <template v-if="itemForm.itemType === 1">
@@ -287,6 +296,7 @@ const weightSegmentEditorRef = ref<InstanceType<typeof WeightSegmentEditor> | nu
 const periodColumns = computed(() => {
   const cols: any[] = [
     { title: '生效日期', dataIndex: 'effectiveDate', width: 140 },
+    { title: '失效日期', dataIndex: 'expiryDate', width: 150 },
   ]
   if (itemForm.itemType === 1) {
     cols.push({ title: '全国单价', dataIndex: 'price', width: 200 })
@@ -335,18 +345,16 @@ async function loadData() {
       // 时间段列表加载失败时不阻塞
     }
 
-    // 对于全国单价类型，逐个加载每个时间段的价格。
-    // 加载失败的期间不写入缓存（保存时跳过），否则会把后端已有价格静默覆盖为 0
+    // 全国单价类型：并行加载各时间段价格（期间多时不再线性变慢）。
+    // 加载失败的期间不写入缓存（allSettled 忽略 rejected，保存时跳过），否则会把后端已有价格静默覆盖为 0
     if (itemForm.itemType === 1) {
-      for (const p of periods.value) {
-        try {
+      await Promise.allSettled(
+        periods.value.map(async (p) => {
           const matrixData = await getCostItemMatrix(planId.value, itemId.value, p.effectiveDate?.slice(0, 10))
           const price = matrixData?.segments?.[0]?.cells?.[0]?.basePrice ?? 0
           periodPrices.value.set(p.id, price)
-        } catch {
-          // 留空：handleSave 仅保存缓存中存在的期间
-        }
-      }
+        }),
+      )
     }
   } catch {
     message.error('加载数据失败')
@@ -468,9 +476,11 @@ function deserializeMatrix(entry: CostItemEntryDto) {
     return
   }
 
-  // 反序列化重量段
+  // 反序列化重量段：按下界(weightFrom)排序，与后端计费缓存(CostPlanCache 按 WeightFrom 排序)一致。
+  // 此前按 segmentIndex 排序，非末段二次拆分后列序会与实际重量区间错位，相邻合并会造出重叠/空洞段。
   segments.value = entry.segments
-    .sort((a, b) => a.segmentIndex - b.segmentIndex)
+    .slice()
+    .sort((a, b) => (a.weightFrom ?? 0) - (b.weightFrom ?? 0))
     .map(s => ({
       sortOrder: s.segmentIndex,
       startWeight: s.weightFrom ?? 0,
@@ -788,9 +798,42 @@ async function handleSave() {
   }
 }
 
+// 校验重量段连续性（无重叠、无空洞；开放上限只能在末段）——与后端 ValidateSegmentContinuity 同口径。
+// 不强制首段从 0 起（如"大货派费仅 >3kg"是合法配置）。落入空洞/重叠的重量计费会算 0，须在保存前拦截。
+function validateSegmentContinuity(): string | null {
+  const ordered = segments.value
+    .slice()
+    .sort((a, b) => (a.startWeight ?? 0) - (b.startWeight ?? 0))
+  for (let i = 0; i < ordered.length; i++) {
+    const s = ordered[i]
+    const from = s.startWeight ?? 0
+    if (s.endWeight != null && s.endWeight <= from) {
+      return `重量段区间非法（上界须大于下界）：[${from}, ${s.endWeight})`
+    }
+    if (i > 0) {
+      const prev = ordered[i - 1]
+      if (prev.endWeight == null) {
+        return '开放上限（无上界）的重量段只能是最末段，其后不得再有段'
+      }
+      if (from > prev.endWeight) {
+        return `重量段存在空洞：[${prev.endWeight}, ${from}) 无覆盖，落入该区间的重量成本会算 0`
+      }
+      if (from < prev.endWeight) {
+        return `重量段存在重叠：上一段止于 ${prev.endWeight}，本段从 ${from} 开始`
+      }
+    }
+  }
+  return null
+}
+
 async function handleSaveMatrix() {
   if (segments.value.length === 0) {
     message.warning('请至少添加一个重量段')
+    return
+  }
+  const continuityError = validateSegmentContinuity()
+  if (continuityError) {
+    message.warning(continuityError)
     return
   }
   saving.value = true
@@ -955,15 +998,40 @@ async function handleDeletePeriod(periodId: number) {
   }
 }
 
+// 更新期间失效日期（可空能力已就绪；后端部分更新只在非空时写，故此处为"设置/改期"。
+// 清除失效日期请删除该期间后重建——避免部分更新无法区分"未提供"与"清空"）。
+async function handleUpdatePeriodExpiry(record: CostPlanItemPeriodDto, newDate: string) {
+  if (!newDate) return
+  try {
+    await updateCostPlanItemPeriod(planId.value, itemId.value, record.id, { expiryDate: newDate })
+    record.expiryDate = newDate
+  } catch {
+    // 后端已由拦截器提示(如失效日期早于生效日期)；重新拉取以回滚显示
+    try {
+      const periodList = await getCostPlanItemPeriods(planId.value, itemId.value)
+      periods.value = periodList.sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate))
+    } catch {
+      /* 忽略回滚拉取失败 */
+    }
+  }
+}
+
 async function handleUpdatePeriodDate(record: CostPlanItemPeriodDto, newDate: string) {
   if (!newDate) return
   try {
+    // 仅传 effectiveDate；后端按部分更新只改日期、不再清空该期间的成本矩阵
     await updateCostPlanItemPeriod(planId.value, itemId.value, record.id, { effectiveDate: newDate })
     record.effectiveDate = newDate
     // 重新排序
     periods.value = [...periods.value].sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate))
   } catch {
-    message.error('修改生效日期失败')
+    // 后端已由响应拦截器提示具体错误（如生效日期重复）；重新拉取以回滚日期选择器显示
+    try {
+      const periodList = await getCostPlanItemPeriods(planId.value, itemId.value)
+      periods.value = periodList.sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate))
+    } catch {
+      /* 忽略回滚拉取失败 */
+    }
   }
 }
 

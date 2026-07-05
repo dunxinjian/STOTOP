@@ -306,6 +306,13 @@ public class CostPlanService : ICostPlanService
             if (hasActive)
                 throw new InvalidOperationException($"该组织下品牌 {entity.FBrandCode} 已有启用方案，请先停用");
 
+            // 校验方案下至少有一个成本项且其有非空矩阵期间，避免空方案启用后整批成本计算失败(CostEngine 缓存为空判全失败)
+            var itemIds = await _itemRepo.Query().Where(i => i.FPlanId == id).Select(i => i.FID).ToListAsync();
+            var hasUsableMatrix = itemIds.Count > 0
+                && await _periodRepo.Query().AnyAsync(p => itemIds.Contains(p.FItemId) && p.FMatrixJson != null && p.FMatrixJson != "");
+            if (!hasUsableMatrix)
+                throw new InvalidOperationException("该方案尚未配置成本项矩阵，请先维护成本项与矩阵后再启用");
+
             // 启用当前方案
             entity.FStatus = 1;
             entity.FUpdatedTime = DateTime.Now;
@@ -752,10 +759,32 @@ public class CostPlanService : ICostPlanService
                 Id = p.FID,
                 ItemId = p.FItemId,
                 EffectiveDate = p.FEffectiveDate,
+                ExpiryDate = p.FExpiryDate,
                 MatrixJson = p.FMatrixJson,
                 CreatedTime = p.FCreatedTime,
                 UpdatedTime = p.FUpdatedTime
             }).ToListAsync();
+    }
+
+    private const int MaxMatrixJsonLength = 1_000_000;
+
+    /// <summary>
+    /// 写入前 round-trip 校验成本矩阵 JSON：非法 JSON 直接拒绝，避免坏数据落库后
+    /// CostPlanCache 加载时反序列化整批崩溃（互斥规则有对称守卫 ValidateExclusionRuleJson，矩阵此前缺失）。
+    /// </summary>
+    private static void ValidateMatrixJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return;
+        if (json.Length > MaxMatrixJsonLength)
+            throw new InvalidOperationException($"成本矩阵 JSON 过大（{json.Length} 字符，上限 {MaxMatrixJsonLength}）");
+        try
+        {
+            PricingMatrixSerializer.DeserializeCostPlan(json);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException($"成本矩阵 JSON 非法：{ex.Message}");
+        }
     }
 
     public async Task<CostPlanItemPeriodDto> CreatePeriodAsync(long planId, long itemId, CreatePeriodRequest request)
@@ -767,8 +796,13 @@ public class CostPlanService : ICostPlanService
         if (item == null)
             throw new InvalidOperationException("成本项不存在");
 
+        ValidateMatrixJson(request.MatrixJson);
+
         // 归一化到日期（去时间分量），防止同一天因时分秒不同建出多个期间、后续精确匹配错失
         var effectiveDate = request.EffectiveDate.Date;
+        var expiryDate = request.ExpiryDate?.Date;
+        if (expiryDate.HasValue && expiryDate.Value < effectiveDate)
+            throw new InvalidOperationException("失效日期不得早于生效日期");
 
         // 校验同一成本项下生效日期不可重复
         var exists = await _periodRepo.Query()
@@ -780,6 +814,7 @@ public class CostPlanService : ICostPlanService
         {
             FItemId = itemId,
             FEffectiveDate = effectiveDate,
+            FExpiryDate = expiryDate,
             FMatrixJson = request.MatrixJson,
             FCreatedTime = DateTime.Now,
             FUpdatedTime = DateTime.Now,
@@ -792,6 +827,7 @@ public class CostPlanService : ICostPlanService
             Id = result.FID,
             ItemId = result.FItemId,
             EffectiveDate = result.FEffectiveDate,
+            ExpiryDate = result.FExpiryDate,
             MatrixJson = result.FMatrixJson,
             CreatedTime = result.FCreatedTime,
             UpdatedTime = result.FUpdatedTime
@@ -810,7 +846,35 @@ public class CostPlanService : ICostPlanService
             .FirstOrDefaultAsync(p => p.FID == periodId && p.FItemId == itemId);
         if (entity == null) return null;
 
-        entity.FMatrixJson = request.MatrixJson;
+        // 部分更新：仅更新请求显式提供的字段。
+        // 关键修复：只改生效日期时前端不会带 MatrixJson，若无条件赋值会把 null 覆写进去、清空整套成本矩阵。
+        if (request.EffectiveDate.HasValue)
+        {
+            var newDate = request.EffectiveDate.Value.Date;
+            if (newDate != entity.FEffectiveDate.Date)
+            {
+                var duplicate = await _periodRepo.Query()
+                    .AnyAsync(p => p.FItemId == itemId && p.FID != periodId && p.FEffectiveDate == newDate);
+                if (duplicate)
+                    throw new InvalidOperationException($"生效日期 {newDate:yyyy-MM-dd} 已存在");
+                entity.FEffectiveDate = newDate;
+            }
+        }
+
+        if (request.ExpiryDate.HasValue)
+        {
+            var newExpiry = request.ExpiryDate.Value.Date;
+            if (newExpiry < entity.FEffectiveDate.Date)
+                throw new InvalidOperationException("失效日期不得早于生效日期");
+            entity.FExpiryDate = newExpiry;
+        }
+
+        if (request.MatrixJson != null)
+        {
+            ValidateMatrixJson(request.MatrixJson);
+            entity.FMatrixJson = request.MatrixJson;
+        }
+
         entity.FUpdatedTime = DateTime.Now;
         await _periodRepo.UpdateAsync(entity);
 
@@ -819,6 +883,7 @@ public class CostPlanService : ICostPlanService
             Id = entity.FID,
             ItemId = entity.FItemId,
             EffectiveDate = entity.FEffectiveDate,
+            ExpiryDate = entity.FExpiryDate,
             MatrixJson = entity.FMatrixJson,
             CreatedTime = entity.FCreatedTime,
             UpdatedTime = entity.FUpdatedTime
@@ -946,6 +1011,9 @@ public class CostPlanService : ICostPlanService
 
         ValidateExclusionRuleJson(request.ExclusionRuleJson);
 
+        // 生效日期决定一口价模式下排除哪些成本项，编辑弹窗把它作为必填项——此前后端 DTO 无此字段被静默丢弃
+        if (request.EffectiveDate.HasValue)
+            entity.FEffectiveDate = request.EffectiveDate.Value.Date;
         entity.FExclusionRuleJson = request.ExclusionRuleJson;
         entity.FUpdatedTime = DateTime.Now;
         await _exclusionRepo.UpdateAsync(entity);
@@ -975,132 +1043,9 @@ public class CostPlanService : ICostPlanService
 
     // ==================== 运单成本计算 ====================
 
-    public async Task<EffectiveCostResult?> GetEffectiveCostAsync(string brandCode, long outletId, string? shopName, DateTime businessDate)
-    {
-        // 1. 找到该品牌的启用成本方案
-        var plan = await _planRepo.Query()
-            .FirstOrDefaultAsync(p => p.FBrandCode == brandCode && p.FStatus == 1);
-        if (plan == null) return null;
-
-        // 2. 加载方案下所有成本项
-        var items = await _itemRepo.Query()
-            .Where(i => i.FPlanId == plan.FID)
-            .OrderBy(i => i.FSortOrder)
-            .ToListAsync();
-
-        var itemIds = items.Select(i => i.FID).ToList();
-
-        // 3. 加载应用网点
-        var outlets = await _outletRepo.Query()
-            .Where(o => itemIds.Contains(o.FItemId))
-            .ToListAsync();
-
-        // 筛选出应用网点包含 outletId 的成本项
-        var matchedItemIds = outlets
-            .Where(o => o.FOutletId == outletId)
-            .Select(o => o.FItemId)
-            .ToHashSet();
-
-        var matchedItems = items.Where(i => matchedItemIds.Contains(i.FID)).ToList();
-
-        // 4. 查找互斥配置
-        var exclusion = await _exclusionRepo.Query()
-            .Where(ex => ex.FPlanId == plan.FID && ex.FEffectiveDate <= businessDate)
-            .OrderByDescending(ex => ex.FEffectiveDate)
-            .FirstOrDefaultAsync();
-
-        // 解析互斥规则
-        HashSet<long> excludedItemIds = new();
-        if (exclusion?.FExclusionRuleJson != null)
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(exclusion.FExclusionRuleJson);
-                var root = doc.RootElement;
-                if (root.TryGetProperty("excludedCostItemIds", out var arr) && arr.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var elem in arr.EnumerateArray())
-                    {
-                        if (elem.ValueKind == JsonValueKind.Number && elem.TryGetInt64(out var excludedId))
-                            excludedItemIds.Add(excludedId);
-                    }
-                }
-            }
-            catch (JsonException) { /* ignore */ }
-        }
-
-        // 加载店铺关联
-        var shops = await _shopRepo.Query()
-            .Where(s => itemIds.Contains(s.FItemId))
-            .ToListAsync();
-
-        // 加载时间段
-        var periods = await _periodRepo.Query()
-            .Where(p => itemIds.Contains(p.FItemId) && p.FEffectiveDate <= businessDate)
-            .ToListAsync();
-
-        var result = new EffectiveCostResult();
-        var breakdowns = new List<CostBreakdownItem>();
-        string mode = "standard";
-
-        // 5. 处理一口价成本项（ItemType=4）
-        var fixedPriceItems = matchedItems.Where(i => i.FItemType == 4).ToList();
-        foreach (var item in fixedPriceItems)
-        {
-            // 检查关联店铺是否包含 shopName
-            var itemShops = shops.Where(s => s.FItemId == item.FID).Select(s => s.FShopName).ToList();
-            bool shopMatched = string.IsNullOrEmpty(shopName)
-                ? itemShops.Count == 0  // 无店铺限制时匹配
-                : itemShops.Any(s => string.Equals(s, shopName, StringComparison.OrdinalIgnoreCase));
-
-            if (shopMatched)
-            {
-                mode = "fixed_price";
-                // 按时间链匹配矩阵（暂简化为返回 MatrixJson，具体解析后续处理）
-                var period = periods
-                    .Where(p => p.FItemId == item.FID)
-                    .OrderByDescending(p => p.FEffectiveDate)
-                    .FirstOrDefault();
-
-                breakdowns.Add(new CostBreakdownItem
-                {
-                    ItemId = item.FID,
-                    ItemName = item.FItemName,
-                    ItemType = item.FItemType,
-                    Amount = 0 // TODO: 解析 MatrixJson 计算一口价金额
-                });
-
-                break; // 一口价只匹配第一个
-            }
-        }
-
-        // 6. 处理非一口价成本项（ItemType=1/2/3）。
-        //    互斥规则是"一口价与其他项的互斥关系"：仅一口价命中时才排除互斥项，
-        //    未命中一口价时不应误删普通成本项（否则静默少算成本）。
-        var effectiveExcludedIds = mode == "fixed_price" ? excludedItemIds : new HashSet<long>();
-        var otherItems = matchedItems.Where(i => i.FItemType != 4 && !effectiveExcludedIds.Contains(i.FID)).ToList();
-        foreach (var item in otherItems)
-        {
-            var period = periods
-                .Where(p => p.FItemId == item.FID)
-                .OrderByDescending(p => p.FEffectiveDate)
-                .FirstOrDefault();
-
-            breakdowns.Add(new CostBreakdownItem
-            {
-                ItemId = item.FID,
-                ItemName = item.FItemName,
-                ItemType = item.FItemType,
-                Amount = 0 // TODO: 解析 MatrixJson 计算金额
-            });
-        }
-
-        result.Mode = mode;
-        result.Breakdowns = breakdowns;
-        result.TotalCost = breakdowns.Sum(b => b.Amount);
-
-        return result;
-    }
+    // 说明：原 GetEffectiveCostAsync（运单有效成本预览）已删除。
+    // 该实现与 CostPlanCache 计费引擎语义相反（"空网点=需显式包含"vs 引擎"空=全部适用"）、金额恒为 0（未实现），
+    // 且无任何前端/调用方消费。成本预览若需重建，应直接复用 CostPlanCache.ExplainAllCosts 以保证与计费单一真源。
 
     // ==================== 矩阵保存/读取 ====================
 
@@ -1145,6 +1090,9 @@ public class CostPlanService : ICostPlanService
 
         // 验证 pricingScope 与 cells 数据一致性
         ValidatePricingScopeCells(request.PricingScope, request.Segments);
+
+        // 验证重量段连续性（无重叠、无空洞）：落入空洞/重叠的重量在计费时会算 0 或取用不确定，须在写入侧拦截
+        ValidateSegmentContinuity(request.Segments);
 
         // 将请求 DTO 转换为 CostItemEntry 模型
         var entry = new CostItemEntry
@@ -1308,6 +1256,36 @@ public class CostPlanService : ICostPlanService
         }
 
         return dto;
+    }
+
+    /// <summary>
+    /// 验证重量段连续性：段按下界排序后，上界须大于下界、相邻段首尾相接（无重叠、无空洞），开放上限只能出现在最末段。
+    /// 不强制首段从 0 起（如"大货派费仅 &gt;3kg 产生"是合法配置，&lt;3kg 不计该项）。落入空洞/重叠的重量在计费时会算 0
+    /// 或取值不确定，故在写入侧拦截。
+    /// </summary>
+    private static void ValidateSegmentContinuity(List<CostSegmentRequest> segments)
+    {
+        if (segments.Count <= 1) return;
+        var ordered = segments.OrderBy(s => s.WeightFrom ?? 0m).ToList();
+        for (int i = 0; i < ordered.Count; i++)
+        {
+            var s = ordered[i];
+            var from = s.WeightFrom ?? 0m;
+            if (s.WeightTo.HasValue && s.WeightTo.Value <= from)
+                throw new InvalidOperationException($"重量段区间非法（上界须大于下界）：[{from}, {s.WeightTo.Value})");
+            if (i > 0)
+            {
+                var prev = ordered[i - 1];
+                if (!prev.WeightTo.HasValue)
+                    throw new InvalidOperationException("开放上限（无上界）的重量段只能是最末段，其后不得再有段");
+                var prevTo = prev.WeightTo.Value;
+                if (from != prevTo)
+                    throw new InvalidOperationException(
+                        from > prevTo
+                            ? $"重量段存在空洞：[{prevTo}, {from}) 无覆盖，落入该区间的重量成本会被算 0"
+                            : $"重量段存在重叠：上一段止于 {prevTo}，本段从 {from} 开始");
+            }
+        }
     }
 
     /// <summary>

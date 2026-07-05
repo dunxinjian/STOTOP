@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using STOTOP.Core.Interfaces;
+using STOTOP.Core.Services;
 using STOTOP.Module.CardFlow.AutoPlugin;
 using STOTOP.Module.Express.Entities;
 
@@ -20,19 +21,22 @@ public class CostEngine
     private readonly BillingBulkWriter _bulkWriter;
     private readonly IProgressNotifier _progressNotifier;
     private readonly ILogger<CostEngine> _logger;
+    private readonly IOrgContextAccessor _orgContextAccessor;
 
     public CostEngine(
         IRepository<ExpCostPlan> costPlanRepo,
         IRepository<ExpCostItem> costItemRepo,
         BillingBulkWriter bulkWriter,
         IProgressNotifier progressNotifier,
-        ILogger<CostEngine> logger)
+        ILogger<CostEngine> logger,
+        IOrgContextAccessor orgContextAccessor)
     {
         _costPlanRepo = costPlanRepo;
         _costItemRepo = costItemRepo;
         _bulkWriter = bulkWriter;
         _progressNotifier = progressNotifier;
         _logger = logger;
+        _orgContextAccessor = orgContextAccessor;
     }
 
     /// <summary>
@@ -80,6 +84,9 @@ public class CostEngine
         if (costCache.DuplicateGlobalItemNames.Count > 0)
             _logger.LogWarning("CostEngine: {Count} 个全局成本项目规范化后重名（仅首个生效，可能张冠李戴，请去重）: {Names}",
                 costCache.DuplicateGlobalItemNames.Count, string.Join(" | ", costCache.DuplicateGlobalItemNames));
+        if (costCache.CorruptPeriodCount > 0)
+            _logger.LogWarning("CostEngine: {Count} 个成本项期间的矩阵 JSON 非法被跳过（该期间成本未参与计算，请修复矩阵配置）",
+                costCache.CorruptPeriodCount);
 
         if (costCache.PlanCount == 0 || costCache.SegmentCount == 0)
         {
@@ -99,7 +106,10 @@ public class CostEngine
                         WaybillNo = waybills.FirstOrDefault()?.WaybillNo ?? string.Empty,
                         ErrorMessage = "未找到启用中的成本方案或成本矩阵，请先启用成本方案并维护成本项矩阵"
                     }
-                }
+                },
+                UnmatchedCostItemNames = costCache.UnmatchedCostItemNames.ToList(),
+                DuplicateGlobalItemNames = costCache.DuplicateGlobalItemNames.ToList(),
+                CorruptPeriodCount = costCache.CorruptPeriodCount
             };
         }
 
@@ -108,6 +118,7 @@ public class CostEngine
         var errors = new ConcurrentBag<CostError>();
         int successCount = 0;
         int processedCount = 0;
+        int coverageGapWaybills = 0;
         int totalWaybillCount = waybills.Count;
 
         Parallel.ForEach(waybills, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
@@ -120,6 +131,22 @@ public class CostEngine
                     waybill.DestinationProvinceId, waybill.DestinationCityName,
                     waybill.BillableWeight, waybill.WaybillDate, waybill.ShopName);
                 var costList = calcResult.Items.Select(c => (c.CostItemId, c.Amount)).ToList();
+
+                // 覆盖缺口诊断：有生效期间却算出 0 的成本项（成本被少算但未报错），累计告警
+                if (calcResult.CoverageGapItemIds.Count > 0)
+                    Interlocked.Increment(ref coverageGapWaybills);
+
+                // 一口价命中却未算出一口价金额（主成本已被互斥剔除，结果仅剩加收项）：判为失败，避免静默写入缩水成本
+                if (calcResult.FixedPriceUnresolved)
+                {
+                    errors.Add(new CostError
+                    {
+                        WaybillId = waybill.RowId,
+                        WaybillNo = waybill.WaybillNo,
+                        ErrorMessage = $"一口价模式命中但未算出一口价金额（检查目的地价格矩阵）：品牌={waybill.BrandCode}, 目的省份ID={waybill.DestinationProvinceId}, 重量={waybill.BillableWeight}, 日期={waybill.WaybillDate:yyyy-MM-dd}"
+                    });
+                    return;
+                }
 
                 if (costList.Count == 0)
                 {
@@ -153,9 +180,20 @@ public class CostEngine
             }
         });
 
-        // === 第三阶段：查询 BillingResultId 映射并批量写入 ===
+        if (coverageGapWaybills > 0)
+            _logger.LogWarning("CostEngine: {Count} 单存在成本项覆盖缺口（有生效期间却算出 0：重量落段外/段间空洞或缺目的地单元格），成本可能被少算，请核对成本矩阵段与单元格覆盖",
+                coverageGapWaybills);
+
+        // === 第三阶段：写入成本明细并回写主表 ===
+        // 严格失败语义（对齐产品裁决）：本轮存在任一失败运单时，不落库任何成本(全或无)，避免"成功部分已提交、
+        // 批次却标失败"的半程状态。运维修复失败运单后重跑，方一次性写入全部成本。
         int costBreakdownCount = 0;
-        if (costDataMap.Count > 0)
+        if (!errors.IsEmpty)
+        {
+            _logger.LogWarning("CostEngine: 严格失败——本轮 {Fail} 单失败，成功计算 {Success} 单的成本【不落库】(全或无)，请修复失败运单后重跑",
+                errors.Count, successCount);
+        }
+        else if (costDataMap.Count > 0)
         {
             try
             {
@@ -168,32 +206,26 @@ public class CostEngine
 
                 try
                 {
-                    // 查回 Level 0 的 BillingResultId 映射
-                    var waybillIds = costDataMap.Keys.ToList();
-                    var waybillToResultId = await QueryBillingResultIds(
-                        waybillIds, resultTable, connection, dbTransaction);
-                    // RowId 即计费结果 FID，成本计算模式随行回写
+                    // costDataMap 的 key 即计费结果行 FID（CostWaybillInput.RowId 来自 SELECT r.FID），无需再查映射。
                     var resultIdToCostMode = costDataMap.ToDictionary(
-                        pair => waybillToResultId[pair.Key],
+                        pair => pair.Key,
                         pair => pair.Value.CostMode);
-                    var billingResultIds = waybillToResultId.Values.Distinct().ToList();
+                    var billingResultIds = costDataMap.Keys.ToList();
 
                     // 构建成本明细
                     var costBreakdowns = new List<ExpBillingCostBreakdown>();
-                    foreach (var (waybillId, payload) in costDataMap)
+                    foreach (var (billingResultId, payload) in costDataMap)
                     {
-                        if (waybillToResultId.TryGetValue(waybillId, out var billingResultId))
+                        foreach (var (costItemId, amount) in payload.Costs)
                         {
-                            foreach (var (costItemId, amount) in payload.Costs)
+                            costBreakdowns.Add(new ExpBillingCostBreakdown
                             {
-                                costBreakdowns.Add(new ExpBillingCostBreakdown
-                                {
-                                    FBillingResultId = billingResultId,
-                                    FCostItemId = costItemId,
-                                    FAmount = amount,
-                                    FOrgId = orgId
-                                });
-                            }
+                                FBillingResultId = billingResultId,
+                                FCostItemId = costItemId,
+                                FAmount = amount,
+                                FOrgId = orgId,
+                                FTenantId = _orgContextAccessor.CurrentTenantId ?? 0L
+                            });
                         }
                     }
 
@@ -256,12 +288,17 @@ public class CostEngine
             ErrorCount = errors.Count,
             CostBreakdownsCreated = costBreakdownCount,
             Duration = sw.Elapsed,
-            Errors = errors.ToList()
+            Errors = errors.ToList(),
+            UnmatchedCostItemNames = costCache.UnmatchedCostItemNames.ToList(),
+            DuplicateGlobalItemNames = costCache.DuplicateGlobalItemNames.ToList(),
+            CorruptPeriodCount = costCache.CorruptPeriodCount,
+            CoverageGapWaybills = coverageGapWaybills
         };
     }
 
     /// <summary>
-    /// 查询 Level 0 的 BillingResultId 映射（WaybillNo → FID）
+    /// 建临时表 #CostBillingResultIds(FID, CostMode) 并批量灌入本轮参与计算的计费结果行 FID 及其成本计算模式，
+    /// 供后续 JOIN 删旧明细、回写主表 F成本合计/F成本计算模式。
     /// </summary>
     private static async Task CreateBillingResultIdTempTable(
         SqlConnection connection,
@@ -292,14 +329,6 @@ public class CostEngine
         bulkCopy.ColumnMappings.Add("CostMode", "CostMode");
         await bulkCopy.WriteToServerAsync(table);
     }
-
-    private static async Task<Dictionary<long, long>> QueryBillingResultIds(
-        List<long> waybillIds, string resultTable, SqlConnection connection, SqlTransaction transaction)
-    {
-        // RowId 来自 CostAgent.ReadSuccessBillingResults 的 SELECT r.FID，
-        // 即 RowId 本身就是计费结果表的 FID (BillingResultId)，直接自映射即可。
-        return waybillIds.ToDictionary(id => id, id => id);
-    }
 }
 
 /// <summary>
@@ -307,7 +336,7 @@ public class CostEngine
 /// </summary>
 public class CostWaybillInput
 {
-    /// <summary>运单行ID（STG表FID）</summary>
+    /// <summary>计费结果行 FID（来自 CostPlugin.ReadSuccessBillingResults 的 SELECT r.FID）；成本明细/回写按此 FID 挂靠。</summary>
     public long RowId { get; set; }
     /// <summary>运单编号</summary>
     public string WaybillNo { get; set; } = string.Empty;
@@ -338,6 +367,16 @@ public class CostExecutionResult
     public int CostBreakdownsCreated { get; set; }
     public TimeSpan Duration { get; set; }
     public List<CostError> Errors { get; set; } = new();
+
+    // 诊断（供 CostPlugin 升级为批次级质量问题，而非仅日志）
+    /// <summary>方案成本项名称匹配不到全局成本项目（返利标志缺失，返利被当正向成本）。</summary>
+    public List<string> UnmatchedCostItemNames { get; set; } = new();
+    /// <summary>全局成本项目规范化后重名（仅首个生效）。</summary>
+    public List<string> DuplicateGlobalItemNames { get; set; } = new();
+    /// <summary>加载时因坏 JSON 被跳过的期间数（该期间成本未参与计算）。</summary>
+    public int CorruptPeriodCount { get; set; }
+    /// <summary>存在成本项覆盖缺口（有生效期间却算出0）的运单数，成本可能被少算。</summary>
+    public int CoverageGapWaybills { get; set; }
 }
 
 /// <summary>

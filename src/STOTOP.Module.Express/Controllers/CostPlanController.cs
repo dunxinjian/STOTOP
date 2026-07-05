@@ -205,7 +205,7 @@ public class CostPlanController : ControllerBase
     /// 删除成本项
     /// </summary>
     [HttpDelete("{planId}/items/{itemId}")]
-    [RequirePermission(ExpressPermissions.CostPlanDelete)]
+    [RequirePermission(ExpressPermissions.CostPlanEdit)]
     public async Task<ApiResult> DeleteItem(long planId, long itemId)
     {
         try
@@ -338,7 +338,7 @@ public class CostPlanController : ControllerBase
     /// 删除时间段
     /// </summary>
     [HttpDelete("{planId}/items/{itemId}/periods/{periodId}")]
-    [RequirePermission(ExpressPermissions.CostPlanDelete)]
+    [RequirePermission(ExpressPermissions.CostPlanEdit)]
     public async Task<ApiResult> DeletePeriod(long planId, long itemId, long periodId)
     {
         var result = await _costPlanService.DeletePeriodAsync(planId, itemId, periodId);
@@ -435,32 +435,13 @@ public class CostPlanController : ControllerBase
     /// 删除互斥配置
     /// </summary>
     [HttpDelete("{planId}/exclusions/{exclusionId}")]
-    [RequirePermission(ExpressPermissions.CostPlanDelete)]
+    [RequirePermission(ExpressPermissions.CostPlanEdit)]
     public async Task<ApiResult> DeleteExclusion(long planId, long exclusionId)
     {
         var result = await _costPlanService.DeleteExclusionAsync(planId, exclusionId);
         if (!result)
             return ApiResult.Fail("互斥配置不存在");
         return ApiResult.Ok("删除互斥配置成功");
-    }
-
-    // === 运单成本计算 ===
-
-    /// <summary>
-    /// 计算运单有效成本
-    /// </summary>
-    [HttpGet("effective-cost")]
-    [RequirePermission(ExpressPermissions.CostPlanView)]
-    public async Task<ApiResult<EffectiveCostResult>> GetEffectiveCost(
-        [FromQuery] string brandCode,
-        [FromQuery] long outletId,
-        [FromQuery] string? shopName,
-        [FromQuery] DateTime businessDate)
-    {
-        var result = await _costPlanService.GetEffectiveCostAsync(brandCode, outletId, shopName, businessDate);
-        if (result == null)
-            return ApiResult<EffectiveCostResult>.Fail("未找到匹配的成本方案");
-        return ApiResult<EffectiveCostResult>.Success(result);
     }
 
     // === 城市查询 ===

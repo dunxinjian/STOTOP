@@ -34,6 +34,24 @@ public class PolicyRebateSettlementService : IPolicyRebateSettlementService
         var policy = await _rebateRepo.GetByIdAsync(policyRebateId)
             ?? throw new InvalidOperationException("返利方案不存在");
 
+        // 政策按月发布、有效期严格：仅生效状态、且账期落在政策有效期内才可结算，避免用草稿/停用/超期政策错误出单
+        if (policy.FStatus != 1)
+            throw new InvalidOperationException("返利方案未生效（仅生效状态可执行结算）");
+        var periodStartDate = periodStart.Date;
+        var periodEndDate = periodEnd.Date;
+        if (policy.FEffectiveDate.Date > periodEndDate
+            || (policy.FExpiryDate.HasValue && policy.FExpiryDate.Value.Date < periodStartDate))
+            throw new InvalidOperationException(
+                $"结算账期 [{periodStartDate:yyyy-MM-dd}, {periodEndDate:yyyy-MM-dd}] 不在政策有效期 [{policy.FEffectiveDate:yyyy-MM-dd}, {(policy.FExpiryDate?.ToString("yyyy-MM-dd") ?? "无限")}] 内");
+
+        // 幂等：同政策同账期已存在结算单时拒绝重复执行，避免反复 execute 生成多条并各自确认导致重复核减成本
+        var duplicate = await _settlementRepo.Query()
+            .AnyAsync(s => s.FPolicyRebateId == policyRebateId
+                && s.FPeriodStart == periodStart
+                && s.FPeriodEnd == periodEnd);
+        if (duplicate)
+            throw new InvalidOperationException("该政策在此账期已存在结算单，请勿重复执行（如需重算请先处理原结算单）");
+
         // 1. 查询账期内运单数据
         var waybills = await _waybillRepo.Query()
             .Where(w => w.FBrandCode == policy.FBrandCode

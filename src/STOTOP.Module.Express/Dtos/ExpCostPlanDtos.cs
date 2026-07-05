@@ -45,6 +45,7 @@ public class CostPlanItemPeriodDto
     public long Id { get; set; }
     public long ItemId { get; set; }
     public DateTime EffectiveDate { get; set; }
+    public DateTime? ExpiryDate { get; set; }
     public string? MatrixJson { get; set; }
     public DateTime CreatedTime { get; set; }
     public DateTime UpdatedTime { get; set; }
@@ -98,11 +99,18 @@ public class UpdateItemRequest
 public class CreatePeriodRequest
 {
     public DateTime EffectiveDate { get; set; }
+    /// <summary>失效日期（可空）。非空时超过该日期的运单不再命中本期间，避免缺月价时沿用旧价。</summary>
+    public DateTime? ExpiryDate { get; set; }
     public string? MatrixJson { get; set; }
 }
 
 public class UpdatePeriodRequest
 {
+    /// <summary>生效日期（可空）。非空时更新期间生效日期；为空表示本次不改日期，避免清空。</summary>
+    public DateTime? EffectiveDate { get; set; }
+    /// <summary>失效日期（可空）。非空时更新失效日期；为空表示本次不改（清除失效日期请删后重建）。</summary>
+    public DateTime? ExpiryDate { get; set; }
+    /// <summary>矩阵 JSON（可空）。为空表示本次不改矩阵（仅改生效日期时不得覆写清空矩阵）。</summary>
     public string? MatrixJson { get; set; }
 }
 
@@ -114,23 +122,9 @@ public class CreateExclusionRequest
 
 public class UpdateExclusionRequest
 {
+    /// <summary>生效日期（可空）。非空时更新互斥规则生效日期；为空表示本次不改（互斥规则按生效日期决定一口价模式下排除哪些成本项）。</summary>
+    public DateTime? EffectiveDate { get; set; }
     public string? ExclusionRuleJson { get; set; }
-}
-
-// === 运单成本计算结果 ===
-public class EffectiveCostResult
-{
-    public string Mode { get; set; } = string.Empty; // "fixed_price" | "standard"
-    public decimal TotalCost { get; set; }
-    public List<CostBreakdownItem> Breakdowns { get; set; } = new();
-}
-
-public class CostBreakdownItem
-{
-    public long ItemId { get; set; }
-    public string ItemName { get; set; } = string.Empty;
-    public int ItemType { get; set; }
-    public decimal Amount { get; set; }
 }
 
 // === 城市 DTO ===

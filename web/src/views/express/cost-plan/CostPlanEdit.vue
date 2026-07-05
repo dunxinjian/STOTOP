@@ -184,6 +184,7 @@ import { message } from 'ant-design-vue'
 import dayjs, { type Dayjs } from 'dayjs'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
+import { WEIGHT_STAGE_OPTIONS } from './constants'
 import {
   getCostPlanDetail,
   activateCostPlan,
@@ -283,15 +284,9 @@ const itemTypeOptions = [
 ]
 
 // 结算重量环节枚举（与 CostItemToolbar 保持一致）。该字段是环节码而非 kg 数值，
+// 结算重量环节：单一真源 constants.ts（避免与 CostItemToolbar 两处硬编码漂移）。
 // 旧版误用 kg 数值输入框会写入非法环节码，污染计费取重维度
-const weightStageOptions = [
-  { value: 1, label: '揽收称重' },
-  { value: 2, label: '揽收体积重' },
-  { value: 3, label: '中心操作称重' },
-  { value: 4, label: '中心操作体积重' },
-  { value: 5, label: '目的操作称重' },
-  { value: 6, label: '目的操作体积重' },
-]
+const weightStageOptions = WEIGHT_STAGE_OPTIONS
 
 function getItemTypeText(t: number) {
   return itemTypeOptions.find(o => o.value === t)?.label ?? '未知'

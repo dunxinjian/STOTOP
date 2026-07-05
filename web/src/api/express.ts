@@ -1935,6 +1935,8 @@ export interface CostPlanItemPeriodDto {
   id: number
   itemId: number
   effectiveDate: string
+  /** 失效日期（可空）。非空时超过该日期的运单不再命中本期间，避免缺月价沿用旧价。 */
+  expiryDate?: string | null
   matrixJson?: string
   createdTime: string
   updatedTime: string
@@ -2060,11 +2062,11 @@ export function getCostPlanItemPeriods(planId: number, itemId: number): Promise<
   return get(`/express/cost-plans/${planId}/items/${itemId}/periods`)
 }
 
-export function createCostPlanItemPeriod(planId: number, itemId: number, data: { effectiveDate: string; matrixJson?: string }): Promise<CostPlanItemPeriodDto> {
+export function createCostPlanItemPeriod(planId: number, itemId: number, data: { effectiveDate: string; expiryDate?: string | null; matrixJson?: string }): Promise<CostPlanItemPeriodDto> {
   return post(`/express/cost-plans/${planId}/items/${itemId}/periods`, data)
 }
 
-export function updateCostPlanItemPeriod(planId: number, itemId: number, periodId: number, data: { effectiveDate?: string; matrixJson?: string }): Promise<CostPlanItemPeriodDto> {
+export function updateCostPlanItemPeriod(planId: number, itemId: number, periodId: number, data: { effectiveDate?: string; expiryDate?: string | null; matrixJson?: string }): Promise<CostPlanItemPeriodDto> {
   return put(`/express/cost-plans/${planId}/items/${itemId}/periods/${periodId}`, data)
 }
 

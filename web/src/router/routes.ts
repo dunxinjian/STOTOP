@@ -572,13 +572,8 @@ export const layoutRoute: RouteRecordRaw = {
       component: () => import('@/views/express/cost-plan/CostPlanList.vue'),
       meta: { title: '快递成本方案' },
     },
-    // ===== 快递成本方案-新建 =====
-    {
-      path: 'express/cost-plan/create',
-      name: 'CostPlanCreate',
-      component: () => import('@/views/express/cost-plan/CostPlanEdit.vue'),
-      meta: { title: '新建快递成本方案', hidden: true },
-    },
+    // 注：新建方案走 CostPlanList 的弹窗，无独立创建路由。
+    // 原 express/cost-plan/create 指向只支持 :id 编辑模式的 CostPlanEdit，直达会请求 /cost-plans/NaN，已删除。
     // ===== 快递成本方案-编辑/详情 =====
     {
       path: 'express/cost-plan/edit/:id',

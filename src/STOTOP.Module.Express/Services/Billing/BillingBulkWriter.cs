@@ -70,6 +70,7 @@ public class BillingBulkWriter
         table.Columns.Add("F归属网点编号", typeof(string));
         table.Columns.Add("F成本合计", typeof(decimal));
         table.Columns.Add("F组织ID", typeof(long));
+        table.Columns.Add("F租户ID", typeof(long));
 
         foreach (var r in results)
         {
@@ -102,6 +103,7 @@ public class BillingBulkWriter
             row["F归属网点编号"] = (object?)r.FNetworkPointCode ?? DBNull.Value;
             row["F成本合计"] = r.FTotalCost;
             row["F组织ID"] = r.FOrgId;
+            row["F租户ID"] = r.FTenantId;
             table.Rows.Add(row);
         }
 
@@ -124,34 +126,9 @@ public class BillingBulkWriter
 
         await bulkCopy.WriteToServerAsync(table);
 
-        // 方案A：查回 FID，按运单编号和参与方角色=1（Level 0）匹配
-        var waybillToResultId = new Dictionary<long, long>();
-        var waybillNos = results.Where(r => r.FPartyRole == 1 && r.FCalcStatus == 1)
-            .Select(r => r.FWaybillNo).Where(n => n != null).Distinct().ToList();
-
-        if (waybillNos.Count > 0)
-        {
-            // 分批查询
-            const int batchSize = 1000;
-            for (int i = 0; i < waybillNos.Count; i += batchSize)
-            {
-                var batch = waybillNos.Skip(i).Take(batchSize).ToList();
-                var paramList = string.Join(",", batch.Select((_, idx) => $"@p{idx}"));
-                var sql = $"SELECT FID, [F运单编号] FROM [{resultTable}] WHERE [F运单编号] IN ({paramList}) AND [F参与方角色] = 1 AND [F计算状态] = 1";
-                using var cmd = new SqlCommand(sql, connection, externalTxn);
-                for (int idx = 0; idx < batch.Count; idx++)
-                    cmd.Parameters.AddWithValue($"@p{idx}", batch[idx]!);
-                using var reader = await cmd.ExecuteReaderAsync();
-                while (await reader.ReadAsync())
-                {
-                    var fid = reader.GetInt64(0);
-                    var waybillNo = reader.GetString(1);
-                    // 找到对应的原始 result 的 RowId——返回空字典即可，上层不再使用
-                }
-            }
-        }
-
-        return waybillToResultId;
+        // 上层不再需要 (运单编号→FID) 映射（成本回写按计费结果行 FID 自映射），返回空字典即可。
+        // 原此处有一段分批 SELECT 回查 FID 的循环，只读不用、白耗事务内多轮往返，已删除。
+        return new Dictionary<long, long>();
         }
         finally
         {
@@ -172,6 +149,7 @@ public class BillingBulkWriter
         table.Columns.Add("F成本项目ID", typeof(int));
         table.Columns.Add("F金额", typeof(decimal));
         table.Columns.Add("F组织ID", typeof(long));
+        table.Columns.Add("F租户ID", typeof(long));
 
         foreach (var b in breakdowns)
         {
@@ -180,6 +158,7 @@ public class BillingBulkWriter
             row["F成本项目ID"] = b.FCostItemId;
             row["F金额"] = b.FAmount;
             row["F组织ID"] = b.FOrgId;
+            row["F租户ID"] = b.FTenantId;
             table.Rows.Add(row);
         }
 

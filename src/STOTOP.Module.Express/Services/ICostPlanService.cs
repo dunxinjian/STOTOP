@@ -43,9 +43,6 @@ public interface ICostPlanService
     Task<CostPlanExclusionDto?> UpdateExclusionAsync(long planId, long exclusionId, UpdateExclusionRequest request);
     Task<bool> DeleteExclusionAsync(long planId, long exclusionId);
 
-    // === 运单成本计算 ===
-    Task<EffectiveCostResult?> GetEffectiveCostAsync(string brandCode, long outletId, string? shopName, DateTime businessDate);
-
     // === 矩阵保存/读取 ===
     Task SaveItemMatrixAsync(long planId, long itemId, SaveItemMatrixRequest request);
     Task<CostItemMatrixDto?> GetItemMatrixAsync(long planId, long itemId, DateTime? effectiveDate = null);

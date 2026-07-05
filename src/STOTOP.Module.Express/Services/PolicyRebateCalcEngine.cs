@@ -52,21 +52,37 @@ public class PolicyRebateCalcEngine
 
         if (tiers.Count == 0) return 0;
 
-        decimal totalRebate = 0;
-        foreach (var day in dailyVolumes)
+        // 结算周期决定分档口径（FSettlementCycle：1日 2周 3月）：
+        //  - 日结：逐日各自落档（当日单量决定档位）；
+        //  - 周/月结：账期累计单量整体落档一次。申通主政策按【月累计单量】分档，
+        //    逐日落档会把每天都落到低档、并让低量日归零，系统性少算返利，故非日结时按账期总量落档。
+        if (policy.FSettlementCycle == 1)
         {
-            totalRebate += CalculateTieredRebateForDay(day.Count, tiers);
+            decimal dailyRebate = 0;
+            foreach (var day in dailyVolumes)
+            {
+                dailyRebate += CalculateTieredRebate(day.Count, tiers);
+            }
+            return dailyRebate;
         }
-        return totalRebate;
+
+        var periodVolume = dailyVolumes.Sum(d => d.Count);
+        return CalculateTieredRebate(periodVolume, tiers);
     }
 
     /// <summary>
-    /// 按日单量分段累加计算阶梯返利
+    /// 按单量分段累加计算阶梯返利（累进制：各档区间量 × 该档单价；超最高档部分按最高档单价）。
+    /// volume 的口径由结算周期决定：日结传当日单量，周/月结传账期累计单量。
     /// </summary>
-    private static decimal CalculateTieredRebateForDay(int dailyCount, List<ExpPolicyRebateTier> tiers)
+    private static decimal CalculateTieredRebate(int volume, List<ExpPolicyRebateTier> tiers)
     {
+        // 低于首档起点：无政策返利。必须在此拦截，否则下方"超额按最高档单价"的兜底会把
+        // 低于门槛的量误按最高档计价（如首档 500 起、量 300 却被算成 300×最高档单价）。
+        if (tiers.Count == 0 || volume < tiers[0].FDailyVolumeFrom)
+            return 0;
+
         decimal rebate = 0;
-        int remaining = dailyCount;
+        int remaining = volume;
 
         for (int i = 0; i < tiers.Count && remaining > 0; i++)
         {
@@ -74,7 +90,7 @@ public class PolicyRebateCalcEngine
             int tierFrom = tier.FDailyVolumeFrom;
             int? tierTo = tier.FDailyVolumeTo;
 
-            if (dailyCount < tierFrom) break;
+            if (volume < tierFrom) break;
 
             int tierCapacity;
             if (tierTo.HasValue)
