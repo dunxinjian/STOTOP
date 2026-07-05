@@ -344,6 +344,15 @@ const designerDrawerTitle = computed(() => {
   return '预演与校验'
 })
 
+// 选中节点的出边列表（含停用边）：画布上平行边可能重叠点不到，此处兜底可点选任一条
+const selectedStageOutgoingRoutes = computed(() =>
+  selectedDesignerStage.value
+    ? state.routes
+        .filter(route => route.fromStageKey === selectedDesignerStage.value!.id)
+        .sort((a, b) => Number(a.isDefault) - Number(b.isDefault) || a.priority - b.priority)
+    : []
+)
+
 const selectedCardComponent = computed(() =>
   editingComponentId.value
     ? state.cardComponents.find(component => component.id === editingComponentId.value) || null
@@ -2963,6 +2972,30 @@ function goBack() {
           </label>
         </div>
 
+        <!-- 出边列表兜底：画布上平行/重叠边点不到时，从这里选任一条出边（含停用边）编辑 -->
+        <div v-if="selectedStageOutgoingRoutes.length" class="fdef-drawer-outedges">
+          <header class="fdef-drawer-outedges__head">
+            <strong>出边（{{ selectedStageOutgoingRoutes.length }}）</strong>
+            <span>点击任一条编辑，避免画布上重叠边点不到</span>
+          </header>
+          <button
+            v-for="route in selectedStageOutgoingRoutes"
+            :key="route.edgeKey"
+            type="button"
+            class="fdef-drawer-outedge"
+            :class="{ 'is-disabled': route.status === 'disabled' }"
+            @click="selectDesignerEdge(route.edgeKey)"
+          >
+            <span class="fdef-drawer-outedge__name">{{ route.routeName || (route.isDefault ? '默认分支' : '条件分支') }}</span>
+            <span class="fdef-drawer-outedge__meta">
+              <a-tag v-if="route.isDefault" color="default">默认</a-tag>
+              <a-tag v-else color="blue">优先级 {{ route.priority }}</a-tag>
+              <a-tag v-if="route.status === 'disabled'" color="warning">已停用</a-tag>
+              <span class="fdef-drawer-outedge__target">→ {{ route.toStageKey }}</span>
+            </span>
+          </button>
+        </div>
+
         <!-- V2 冻结：动态加签编辑器（简化瘦身桶B 2026-06-16），入口暂下线；金额分级可用条件路由表达。
              dynamicPolicies 数据通道保留，存量策略仍随草稿加载/保存。
              条件里保留 selectedDesignerStage 判空以维持模板类型窄化 -->
@@ -4043,6 +4076,71 @@ function goBack() {
   }
 
   label > span {
+    color: var(--text-3);
+    font-size: 12px;
+  }
+}
+
+/* 节点抽屉出边列表 */
+.fdef-drawer-outedges {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  &__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+
+    strong {
+      color: var(--text-1);
+      font-size: 13px;
+    }
+
+    span {
+      color: var(--text-3);
+      font-size: 12px;
+    }
+  }
+}
+
+.fdef-drawer-outedge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s;
+
+  &:hover {
+    border-color: var(--color-primary);
+  }
+
+  &.is-disabled {
+    opacity: 0.65;
+  }
+
+  &__name {
+    color: var(--text-1);
+    font-size: 13px;
+    word-break: break-all;
+  }
+
+  &__meta {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  &__target {
     color: var(--text-3);
     font-size: 12px;
   }

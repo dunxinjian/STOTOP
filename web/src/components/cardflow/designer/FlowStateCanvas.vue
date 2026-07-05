@@ -80,6 +80,26 @@ const linearEdges = computed(() =>
     }),
 )
 
+// 平行边偏移：同 源→目标→handle 的多条边（如两条条件边）默认完全重叠、第二条点不到；
+// 给每组内的边分配递增 offset，smoothstep 走不同折线，可分别点选。
+const edgeOffsets = computed(() => {
+  const groups = new Map<string, string[]>()
+  for (const route of props.routes) {
+    if (!route.fromStageKey || !route.toStageKey) continue
+    const handle = route.isDefault ? 'next' : 'branch'
+    const key = `${route.fromStageKey}->${route.toStageKey}->${handle}`
+    const arr = groups.get(key) || []
+    arr.push(route.edgeKey)
+    groups.set(key, arr)
+  }
+  const offsets = new Map<string, number>()
+  for (const edgeKeys of groups.values()) {
+    if (edgeKeys.length <= 1) continue
+    edgeKeys.forEach((ek, i) => offsets.set(ek, 20 + i * 28))
+  }
+  return offsets
+})
+
 const routeEdges = computed(() =>
   props.routes
     .filter(route => route.fromStageKey && route.toStageKey && stageByKey.value.has(route.fromStageKey) && stageByKey.value.has(route.toStageKey))
@@ -97,6 +117,7 @@ const routeEdges = computed(() =>
         sourceHandle: isDefault ? 'next' : 'branch',
         targetHandle: 'in',
         type: 'smoothstep',
+        ...(edgeOffsets.value.has(route.edgeKey) ? { pathOptions: { offset: edgeOffsets.value.get(route.edgeKey) } } : {}),
         animated: !isDefault && !disabled,
         label: `${route.routeName || (isDefault ? '默认分支' : '条件分支')} · ${disabled ? '已停用' : isDefault ? '默认分支' : `优先级 ${route.priority}`}`,
         data: { kind: disabled ? 'disabled' : isDefault ? 'default' : 'conditional' },
