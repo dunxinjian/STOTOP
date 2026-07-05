@@ -928,6 +928,12 @@ export type SchemaFieldType =
 export type AuxiliaryType = 'employee' | 'supplier' | 'customer' | 'department' | 'project'
 export type SchemaAutoSource = 'currentUser' | 'currentOrg' | 'currentUserDepartment'
 
+/** enum 选项：兼容旧 string[] 与 { label, value } 存码显名 */
+export interface SchemaEnumOption {
+  label: string
+  value: string | number
+}
+
 export interface SchemaFieldDefinition {
   key: string
   label: string
@@ -937,7 +943,7 @@ export interface SchemaFieldDefinition {
   sensitive?: boolean
   maskPattern?: string | null
   defaultValue?: any
-  options?: string[]            // enum 类型的选项
+  options?: Array<string | SchemaEnumOption>   // enum 类型的选项（string 或 {label,value}）
   placeholder?: string
   dataSource?: 'none' | 'auto' | 'computed'
   autoSource?: SchemaAutoSource
@@ -953,6 +959,19 @@ export interface SchemaFieldDefinition {
 }
 
 // ==================== Schema 字段值（结构化字段） ====================
+
+/** 人员字段值（存 ID + 姓名快照，供只读回显免二次查询） */
+export interface UserFieldValue {
+  id: number
+  name: string
+  orgName?: string
+}
+
+/** 组织字段值（存 ID + 名称快照） */
+export interface OrgFieldValue {
+  id: number
+  name: string
+}
 
 /** 财务科目字段值 */
 export interface AccountFieldValue {

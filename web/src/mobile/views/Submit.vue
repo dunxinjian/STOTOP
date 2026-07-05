@@ -74,6 +74,7 @@ import {
 } from 'vant'
 import { get, post, put } from '@/api/request'
 import { parseCardSchemaFields } from '@/utils/cardflowSchema'
+import { normalizeOptionList } from '@/utils/cardflowFieldFormat'
 import type {
   AvailableFlowDto,
   FlowVersionDto,
@@ -197,7 +198,7 @@ function toFieldSchema(fields: SchemaFieldDefinition[]): FieldSchema[] {
         : 'text' as const,
       required: f.required,
       placeholder: f.placeholder,
-      options: (f.options || []).map(o => ({ label: o, value: o })),
+      options: normalizeOptionList(f.options),
     }))
 }
 

@@ -4,6 +4,7 @@ import type { AuxiliaryType, SchemaFieldDefinition } from '@/types/cardflow'
 import AccountSelector from './fields/AccountSelector.vue'
 import AuxiliarySelector from './fields/AuxiliarySelector.vue'
 import BankAccountSelector from './fields/BankAccountSelector.vue'
+import { formatFieldDisplayValue, formatEnumValue, normalizeEnumOptions } from '@/utils/cardflowFieldFormat'
 import {
   SwipeCell as VanSwipeCell,
   Field as VanField,
@@ -53,8 +54,9 @@ const emit = defineEmits<{
 // ==================== 状态 ====================
 
 const expanded = ref(false)
-const datePickerVisible = ref<Record<string, boolean>>({})
-const pickerVisible = ref<Record<string, boolean>>({})
+// 移动端明细日期/枚举弹层：全表共用单实例（原实现每行每字段各建一个 VanPopup，rows×fields 可达数百）
+const activeDatePicker = ref<{ rowId: string; field: SchemaFieldDefinition } | null>(null)
+const activeEnumPicker = ref<{ rowId: string; field: SchemaFieldDefinition } | null>(null)
 
 // ==================== 计算属性 ====================
 
@@ -158,50 +160,14 @@ function formatDate(val: any): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function formatAccountValue(val: any): string {
-  if (!val) return '-'
-  if (typeof val === 'string') return val || '-'
-  const code = val.code || val.accountCode
-  const name = val.name || val.accountName
-  if (code && name) return `${code} ${name}`
-  return name || code || '-'
-}
-
-function formatAuxiliaryValue(val: any): string {
-  if (!val) return '-'
-  if (typeof val === 'string') return val || '-'
-  if (val.code && val.name) return `${val.code} ${val.name}`
-  return val.name || val.code || '-'
-}
-
-function formatBankAccountValue(val: any): string {
-  if (!val) return '-'
-  if (typeof val === 'string') return val || '-'
-  const accountNo = val.accountNo || val.bankAccountNo
-  const bankName = val.bankName
-  const accountName = val.accountName
-  return [accountNo, bankName, accountName].filter(Boolean).join(' · ') || '-'
-}
-
+/** 只读显示统一走单一真源，enum/account/auxiliary/bankAccount 等结构化字段一并根治 [object Object] */
 function getDisplayValue(field: SchemaFieldDefinition, val: any): string {
-  if (val === null || val === undefined || val === '') return '-'
-  switch (field.type as string) {
-    case 'money':
-    case 'amount':
-      return formatMoney(val)
-    case 'number':
-      return formatNumber(val)
-    case 'date':
-      return formatDate(val)
-    case 'account':
-      return formatAccountValue(val)
-    case 'auxiliary':
-      return formatAuxiliaryValue(val)
-    case 'bankAccount':
-      return formatBankAccountValue(val)
-    default:
-      return String(val)
-  }
+  return formatFieldDisplayValue(field, val)
+}
+
+/** enum 编辑态回填显示：存码显名，空值让位 placeholder */
+function enumDisplay(field: SchemaFieldDefinition, val: any): string {
+  return val === null || val === undefined || val === '' ? '' : formatEnumValue(field, val)
 }
 
 function addRow() {
@@ -231,14 +197,24 @@ function toggleExpand() {
   expanded.value = !expanded.value
 }
 
-function onDateConfirm(rowId: string, fieldKey: string, { selectedValues }: any) {
-  updateRowField(rowId, fieldKey, selectedValues.join('-'))
-  datePickerVisible.value[`${rowId}_${fieldKey}`] = false
+function onDateConfirm({ selectedValues }: any) {
+  const ctx = activeDatePicker.value
+  if (!ctx) return
+  updateRowField(ctx.rowId, ctx.field.key, selectedValues.join('-'))
+  activeDatePicker.value = null
 }
 
-function onPickerConfirm(rowId: string, fieldKey: string, { selectedOptions }: any) {
-  updateRowField(rowId, fieldKey, selectedOptions[0]?.value ?? '')
-  pickerVisible.value[`${rowId}_${fieldKey}`] = false
+function onPickerConfirm({ selectedOptions }: any) {
+  const ctx = activeEnumPicker.value
+  if (!ctx) return
+  updateRowField(ctx.rowId, ctx.field.key, selectedOptions[0]?.value ?? '')
+  activeEnumPicker.value = null
+}
+
+/** 移动端枚举 picker 列（存码显名，兼容 string[] 与 {label,value}[]） */
+function enumPickerColumns(field: SchemaFieldDefinition | undefined) {
+  if (!field) return []
+  return normalizeEnumOptions(field).map((o) => ({ text: o.label, value: o.value }))
 }
 
 function getFieldType(dataIndex: string): string {
@@ -290,9 +266,9 @@ function getSummaryText(fieldKey: string): string {
         <span class="expand-btn">展开∨</span>
       </div>
 
-      <!-- 展开内容 -->
+      <!-- 展开内容（grid-rows 0fr↔1fr 动画，天然贴合内容高度，无 max-height 截断） -->
       <div class="detail-expand-wrapper" :class="{ 'is-expanded': expanded }">
-        <div v-if="expanded" class="detail-expanded">
+        <div class="detail-expanded">
           <!-- 收起按钮 -->
           <div class="collapse-header">
             <span class="collapse-title">明细行（{{ rows.length }}）</span>
@@ -465,6 +441,7 @@ function getSummaryText(fieldKey: string): string {
                 size="small"
                 placeholder="请选择"
                 style="width: 100%"
+                :options="normalizeEnumOptions(getField(cdi(column.dataIndex)) || { key: '', label: '', type: 'enum', required: false, readonly: false })"
                 @change="(v: any) => updateRowField(record._id, cdi(column.dataIndex), v)"
               />
               <!-- date -->
@@ -599,7 +576,7 @@ function getSummaryText(fieldKey: string): string {
                     size="small"
                     placeholder="请选择"
                     style="width: 100%"
-                    :options="((field as any).options || []).map((o: string) => ({ label: o, value: o }))"
+                    :options="normalizeEnumOptions(field)"
                     @change="(v: any) => updateRowField(row._id, field.key, v)"
                   />
                   <a-date-picker
@@ -714,18 +691,18 @@ function getSummaryText(fieldKey: string): string {
                     readonly
                     is-link
                     placeholder="请选择日期"
-                    @click="datePickerVisible[`${row._id}_${field.key}`] = true"
+                    @click="activeDatePicker = { rowId: row._id, field }"
                   />
                   <!-- enum/select -->
                   <VanField
                     v-else-if="['enum', 'select'].includes(field.type as string)"
                     :label="field.label"
-                    :model-value="row[field.key] || ''"
+                    :model-value="enumDisplay(field, row[field.key])"
                     :required="field.required"
                     readonly
                     is-link
                     placeholder="请选择"
-                    @click="pickerVisible[`${row._id}_${field.key}`] = true"
+                    @click="activeEnumPicker = { rowId: row._id, field }"
                   />
                   <!-- structured finance fields -->
                   <VanField
@@ -792,40 +769,34 @@ function getSummaryText(fieldKey: string): string {
           </VanButton>
         </div>
 
-        <!-- 日期弹窗 -->
-        <template v-for="row in rows" :key="'dp_group_' + row._id">
-          <VanPopup
-            v-for="field in schema.filter(f => f.type === 'date')"
-            :key="'dp_' + row._id + '_' + field.key"
-            v-model:show="datePickerVisible[`${row._id}_${field.key}`]"
-            position="bottom"
-            round
-          >
-            <VanDatePicker
-              title="选择日期"
-              @confirm="(val: any) => onDateConfirm(row._id, field.key, val)"
-              @cancel="datePickerVisible[`${row._id}_${field.key}`] = false"
-            />
-          </VanPopup>
-        </template>
+        <!-- 日期弹窗（全表单实例） -->
+        <VanPopup
+          :show="!!activeDatePicker"
+          position="bottom"
+          round
+          @update:show="(v: boolean) => { if (!v) activeDatePicker = null }"
+        >
+          <VanDatePicker
+            title="选择日期"
+            @confirm="onDateConfirm"
+            @cancel="activeDatePicker = null"
+          />
+        </VanPopup>
 
-        <!-- 选择器弹窗 -->
-        <template v-for="row in rows" :key="'pk_group_' + row._id">
-          <VanPopup
-            v-for="field in schema.filter(f => ['enum', 'select'].includes(f.type))"
-            :key="'pk_' + row._id + '_' + field.key"
-            v-model:show="pickerVisible[`${row._id}_${field.key}`]"
-            position="bottom"
-            round
-          >
-            <VanPicker
-              :title="field.label"
-              :columns="[]"
-              @confirm="(val: any) => onPickerConfirm(row._id, field.key, val)"
-              @cancel="pickerVisible[`${row._id}_${field.key}`] = false"
-            />
-          </VanPopup>
-        </template>
+        <!-- 选择器弹窗（全表单实例，columns 存码显名） -->
+        <VanPopup
+          :show="!!activeEnumPicker"
+          position="bottom"
+          round
+          @update:show="(v: boolean) => { if (!v) activeEnumPicker = null }"
+        >
+          <VanPicker
+            :title="activeEnumPicker?.field.label"
+            :columns="enumPickerColumns(activeEnumPicker?.field)"
+            @confirm="onPickerConfirm"
+            @cancel="activeEnumPicker = null"
+          />
+        </VanPopup>
       </template>
     </template>
   </div>
@@ -878,18 +849,20 @@ function getSummaryText(fieldKey: string): string {
   }
 }
 
-// ==================== 展开/折叠动画 ====================
+// ==================== 展开/折叠动画（grid-rows，贴合内容高度，无高度上限截断） ====================
 .detail-expand-wrapper {
-  overflow: hidden;
-  max-height: 0;
-  transition: max-height 0.2s ease-in-out;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.24s ease-in-out;
 
   &.is-expanded {
-    max-height: 2000px;
+    grid-template-rows: 1fr;
   }
 }
 
 .detail-expanded {
+  overflow: hidden;
+  min-height: 0;
   padding-top: 8px;
 }
 

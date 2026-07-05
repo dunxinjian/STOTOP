@@ -33,6 +33,7 @@ import {
   getCard,
   updateCard,
   submitCard,
+  resubmitCard,
   getFlowVersionDetail,
   getCardRelations,
   createCardRelation,
@@ -114,7 +115,9 @@ const hasPrerequisite = computed(() => {
   return cardSchema.value.some(f => f.type === 'cardRef')
 })
 
-const isDraft = computed(() => card.value?.status === 'draft' || card.value?.status === 'returned')
+// 后端 UpdateAsync 仅接受 draft：returned 件不可再编辑/保存（保存必 400），只能原样重提（resubmit）
+const isDraft = computed(() => card.value?.status === 'draft')
+const isReturned = computed(() => card.value?.status === 'returned')
 
 // ==================== 数据加载 ====================
 
@@ -484,6 +487,33 @@ async function handleSubmit() {
   }
 }
 
+// 退回件原样重提：不走 updateCard（后端拒 draft 以外的更新），直接 resubmit 进入新一轮审批
+async function handleResubmit() {
+  if (!cardId.value) return
+  try {
+    await showConfirmDialog({
+      title: '确认重新提交',
+      message: '退回件将按原内容重新提交，进入新一轮审批，是否继续？',
+    })
+  } catch {
+    return
+  }
+  submitting.value = true
+  try {
+    const result = await resubmitCard(cardId.value)
+    if (result.success) {
+      showToast({ message: '已重新提交', type: 'success' })
+      router.back()
+    } else {
+      showToast({ message: result.message || '提交失败', type: 'fail' })
+    }
+  } catch {
+    showToast({ message: '提交失败', type: 'fail' })
+  } finally {
+    submitting.value = false
+  }
+}
+
 async function onRelationSelect(c: CardListDto) {
   if (!cardId.value) return
   try {
@@ -580,9 +610,18 @@ onBeforeUnmount(() => {
           </VanCell>
           <VanCell title="状态">
             <template #value>
-              <VanTag :type="isDraft ? 'primary' : 'default'" size="medium">
-                {{ isDraft ? '草稿' : (card.status || '-') }}
+              <VanTag :type="isDraft ? 'primary' : (isReturned ? 'warning' : 'default')" size="medium">
+                {{ isDraft ? '草稿' : (isReturned ? '已退回' : (card.status || '-')) }}
               </VanTag>
+            </template>
+          </VanCell>
+        </VanCellGroup>
+
+        <!-- 退回件提示：只读回显 + 原样重提引导 -->
+        <VanCellGroup v-if="isReturned" inset class="returned-tip">
+          <VanCell>
+            <template #title>
+              <span class="returned-tip__text">该卡片已被退回，内容为只读。如需修改请前往 PC 端，或按原内容“重新提交”进入新一轮审批。</span>
             </template>
           </VanCell>
         </VanCellGroup>
@@ -595,7 +634,7 @@ onBeforeUnmount(() => {
             v-model="formData"
             :schema="cardSchema"
             :errors="errors"
-            mode="edit"
+            :mode="isDraft ? 'edit' : 'view'"
             platform="mobile"
           />
           <VanEmpty v-else description="该流程未配置表单字段" />
@@ -607,7 +646,7 @@ onBeforeUnmount(() => {
           <CardDetailTable
             v-model="detailRows"
             :schema="detailSchema"
-            mode="edit"
+            :mode="isDraft ? 'edit' : 'view'"
             platform="mobile"
           />
         </div>
@@ -664,20 +703,27 @@ onBeforeUnmount(() => {
     </VanPullRefresh>
 
     <!-- 底部操作栏 -->
-    <VanActionBar v-if="!loading && card">
+    <VanActionBar v-if="!loading && card && isDraft">
       <VanActionBarButton
         type="warning"
         text="暂存草稿"
         :loading="submitting"
-        :disabled="!isDraft"
         @click="handleSaveDraft"
       />
       <VanActionBarButton
         type="danger"
         text="提交审批"
         :loading="submitting"
-        :disabled="!isDraft"
         @click="handleSubmit"
+      />
+    </VanActionBar>
+    <!-- 退回件：仅原样重提 -->
+    <VanActionBar v-else-if="!loading && card && isReturned">
+      <VanActionBarButton
+        type="danger"
+        text="重新提交"
+        :loading="submitting"
+        @click="handleResubmit"
       />
     </VanActionBar>
 
@@ -706,6 +752,16 @@ onBeforeUnmount(() => {
 
 .page-scroll {
   min-height: calc(100vh - 46px);
+}
+
+.returned-tip {
+  margin-top: 8px;
+
+  &__text {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--color-warning);
+  }
 }
 
 .save-status {

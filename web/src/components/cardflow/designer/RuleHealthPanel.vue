@@ -129,6 +129,66 @@ function flattenConditions(condition: any): any[] {
   return condition.field ? [condition] : []
 }
 
+// 从叶子条件求某字段的数值区间 [lo, hi]（gt/gte/lt/lte/eq/between），无数值约束返回 null
+function numericIntervalFor(conds: any[], field: string): { lo: number; hi: number } | null {
+  let lo = -Infinity
+  let hi = Infinity
+  let has = false
+  for (const c of conds) {
+    if (c.field !== field) continue
+    if (c.operator === 'between' && Array.isArray(c.value) && c.value.length === 2) {
+      const a = Number(c.value[0])
+      const b = Number(c.value[1])
+      if (!isNaN(a)) { lo = Math.max(lo, a); has = true }
+      if (!isNaN(b)) { hi = Math.min(hi, b); has = true }
+      continue
+    }
+    const v = Number(c.value)
+    if (isNaN(v)) continue
+    switch (c.operator) {
+      case 'gt': case 'gte': lo = Math.max(lo, v); has = true; break
+      case 'lt': case 'lte': hi = Math.min(hi, v); has = true; break
+      case 'eq': lo = Math.max(lo, v); hi = Math.min(hi, v); has = true; break
+    }
+  }
+  return has ? { lo, hi } : null
+}
+
+// 从叶子条件求某字段允许的枚举值集合（eq/in 交集），无枚举约束返回 null
+function enumSetFor(conds: any[], field: string): Set<any> | null {
+  let values: any[] | null = null
+  for (const c of conds) {
+    if (c.field !== field) continue
+    let s: any[] | null = null
+    if (c.operator === 'eq') s = [c.value]
+    else if (c.operator === 'in' && Array.isArray(c.value)) s = [...c.value]
+    if (!s) continue
+    const cur = s
+    values = values === null ? cur : values.filter((x: any) => cur.includes(x))
+  }
+  return values === null ? null : new Set(values)
+}
+
+function conditionFields(conds: any[]): string[] {
+  return Array.from(new Set(conds.map(c => c.field).filter(Boolean)))
+}
+
+// 两条规则是否可能同时命中：任一共享字段互斥（枚举取值不相交 / 数值区间不相交）→ 不重叠；
+// 全部共享字段约束都可同时满足 → 潜在重叠（通用区间相交 + enum 互斥，取代 amount+gt 硬编码）
+function rulesOverlap(left: any[], right: any[]): boolean {
+  const shared = conditionFields(left).filter(f => conditionFields(right).includes(f))
+  if (shared.length === 0) return false // 无共享约束字段：靠优先级即可，不判为重叠（避免噪声）
+  for (const field of shared) {
+    const lSet = enumSetFor(left, field)
+    const rSet = enumSetFor(right, field)
+    if (lSet && rSet && ![...lSet].some(x => rSet.has(x))) return false // 枚举互斥
+    const lInt = numericIntervalFor(left, field)
+    const rInt = numericIntervalFor(right, field)
+    if (lInt && rInt && (lInt.lo > rInt.hi || rInt.lo > lInt.hi)) return false // 数值区间不相交
+  }
+  return true
+}
+
 function checkOverlap(): HealthItem[] {
   const result: HealthItem[] = []
   const groups = new Map<string, StageRouteRuleRequest[]>()
@@ -140,13 +200,12 @@ function checkOverlap(): HealthItem[] {
       for (let j = i + 1; j < routes.length; j++) {
         const left = flattenConditions(parseCondition(routes[i].conditionJson))
         const right = flattenConditions(parseCondition(routes[j].conditionJson))
-        const sharedAmountGt = left.some(a => a.field === 'amount' && ['gt', 'gte'].includes(a.operator))
-          && right.some(a => a.field === 'amount' && ['gt', 'gte'].includes(a.operator))
-        if (sharedAmountGt) {
+        if (left.length === 0 || right.length === 0) continue
+        if (rulesOverlap(left, right)) {
           result.push({
             level: 'warning',
             title: '规则重叠',
-            detail: `「${routes[i].routeName}」和「${routes[j].routeName}」都可能命中金额大于类条件，请确认优先级。`,
+            detail: `「${routes[i].routeName}」和「${routes[j].routeName}」的条件区间存在交集，可能同时命中，请确认优先级。`,
           })
         }
       }

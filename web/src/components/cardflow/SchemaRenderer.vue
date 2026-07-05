@@ -4,10 +4,12 @@ import type { CardComponentRuntime, SchemaFieldDefinition, CardFileValue } from 
 import { get } from '@/api/request'
 import { uploadCardAttachment } from '@/api/cardflow'
 import { downloadBlob } from '@/utils/download'
-import { formatFieldDisplayValue } from '@/utils/cardflowFieldFormat'
+import { formatFieldDisplayValue, formatEnumValue, normalizeEnumOptions } from '@/utils/cardflowFieldFormat'
 import AccountSelector from './fields/AccountSelector.vue'
 import AuxiliarySelector from './fields/AuxiliarySelector.vue'
 import BankAccountSelector from './fields/BankAccountSelector.vue'
+import UserSelect from './fields/UserSelect.vue'
+import OrgSelect from './fields/OrgSelect.vue'
 import CardComponentRenderer from './runtime/CardComponentRenderer.vue'
 import type { DetailRow } from './CardDetailTable.vue'
 import {
@@ -92,14 +94,21 @@ function formatDate(val: any): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function getEnumLabel(field: SchemaFieldDefinition, val: any): string {
-  if (!val && val !== 0) return ''
-  return String(val)
+/** enum 编辑态回填显示：存码显名，空值让位 placeholder */
+function getEnumDisplay(field: SchemaFieldDefinition): string {
+  const val = formData.value[field.key]
+  return val === null || val === undefined || val === '' ? '' : formatEnumValue(field, val)
 }
 
 function getViewValue(field: SchemaFieldDefinition): string {
   // 统一走 formatFieldDisplayValue：根治移动只读端对 user/org/account/auxiliary/bankAccount/voucherRef 输出 [object Object]
   return formatFieldDisplayValue(field, formData.value[field.key])
+}
+
+/** 编辑态只读回填：有值显名、空值让位 placeholder（供移动端财务字段/兜底字段用） */
+function getFieldDisplay(field: SchemaFieldDefinition): string {
+  const val = formData.value[field.key]
+  return val === null || val === undefined || val === '' ? '' : formatFieldDisplayValue(field, val)
 }
 
 function isImageFile(name: string): boolean {
@@ -183,7 +192,7 @@ async function openAttachment(f: any) {
 }
 
 function getPickerColumns(field: SchemaFieldDefinition) {
-  return (field.options || []).map((opt) => ({ text: opt, value: opt }))
+  return normalizeEnumOptions(field).map((opt) => ({ text: opt.label, value: opt.value }))
 }
 
 // Vant 日期确认
@@ -265,7 +274,7 @@ const hasRuntimeComponents = computed(() => (props.components?.length ?? 0) > 0)
             :value="formData[field.key]"
             :placeholder="field.placeholder || `请选择${field.label}`"
             :disabled="field.readonly"
-            :options="(field.options || []).map(o => ({ label: o, value: o }))"
+            :options="normalizeEnumOptions(field)"
             @update:value="(v: any) => updateField(field.key, v)"
           />
 
@@ -297,38 +306,29 @@ const hasRuntimeComponents = computed(() => (props.components?.length ?? 0) > 0)
           </a-upload>
 
           <!-- user -->
-          <a-input
+          <UserSelect
             v-else-if="field.type === 'user'"
-            :value="formData[field.key]?.name || formData[field.key] || ''"
+            :model-value="formData[field.key]"
+            :disabled="field.readonly"
             :placeholder="field.placeholder || '请选择人员'"
-            readonly
-            @click="() => { /* TODO: 接入 UserPicker */ }"
-          >
-            <template #suffix>
-              <user-outlined />
-            </template>
-          </a-input>
+            @update:model-value="(v: any) => updateField(field.key, v)"
+          />
 
           <!-- org -->
-          <a-input
+          <OrgSelect
             v-else-if="field.type === 'org'"
-            :value="formData[field.key]?.name || formData[field.key] || ''"
+            :model-value="formData[field.key]"
+            :disabled="field.readonly"
             :placeholder="field.placeholder || '请选择组织'"
-            readonly
-            @click="() => { /* TODO: 接入 OrgPicker */ }"
-          >
-            <template #suffix>
-              <apartment-outlined />
-            </template>
-          </a-input>
+            @update:model-value="(v: any) => updateField(field.key, v)"
+          />
 
-          <!-- cardRef -->
+          <!-- cardRef（关联卡片选择器待独立接入，暂只读回显） -->
           <a-input
             v-else-if="field.type === 'cardRef'"
             :value="formData[field.key]?.cardNumber || formData[field.key] || ''"
             :placeholder="field.placeholder || '请选择关联卡片'"
             readonly
-            @click="() => { /* TODO: 接入 CardRelationPicker */ }"
           >
             <template #suffix>
               <link-outlined />
@@ -514,7 +514,7 @@ const hasRuntimeComponents = computed(() => (props.components?.length ?? 0) > 0)
           <VanField
             v-else-if="field.type === 'enum'"
             :label="field.label"
-            :model-value="formData[field.key] || ''"
+            :model-value="getEnumDisplay(field)"
             :required="field.required"
             readonly
             is-link
@@ -555,17 +555,71 @@ const hasRuntimeComponents = computed(() => (props.components?.length ?? 0) > 0)
             </template>
           </VanField>
 
-          <!-- user / org / cardRef -->
+          <!-- user -->
           <VanField
-            v-else-if="field.type === 'user' || field.type === 'org' || field.type === 'cardRef'"
+            v-else-if="field.type === 'user'"
             :label="field.label"
-            :model-value="formData[field.key]?.name || formData[field.key]?.cardNumber || formData[field.key] || ''"
+            :required="field.required"
+            :error-message="errors?.[field.key]"
+          >
+            <template #input>
+              <UserSelect
+                :model-value="formData[field.key]"
+                :disabled="field.readonly"
+                :placeholder="field.placeholder || '请选择人员'"
+                @update:model-value="(v: any) => updateField(field.key, v)"
+              />
+            </template>
+          </VanField>
+
+          <!-- org -->
+          <VanField
+            v-else-if="field.type === 'org'"
+            :label="field.label"
+            :required="field.required"
+            :error-message="errors?.[field.key]"
+          >
+            <template #input>
+              <OrgSelect
+                :model-value="formData[field.key]"
+                :disabled="field.readonly"
+                :placeholder="field.placeholder || '请选择组织'"
+                @update:model-value="(v: any) => updateField(field.key, v)"
+              />
+            </template>
+          </VanField>
+
+          <!-- cardRef：关联卡片选择器待独立接入，只读回显 -->
+          <VanField
+            v-else-if="field.type === 'cardRef'"
+            :label="field.label"
+            :model-value="formData[field.key]?.cardNumber || formData[field.key] || ''"
             :required="field.required"
             readonly
-            :is-link="!field.readonly"
-            :placeholder="field.placeholder || `请选择${field.label}`"
+            :placeholder="field.placeholder || '请选择关联卡片'"
             :error-message="errors?.[field.key]"
-            @click="() => { if (!field.readonly) { /* TODO: 接入对应选择器 */ } }"
+          />
+
+          <!-- account / auxiliary / bankAccount / voucherRef：移动端不支持选择器，只读回显 + PC 端填写引导 -->
+          <VanField
+            v-else-if="['account', 'auxiliary', 'bankAccount', 'voucherRef'].includes(field.type as string)"
+            :label="field.label"
+            :model-value="getFieldDisplay(field)"
+            :required="field.required"
+            readonly
+            placeholder="请在 PC 端填写"
+            :error-message="errors?.[field.key]"
+          />
+
+          <!-- 兜底：其余类型（number 等）只读回显，避免整字段不渲染致必填无法提交 -->
+          <VanField
+            v-else
+            :label="field.label"
+            :model-value="getFieldDisplay(field)"
+            :required="field.required"
+            readonly
+            :placeholder="field.placeholder || '-'"
+            :error-message="errors?.[field.key]"
           />
         </template>
 

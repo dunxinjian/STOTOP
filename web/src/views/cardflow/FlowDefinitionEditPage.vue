@@ -49,6 +49,7 @@ import CardComponentConfigDrawer from '@/components/cardflow/designer/CardCompon
 import StageComponentViewEditor from '@/components/cardflow/designer/StageComponentViewEditor.vue'
 import { resolveComponentCapability } from '@/components/cardflow/designer/cardComponentCapabilities'
 import CardComponentRenderer from '@/components/cardflow/runtime/CardComponentRenderer.vue'
+import SchemaRenderer from '@/components/cardflow/SchemaRenderer.vue'
 import {
   getFlowDefinition, createFlowDefinition, updateFlowDefinition,
   publishFlowDefinition, getFlowDraftVersion, saveFlowDraftVersion,
@@ -166,6 +167,9 @@ const state = reactive<FlowState>(initialState())
 // 失败汇总（用于区域红边）
 const errors = reactive({ basic: false, schema: false, stages: false, condition: false })
 const selectedPreviewStageId = ref<string | undefined>()
+// B4 预览工作台：视角（处理人/旁观者/发起人填单）× 设备（PC / 移动）
+const previewViewerMode = ref<'assignee' | 'observer' | 'initiator'>('assignee')
+const previewDevice = ref<'pc' | 'mobile'>('pc')
 const designerSelection = reactive<{ type: 'blank' | 'node' | 'edge'; key: string | null }>({
   type: 'blank',
   key: null,
@@ -363,6 +367,17 @@ const assigneeStrategyOptions = [
   { value: 'fixed', label: '指定人员' },
   { value: 'fieldUsers', label: '按字段取人' },
   { value: 'initiator', label: '发起人' },
+]
+
+// B4 预览视角：处理人=运行态审批视图 / 旁观者=再过一层脱敏 / 发起人填单=可编辑填单
+const previewViewerModeOptions = [
+  { value: 'assignee', label: '处理人' },
+  { value: 'initiator', label: '发起人填单' },
+  { value: 'observer', label: '旁观者' },
+]
+const previewDeviceOptions = [
+  { value: 'pc', label: 'PC' },
+  { value: 'mobile', label: '移动' },
 ]
 
 function genStableKey(prefix: string) {
@@ -675,7 +690,10 @@ const stagePreviewDetailSchema = computed(() => visibleDetailSchemaFor(selectedP
 function previewValueOf(field: SchemaFieldDefinition): any {
   if (field.type === 'money') return field.key.toLowerCase().includes('offset') ? 0 : 5200
   if (field.type === 'date') return '2026-06-10'
-  if (field.type === 'enum') return field.options?.[0] || '日常费用'
+  if (field.type === 'enum') {
+    const first = field.options?.[0]
+    return (first && typeof first === 'object' ? first.value : first) || '日常费用'
+  }
   if (field.type === 'user') return { name: '示例发起人' }
   if (field.type === 'org') return { name: '示例部门' }
   if (field.type === 'cardRef') return { cardNumber: 'CF-20260610-001', title: '引用卡片' }
@@ -902,7 +920,7 @@ async function refreshPreviewPresentation() {
       stageKey: stage.id,
       dataJson: JSON.stringify(previewSampleData.value),
       details,
-      viewerMode: 'assignee',
+      viewerMode: previewViewerMode.value,
     })
     previewEndpointWorkView.value = res.workView
   } catch {
@@ -916,19 +934,32 @@ function schedulePreviewRefresh() {
   if (previewRefreshTimer) clearTimeout(previewRefreshTimer)
   previewRefreshTimer = setTimeout(refreshPreviewPresentation, 500)
 }
-// 端点读已保存草稿，故按预览节点切换刷新（编辑期改动经 30s 自动保存后随切换生效）
-watch(selectedPreviewStageId, schedulePreviewRefresh)
+// 端点读已保存草稿，故按预览节点/视角切换刷新（编辑期改动经 30s 自动保存后随切换生效）
+watch([selectedPreviewStageId, previewViewerMode], schedulePreviewRefresh)
 
 const previewRuntimeComponents = computed<CardComponentRuntime[]>(() => {
+  // 优先端点真值（脱敏/聚合/access 与运行时一字不差）
   if (previewEndpointWorkView.value?.components?.length) {
     return previewEndpointWorkView.value.components
   }
-  return buildPreviewComponentDefinitions().map(component => buildRuntimeComponent(component, selectedPreviewStage.value))
+  // 有真实编排组件时前端复刻；无组件则返回空 → SchemaRenderer 走扁平字段回退，与运行时一致（消灭“伪组件”漂移）
+  if (state.cardComponents.length) {
+    return state.cardComponents.map(component => buildRuntimeComponent(component, selectedPreviewStage.value))
+  }
+  return []
 })
 
-const previewVisibleComponentCount = computed(() =>
-  previewRuntimeComponents.value.filter(component => component.visible && component.access !== 'hidden').length
+// 卡片预览统一渲染入参：视角→模式、设备→平台；无组件时喂可见字段让 SchemaRenderer 扁平回退（与运行时同一装配层）
+const previewCardMode = computed<'view' | 'edit'>(() => (previewViewerMode.value === 'initiator' ? 'edit' : 'view'))
+const previewVisibleFieldDefs = computed<SchemaFieldDefinition[]>(() => stagePreviewFields.value.map(item => item.field))
+const previewHasVisibleContent = computed(() =>
+  previewRuntimeComponents.value.some(c => c.visible && c.access !== 'hidden') || previewVisibleFieldDefs.value.length > 0,
 )
+
+const previewVisibleComponentCount = computed(() => {
+  const visible = previewRuntimeComponents.value.filter(component => component.visible && component.access !== 'hidden').length
+  return visible || previewVisibleFieldDefs.value.length
+})
 
 const cardRuntimePreviewStage = computed(() =>
   state.stages.find(stage => stage.id === cardRuntimePreviewStageId.value) || selectedPreviewStage.value || null
@@ -2753,10 +2784,27 @@ function goBack() {
           <div v-else class="fdef-preview-workbench">
             <BaseCard title="节点卡片工作视图" no-padding class="fdef-preview-card-pane">
               <template #extra>
-                <a-tag>{{ previewVisibleComponentCount }} 个可见组件</a-tag>
+                <a-tag>{{ previewVisibleComponentCount }} 个可见{{ previewRuntimeComponents.length ? '组件' : '字段' }}</a-tag>
               </template>
-              <div class="fdef-preview-card-stage">
-                <div class="fdef-preview-card fdef-preview-card--runtime">
+
+              <!-- 节点 × 视角 × 设备：三视角双设备切换，端点按视角取真值 -->
+              <div class="fdef-preview-toolbar">
+                <a-select
+                  v-model:value="selectedPreviewStageId"
+                  size="small"
+                  class="fdef-preview-toolbar__stage"
+                  placeholder="选择节点"
+                  :options="state.stages.map(s => ({ value: s.id, label: s.name || '未命名节点' }))"
+                />
+                <a-segmented v-model:value="previewViewerMode" size="small" :options="previewViewerModeOptions" />
+                <a-segmented v-model:value="previewDevice" size="small" :options="previewDeviceOptions" />
+              </div>
+
+              <div class="fdef-preview-card-stage" :class="{ 'is-mobile': previewDevice === 'mobile' }">
+                <div
+                  class="fdef-preview-card fdef-preview-card--runtime"
+                  :class="{ 'fdef-preview-card--mobile': previewDevice === 'mobile' }"
+                >
                   <div
                     class="fdef-preview-card__header"
                     :class="`fdef-preview-card__header--${state.cardHeader.align || 'left'}`"
@@ -2765,14 +2813,15 @@ function goBack() {
                     <span v-if="cardHeaderShowSubtitle" class="fdef-preview-card__code">{{ cardHeaderSubtitle }}</span>
                     <a-tag v-if="cardHeaderShowStatus" size="small">{{ state.basic.status || 'draft' }}</a-tag>
                   </div>
-                  <div v-if="previewRuntimeComponents.length && previewVisibleComponentCount" class="fdef-preview-card__body">
-                    <CardComponentRenderer
+                  <!-- 统一走 SchemaRenderer 装配层：有组件→CardComponentRenderer，无组件→扁平字段回退（与运行时一字不差，消灭伪组件漂移） -->
+                  <div v-if="previewHasVisibleContent" class="fdef-preview-card__body">
+                    <SchemaRenderer
                       :components="previewRuntimeComponents"
+                      :schema="previewVisibleFieldDefs"
                       :model-value="previewSampleData"
                       :detail-rows="previewDetailRows"
-                      mode="view"
-                      platform="pc"
-                      is-admin
+                      :mode="previewCardMode"
+                      :platform="previewDevice"
                     />
                   </div>
                   <EmptyState
@@ -4312,6 +4361,30 @@ function goBack() {
   flex-direction: column;
 }
 
+// B4 预览工具条：节点 × 视角 × 设备
+.fdef-preview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+
+  &__stage {
+    min-width: 140px;
+  }
+}
+
+// PC 视角更宽，移动视角限宽 390px 呈手机形态
+.fdef-preview-card--runtime {
+  width: 560px;
+}
+
+.fdef-preview-card--mobile {
+  width: 390px;
+  border-radius: 18px;
+}
 
 .fdef-preview-path-pane {
   padding: 12px;

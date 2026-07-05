@@ -2,6 +2,9 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { previewFlowDraftPath } from '@/api/cardflow'
+import { normalizeOptionList } from '@/utils/cardflowFieldFormat'
+import UserSelect from '@/components/cardflow/fields/UserSelect.vue'
+import OrgSelect from '@/components/cardflow/fields/OrgSelect.vue'
 import type { CardFlowPathPreviewDto, SchemaFieldDefinition } from '@/types/cardflow'
 
 const props = defineProps<{
@@ -23,7 +26,10 @@ const sampleData = reactive<Record<string, any>>({})
 
 function defaultValueOf(field: SchemaFieldDefinition): any {
   if (field.type === 'money' || String(field.type) === 'number') return 1000
-  if (field.type === 'enum') return field.options?.[0] ?? undefined
+  if (field.type === 'enum') {
+    const first = field.options?.[0]
+    return (first && typeof first === 'object' ? first.value : first) ?? undefined
+  }
   if (field.type === 'date') return undefined
   return undefined
 }
@@ -99,11 +105,21 @@ async function runPreview() {
     <div class="cf-path-preview__form">
       <label>
         <span>发起人</span>
-        <a-input-number v-model:value="sample.initiatorId" :disabled="disabled" placeholder="用户ID" style="width: 100%" />
+        <UserSelect
+          :model-value="sample.initiatorId"
+          :disabled="disabled"
+          placeholder="选择发起人"
+          @update:model-value="(v: any) => sample.initiatorId = v?.id ?? undefined"
+        />
       </label>
       <label>
         <span>组织</span>
-        <a-input-number v-model:value="sample.orgId" :disabled="disabled" placeholder="组织ID" style="width: 100%" />
+        <OrgSelect
+          :model-value="sample.orgId"
+          :disabled="disabled"
+          placeholder="选择组织"
+          @update:model-value="(v: any) => sample.orgId = v?.id ?? undefined"
+        />
       </label>
       <label v-for="field in previewFields" :key="field.key">
         <span>{{ field.label || field.key }}</span>
@@ -116,7 +132,7 @@ async function runPreview() {
         <a-select
           v-else-if="field.type === 'enum'"
           v-model:value="sampleData[field.key]"
-          :options="(field.options || []).map(opt => ({ value: opt, label: opt }))"
+          :options="normalizeOptionList(field.options)"
           :disabled="disabled"
           allow-clear
           style="width: 100%"

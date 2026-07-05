@@ -147,6 +147,17 @@ function toggleDefault(checked: boolean) {
 
       <div class="cf-route-editor__default">
         <div>
+          <strong>启用此流转</strong>
+          <span>停用后该条件边在运行时被忽略（引擎仅取 status=active 的边），不参与流转判定</span>
+        </div>
+        <a-switch
+          :checked="modelValue.status !== 'disabled'"
+          @update:checked="(checked: boolean | string | number) => patch({ status: checked ? 'active' : 'disabled' })"
+        />
+      </div>
+
+      <div class="cf-route-editor__default">
+        <div>
           <strong>默认分支</strong>
           <span>每个来源节点必须有一个“其他情况”分支</span>
         </div>

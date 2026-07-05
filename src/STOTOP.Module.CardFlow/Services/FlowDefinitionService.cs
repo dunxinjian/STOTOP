@@ -103,6 +103,10 @@ public class FlowDefinitionService : IFlowDefinitionService
                 FlowGroupId = x.FFlowGroupId,
                 OrgId = x.FOrgId,
                 CreatedTime = x.FCreatedTime,
+                TriggerConfigJson = x.FTriggerConfigJson,
+                AccountSetId = x.FAccountSetId,
+                MatchPattern = x.FMatchPattern,
+                IsTemplate = x.FIsTemplate,
                 CurrentVersion = ver?.CurrentVersion,
                 LastPublishedTime = ver?.LastPublishedTime,
                 HasDraft = hasDraft,
@@ -308,6 +312,13 @@ public class FlowDefinitionService : IFlowDefinitionService
             .ToListAsync();
         await ValidateRouteRulesAsync(draftVersion.FID, draftStages);
         await ValidateDynamicPoliciesAsync(draftVersion.FID, draftStages);
+
+        // ═══ 卡片组件发布门禁（后端镜像前端能力表拒绝面，封死直调 API 绕过）═══
+        var componentErrors = Models.Schema.CardComponentPublishValidator.Validate(draftVersion.FCardSchemaJson);
+        if (componentErrors.Count > 0)
+        {
+            throw new InvalidOperationException("卡片组件存在未支持发布的配置，请调整后重试：\n" + string.Join("\n", componentErrors));
+        }
 
         // 查找 FanOut 类型节点
         var fanOutRegistryId = await _dbContext.Set<CfAutoPluginRegistry>()

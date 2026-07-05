@@ -1,4 +1,4 @@
-import type { SchemaFieldDefinition } from '@/types/cardflow'
+import type { SchemaEnumOption, SchemaFieldDefinition } from '@/types/cardflow'
 
 /** 卡片字段值 → 显示字符串的单一真源。根治 PC/移动只读端对结构化字段（user/org/account/…）输出 [object Object]。 */
 export function formatFieldDisplayValue(field: SchemaFieldDefinition, val: any): string {
@@ -7,8 +7,10 @@ export function formatFieldDisplayValue(field: SchemaFieldDefinition, val: any):
     case 'money':
     case 'amount':
       return formatMoneyValue(val) || '-'
-    case 'number':
-      return String(val)
+    case 'number': {
+      const n = Number(val)
+      return isNaN(n) ? String(val) : n.toLocaleString('zh-CN')
+    }
     case 'date':
       return formatDateValue(val)
     case 'enum':
@@ -57,6 +59,23 @@ export function formatEnumValue(field: SchemaFieldDefinition, val: any): string 
     if (opt && typeof opt === 'object' && opt.value === val) return opt.label ?? String(val)
   }
   return String(val)
+}
+
+/**
+ * 选项列表归一化：string[] 或 {label,value}[] → 统一 {label,value}[]。
+ * PC a-select / 移动 VanPicker columns / 条件值选择器的单一真源，杜绝“存码显名”多处各写一份。
+ */
+export function normalizeOptionList(options: Array<string | SchemaEnumOption> | undefined): SchemaEnumOption[] {
+  return (options || []).map((opt) =>
+    opt && typeof opt === 'object'
+      ? { label: opt.label ?? String(opt.value), value: opt.value }
+      : { label: String(opt), value: opt as string },
+  )
+}
+
+/** 枚举字段选项归一化（等价 normalizeOptionList(field.options)） */
+export function normalizeEnumOptions(field: SchemaFieldDefinition): SchemaEnumOption[] {
+  return normalizeOptionList(field.options)
 }
 
 export function formatAccountValue(val: any): string {

@@ -1118,6 +1118,9 @@ const stageCount = computed(() => stages.value.length)
                       placeholder="当前节点可执行的审批动作"
                       :options="ACTION_OPTIONS"
                     />
+                    <p v-if="selectedStage.actionPolicy!.allowedActions?.includes('returnToStage')" class="sde-fld__hint">
+                      「退回节点」的目标由审批人在运行时现场选择（本轮已完成的人工节点），无需在设计器指定。
+                    </p>
                   </div>
 
                   <div class="sde-fld">

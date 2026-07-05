@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { PlusOutlined, DeleteOutlined, SubnodeOutlined } from '@ant-design/icons-vue'
+import type { SchemaEnumOption } from '@/types/cardflow'
+import { normalizeOptionList } from '@/utils/cardflowFieldFormat'
+import UserSelect from '@/components/cardflow/fields/UserSelect.vue'
+import OrgSelect from '@/components/cardflow/fields/OrgSelect.vue'
 
 // ==================== 类型定义 ====================
 
@@ -8,8 +12,8 @@ export interface FieldOption {
   key: string
   label: string
   type: string
-  /** enum 类型字段的可选值（用于渲染值选择器） */
-  options?: string[]
+  /** enum 类型字段的可选值（用于渲染值选择器，兼容 string[] 与 {label,value}[]） */
+  options?: Array<string | SchemaEnumOption>
 }
 
 export interface ConditionItem {
@@ -151,7 +155,7 @@ function getFieldLabel(fieldKey: string): string {
 
 function getFieldEnumOptions(fieldKey: string) {
   const field = props.fields.find((f) => f.key === fieldKey)
-  return (field?.options || []).map(opt => ({ value: opt, label: opt }))
+  return normalizeOptionList(field?.options).map((opt) => ({ value: opt.value, label: opt.label }))
 }
 
 function getOperators(fieldKey: string) {
@@ -410,14 +414,24 @@ defineExpose({ conditionSummary })
               @change="(val: any) => updateConditionValue(idx, val)"
             />
 
-            <!-- user / org 类型 → 直接录入 ID（此处无远端搜索数据源，空下拉不可用） -->
-            <a-input
-              v-else-if="getFieldType((item as ConditionItem).field) === 'user' || getFieldType((item as ConditionItem).field) === 'org'"
-              :value="(item as ConditionItem).value"
-              :placeholder="getFieldType((item as ConditionItem).field) === 'user' ? '输入用户ID' : '输入组织ID'"
+            <!-- user 类型 → 人员选择器（远端搜索，存 ID） -->
+            <UserSelect
+              v-else-if="getFieldType((item as ConditionItem).field) === 'user'"
+              :model-value="(item as ConditionItem).value"
               class="cb-value-input"
               :disabled="disabled"
-              @change="(e: any) => updateConditionValue(idx, e.target.value)"
+              placeholder="选择人员"
+              @update:model-value="(v: any) => updateConditionValue(idx, v?.id ?? null)"
+            />
+
+            <!-- org 类型 → 组织选择器（存 ID） -->
+            <OrgSelect
+              v-else-if="getFieldType((item as ConditionItem).field) === 'org'"
+              :model-value="(item as ConditionItem).value"
+              class="cb-value-input"
+              :disabled="disabled"
+              placeholder="选择组织"
+              @update:model-value="(v: any) => updateConditionValue(idx, v?.id ?? null)"
             />
 
             <!-- 默认 text input -->

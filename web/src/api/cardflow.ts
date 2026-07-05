@@ -139,9 +139,22 @@ export function getFlowVersions(id: number) {
   return get<FlowVersionDto[]>(`/cardflow/definitions/${id}/versions`)
 }
 
-/** 获取流程版本详情 */
+// 流程版本一经发布内容不可变（改动走新草稿→新版本），按 definitionId:versionId 缓存 Promise，
+// 供填单/审批/详情三页反复加载复用；请求失败时剔除缓存条目，避免毒化后续加载。
+const flowVersionDetailCache = new Map<string, Promise<FlowVersionDetailDto>>()
+
+/** 获取流程版本详情（内存缓存，版本不可变） */
 export function getFlowVersionDetail(id: number, versionId: number) {
-  return get<FlowVersionDetailDto>(`/cardflow/definitions/${id}/versions/${versionId}`)
+  const key = `${id}:${versionId}`
+  let cached = flowVersionDetailCache.get(key)
+  if (!cached) {
+    cached = get<FlowVersionDetailDto>(`/cardflow/definitions/${id}/versions/${versionId}`).catch((e) => {
+      flowVersionDetailCache.delete(key)
+      throw e
+    })
+    flowVersionDetailCache.set(key, cached)
+  }
+  return cached
 }
 
 /** 保存草稿版本 */
