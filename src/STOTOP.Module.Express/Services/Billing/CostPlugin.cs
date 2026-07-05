@@ -165,7 +165,9 @@ public class CostPlugin : BatchPluginBase, IQualityIssueTypeProvider
 
     public override Task RollbackAsync(PluginContext context)
     {
-        _logger.LogInformation("CostPlugin: 回撤完成，批次={BatchId}", context.BatchId);
+        // 成本插件无独立回撤动作：已写入的成本明细与主表 F成本合计 会在下一轮成本计算时按批次删旧覆盖，
+        // 不在此单独删除（避免与重跑清理重复/半程状态）。此处不做数据变更，仅记录，避免"回撤完成"误导。
+        _logger.LogInformation("CostPlugin: 无需回撤，成本数据将在重跑成本计算时按批次覆盖，批次={BatchId}", context.BatchId);
         return Task.CompletedTask;
     }
 

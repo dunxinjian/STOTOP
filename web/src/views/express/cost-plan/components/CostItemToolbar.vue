@@ -43,6 +43,7 @@
 <script setup lang="ts">
 import type { SelectValue } from 'ant-design-vue/es/select'
 import type { ValueType } from 'ant-design-vue/es/input-number/src/utils/MiniDecimal'
+import { WEIGHT_STAGE_OPTIONS } from '../constants'
 
 defineProps<{
   itemName: string
@@ -65,14 +66,8 @@ const typeOptions = [
   { label: '一口价', value: 4 },
 ]
 
-const weightStageOptions = [
-  { value: 1, label: '揽收称重' },
-  { value: 2, label: '揽收体积重' },
-  { value: 3, label: '中心操作称重' },
-  { value: 4, label: '中心操作体积重' },
-  { value: 5, label: '目的操作称重' },
-  { value: 6, label: '目的操作体积重' },
-]
+// 结算重量环节：单一真源 ../constants（避免与 CostPlanEdit 两处硬编码漂移）
+const weightStageOptions = WEIGHT_STAGE_OPTIONS
 </script>
 
 <style scoped lang="scss">

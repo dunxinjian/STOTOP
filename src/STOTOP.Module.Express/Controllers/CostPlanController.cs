@@ -205,7 +205,7 @@ public class CostPlanController : ControllerBase
     /// 删除成本项
     /// </summary>
     [HttpDelete("{planId}/items/{itemId}")]
-    [RequirePermission(ExpressPermissions.CostPlanDelete)]
+    [RequirePermission(ExpressPermissions.CostPlanEdit)]
     public async Task<ApiResult> DeleteItem(long planId, long itemId)
     {
         try
@@ -338,7 +338,7 @@ public class CostPlanController : ControllerBase
     /// 删除时间段
     /// </summary>
     [HttpDelete("{planId}/items/{itemId}/periods/{periodId}")]
-    [RequirePermission(ExpressPermissions.CostPlanDelete)]
+    [RequirePermission(ExpressPermissions.CostPlanEdit)]
     public async Task<ApiResult> DeletePeriod(long planId, long itemId, long periodId)
     {
         var result = await _costPlanService.DeletePeriodAsync(planId, itemId, periodId);
@@ -435,7 +435,7 @@ public class CostPlanController : ControllerBase
     /// 删除互斥配置
     /// </summary>
     [HttpDelete("{planId}/exclusions/{exclusionId}")]
-    [RequirePermission(ExpressPermissions.CostPlanDelete)]
+    [RequirePermission(ExpressPermissions.CostPlanEdit)]
     public async Task<ApiResult> DeleteExclusion(long planId, long exclusionId)
     {
         var result = await _costPlanService.DeleteExclusionAsync(planId, exclusionId);

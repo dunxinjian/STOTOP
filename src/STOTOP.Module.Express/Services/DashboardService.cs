@@ -59,8 +59,8 @@ public class DashboardService : IDashboardService
             var monthWaybills = await waybillQuery
                 .CountAsync(w => w.FWaybillDate >= monthStart && w.FWaybillDate <= today);
 
-            // 本月收入
-            var billingQuery = _billingRepo.Query().Where(b => b.FPartyRole == 1);
+            // 本月收入。显式限定 F计算状态=1，与报表/账单口径统一，不再依赖"失败行角色为NULL"的隐式约定排除失败行。
+            var billingQuery = _billingRepo.Query().Where(b => b.FPartyRole == 1 && b.FCalcStatus == 1);
             if (orgId > 0)
                 billingQuery = billingQuery.Where(b => b.FNetworkPointCode == orgId.ToString());
             if (!string.IsNullOrWhiteSpace(brandCode))

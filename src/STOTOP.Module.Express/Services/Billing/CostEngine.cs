@@ -181,7 +181,7 @@ public class CostEngine
             _logger.LogWarning("CostEngine: {Count} 单存在成本项覆盖缺口（有生效期间却算出 0：重量落段外/段间空洞或缺目的地单元格），成本可能被少算，请核对成本矩阵段与单元格覆盖",
                 coverageGapWaybills);
 
-        // === 第三阶段：查询 BillingResultId 映射并批量写入 ===
+        // === 第三阶段：写入成本明细并回写主表 ===
         int costBreakdownCount = 0;
         if (costDataMap.Count > 0)
         {
@@ -196,33 +196,26 @@ public class CostEngine
 
                 try
                 {
-                    // 查回 Level 0 的 BillingResultId 映射
-                    var waybillIds = costDataMap.Keys.ToList();
-                    var waybillToResultId = await QueryBillingResultIds(
-                        waybillIds, resultTable, connection, dbTransaction);
-                    // RowId 即计费结果 FID，成本计算模式随行回写
+                    // costDataMap 的 key 即计费结果行 FID（CostWaybillInput.RowId 来自 SELECT r.FID），无需再查映射。
                     var resultIdToCostMode = costDataMap.ToDictionary(
-                        pair => waybillToResultId[pair.Key],
+                        pair => pair.Key,
                         pair => pair.Value.CostMode);
-                    var billingResultIds = waybillToResultId.Values.Distinct().ToList();
+                    var billingResultIds = costDataMap.Keys.ToList();
 
                     // 构建成本明细
                     var costBreakdowns = new List<ExpBillingCostBreakdown>();
-                    foreach (var (waybillId, payload) in costDataMap)
+                    foreach (var (billingResultId, payload) in costDataMap)
                     {
-                        if (waybillToResultId.TryGetValue(waybillId, out var billingResultId))
+                        foreach (var (costItemId, amount) in payload.Costs)
                         {
-                            foreach (var (costItemId, amount) in payload.Costs)
+                            costBreakdowns.Add(new ExpBillingCostBreakdown
                             {
-                                costBreakdowns.Add(new ExpBillingCostBreakdown
-                                {
-                                    FBillingResultId = billingResultId,
-                                    FCostItemId = costItemId,
-                                    FAmount = amount,
-                                    FOrgId = orgId,
-                                    FTenantId = _orgContextAccessor.CurrentTenantId ?? 0L
-                                });
-                            }
+                                FBillingResultId = billingResultId,
+                                FCostItemId = costItemId,
+                                FAmount = amount,
+                                FOrgId = orgId,
+                                FTenantId = _orgContextAccessor.CurrentTenantId ?? 0L
+                            });
                         }
                     }
 
@@ -290,7 +283,8 @@ public class CostEngine
     }
 
     /// <summary>
-    /// 查询 Level 0 的 BillingResultId 映射（WaybillNo → FID）
+    /// 建临时表 #CostBillingResultIds(FID, CostMode) 并批量灌入本轮参与计算的计费结果行 FID 及其成本计算模式，
+    /// 供后续 JOIN 删旧明细、回写主表 F成本合计/F成本计算模式。
     /// </summary>
     private static async Task CreateBillingResultIdTempTable(
         SqlConnection connection,
@@ -321,14 +315,6 @@ public class CostEngine
         bulkCopy.ColumnMappings.Add("CostMode", "CostMode");
         await bulkCopy.WriteToServerAsync(table);
     }
-
-    private static async Task<Dictionary<long, long>> QueryBillingResultIds(
-        List<long> waybillIds, string resultTable, SqlConnection connection, SqlTransaction transaction)
-    {
-        // RowId 来自 CostAgent.ReadSuccessBillingResults 的 SELECT r.FID，
-        // 即 RowId 本身就是计费结果表的 FID (BillingResultId)，直接自映射即可。
-        return waybillIds.ToDictionary(id => id, id => id);
-    }
 }
 
 /// <summary>
@@ -336,7 +322,7 @@ public class CostEngine
 /// </summary>
 public class CostWaybillInput
 {
-    /// <summary>运单行ID（STG表FID）</summary>
+    /// <summary>计费结果行 FID（来自 CostPlugin.ReadSuccessBillingResults 的 SELECT r.FID）；成本明细/回写按此 FID 挂靠。</summary>
     public long RowId { get; set; }
     /// <summary>运单编号</summary>
     public string WaybillNo { get; set; } = string.Empty;

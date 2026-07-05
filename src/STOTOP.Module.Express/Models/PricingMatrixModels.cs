@@ -30,19 +30,20 @@ public class PricingSegment
     public decimal? WeightTo { get; set; }
 
     /// <summary>
-    /// 舍位方式：1=向上取整 2=向下取整 3=四舍五入 4=截断
+    /// 计费重量进位方式（真源 WeightRoundingHelper.RoundWeight，与前端选项一致）：
+    /// 1=实际重量 2=四舍五入 3=点五进位 4=进舍(按阈值) 5=向上取整 6=分段进位(按步进值) 7=进舍百位。
     /// </summary>
     [JsonPropertyName("roundingMethod")]
     public int RoundingMethod { get; set; } = 1;
 
     /// <summary>
-    /// 舍位参数（截断精度，如0.1表示精确到0.1kg）
+    /// 截断参数：WeightRoundingHelper 当前【未使用】（方式 4/6/7 的参数走 CeilParam），保留供后续扩展。
     /// </summary>
     [JsonPropertyName("truncParam")]
     public decimal? TruncParam { get; set; }
 
     /// <summary>
-    /// 进位参数（向上取整精度，如1表示按1kg进位）
+    /// 进位参数：方式4=进舍阈值 / 方式6=分段步进值 / 方式7=进位基数(默认100)。其余方式忽略。
     /// </summary>
     [JsonPropertyName("ceilParam")]
     public decimal? CeilParam { get; set; }

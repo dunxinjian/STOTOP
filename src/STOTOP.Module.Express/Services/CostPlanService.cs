@@ -306,6 +306,13 @@ public class CostPlanService : ICostPlanService
             if (hasActive)
                 throw new InvalidOperationException($"该组织下品牌 {entity.FBrandCode} 已有启用方案，请先停用");
 
+            // 校验方案下至少有一个成本项且其有非空矩阵期间，避免空方案启用后整批成本计算失败(CostEngine 缓存为空判全失败)
+            var itemIds = await _itemRepo.Query().Where(i => i.FPlanId == id).Select(i => i.FID).ToListAsync();
+            var hasUsableMatrix = itemIds.Count > 0
+                && await _periodRepo.Query().AnyAsync(p => itemIds.Contains(p.FItemId) && p.FMatrixJson != null && p.FMatrixJson != "");
+            if (!hasUsableMatrix)
+                throw new InvalidOperationException("该方案尚未配置成本项矩阵，请先维护成本项与矩阵后再启用");
+
             // 启用当前方案
             entity.FStatus = 1;
             entity.FUpdatedTime = DateTime.Now;

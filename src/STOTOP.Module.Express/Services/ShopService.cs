@@ -518,9 +518,10 @@ public class ShopService : IShopService
         if (shopNames == null || shopNames.Count == 0)
             return new List<ShopConflictDto>();
 
-        // 获取当前报价，读取 FOrgId、FClientType、FBusinessObjectId
+        // 获取当前报价，读取 FOrgId、FClientType、FBusinessObjectId。
+        // 冲突检查本就是同组织内比对，故不再 IgnoreQueryFilters：让组织/租户全局过滤器生效，
+        // 避免传入他组织 quotationId 时整段在他组织数据上运行(IDOR)。跨组织传入时 currentQuotation 为空直接返回。
         var currentQuotation = await _dbContext.Set<ExpQuotation>()
-            .IgnoreQueryFilters()
             .FirstOrDefaultAsync(q => q.FID == quotationId);
 
         if (currentQuotation == null)
@@ -528,7 +529,6 @@ public class ShopService : IShopService
 
         // 查询同组织、同 FClientType、FStatus=1 的报价，排除当前 FBusinessObjectId
         var quotations = await _dbContext.Set<ExpQuotation>()
-            .IgnoreQueryFilters()
             .Where(q => q.FOrgId == currentQuotation.FOrgId
                      && q.FClientType == currentQuotation.FClientType
                      && q.FStatus == 1

@@ -335,18 +335,16 @@ async function loadData() {
       // 时间段列表加载失败时不阻塞
     }
 
-    // 对于全国单价类型，逐个加载每个时间段的价格。
-    // 加载失败的期间不写入缓存（保存时跳过），否则会把后端已有价格静默覆盖为 0
+    // 全国单价类型：并行加载各时间段价格（期间多时不再线性变慢）。
+    // 加载失败的期间不写入缓存（allSettled 忽略 rejected，保存时跳过），否则会把后端已有价格静默覆盖为 0
     if (itemForm.itemType === 1) {
-      for (const p of periods.value) {
-        try {
+      await Promise.allSettled(
+        periods.value.map(async (p) => {
           const matrixData = await getCostItemMatrix(planId.value, itemId.value, p.effectiveDate?.slice(0, 10))
           const price = matrixData?.segments?.[0]?.cells?.[0]?.basePrice ?? 0
           periodPrices.value.set(p.id, price)
-        } catch {
-          // 留空：handleSave 仅保存缓存中存在的期间
-        }
-      }
+        }),
+      )
     }
   } catch {
     message.error('加载数据失败')
