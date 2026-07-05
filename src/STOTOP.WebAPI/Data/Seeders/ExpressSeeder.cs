@@ -42,6 +42,7 @@ public static class ExpressSeeder
             new(25, "修复V7一口价迁移: F成本项类型=2且有关联店铺的成本项改为4(一口价) (2026-07-05)", MigrateV25),
             new(26, "成本项时间段加 F失效日期 列(可空;缺月价不再静默沿用旧月价格) (2026-07-05)", MigrateV26),
             new(27, "补种成本方案/成本项目动作权限码到 SYS功能权限并授予 admin 角色(非 admin 此前恒 403) (2026-07-05)", MigrateV27),
+            new(28, "EXP成本项目 纳入租户隔离(ITenantScoped): 加 F租户ID 列+索引+回填根租户 (2026-07-05)", MigrateV28),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -172,6 +173,30 @@ WHERE p.[F编码] IN (
     N'express:costitem:view', N'express:costitem:create', N'express:costitem:edit'
 )
 AND NOT EXISTS (SELECT 1 FROM [SYS角色权限] WHERE [F角色ID] = 1 AND [F权限ID] = p.FID);");
+    }
+
+    /// <summary>
+    /// V28: EXP成本项目 由"全局共享"改为按租户隔离(ITenantScoped)。加 F租户ID 列(NOT NULL DEFAULT 0)+索引,
+    /// 存量行回填到根租户(SYS组织架构 F父ID=0 的根节点)。
+    /// 单客户下等价于原行为;多客户上线后每个新租户须单独种入其成本项目字典,否则本租户方案成本项按名称匹配落空、
+    /// 返利标志缺失(由 WARN_COST_UNMATCHED_ITEM 质量问题告警)。
+    /// </summary>
+    private static void MigrateV28(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = N'EXP成本项目' AND COLUMN_NAME = N'F租户ID')
+    ALTER TABLE [EXP成本项目] ADD [F租户ID] bigint NOT NULL CONSTRAINT [DF_EXP成本项目_F租户ID] DEFAULT 0;");
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = N'IX_EXP成本项目_租户ID' AND object_id = OBJECT_ID(N'EXP成本项目'))
+    CREATE INDEX [IX_EXP成本项目_租户ID] ON [EXP成本项目] ([F租户ID]);");
+
+        SeederHelper.ExecuteRawSql(ctx, @"
+DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+IF @tenant IS NOT NULL
+    UPDATE [EXP成本项目] SET [F租户ID] = @tenant WHERE [F租户ID] = 0;");
     }
 
     /// <summary>

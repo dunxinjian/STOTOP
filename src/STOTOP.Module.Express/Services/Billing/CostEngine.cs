@@ -185,8 +185,15 @@ public class CostEngine
                 coverageGapWaybills);
 
         // === 第三阶段：写入成本明细并回写主表 ===
+        // 严格失败语义（对齐产品裁决）：本轮存在任一失败运单时，不落库任何成本(全或无)，避免"成功部分已提交、
+        // 批次却标失败"的半程状态。运维修复失败运单后重跑，方一次性写入全部成本。
         int costBreakdownCount = 0;
-        if (costDataMap.Count > 0)
+        if (!errors.IsEmpty)
+        {
+            _logger.LogWarning("CostEngine: 严格失败——本轮 {Fail} 单失败，成功计算 {Success} 单的成本【不落库】(全或无)，请修复失败运单后重跑",
+                errors.Count, successCount);
+        }
+        else if (costDataMap.Count > 0)
         {
             try
             {
