@@ -10,6 +10,8 @@ import type {
   SaveDraftVersionRequest,
   CardFlowPathPreviewRequest,
   CardFlowPathPreviewDto,
+  CardPresentationPreviewRequest,
+  CardPresentationPreviewDto,
   CardListDto,
   CardDetailDto,
   CardFileValue,
@@ -160,6 +162,11 @@ export function discardFlowDraftVersion(id: number) {
 /** 预演草稿流程路径 */
 export function previewFlowDraftPath(id: number, data: CardFlowPathPreviewRequest) {
   return post<CardFlowPathPreviewDto>(`/cardflow/definitions/${id}/draft-version/preview-path`, data)
+}
+
+/** 设计期呈现预览：草稿定义 + 样例数据 → 后端真值节点工作视图（替代前端复刻 access/脱敏/聚合） */
+export function previewPresentation(id: number, data: CardPresentationPreviewRequest) {
+  return post<CardPresentationPreviewDto>(`/cardflow/definitions/${id}/draft-version/preview-presentation`, data)
 }
 
 // ===== 自动插件注册与规则 API =====

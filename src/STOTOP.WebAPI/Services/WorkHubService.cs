@@ -730,10 +730,11 @@ public class WorkHubService : IWorkHubService
                     Key = "view",
                     Label = "进入处理",
                     Type = "primary",
-                    Route = $"/cardflow/cards/{todo.CardId}"
+                    // 跳统一审批页（可审批），卡片详情页 /cardflow/cards/{id} 无审批能力
+                    Route = $"/cardflow/approve/{todo.CardId}"
                 }
             },
-            DetailRoute = $"/cardflow/cards/{todo.CardId}",
+            DetailRoute = $"/cardflow/approve/{todo.CardId}",
             Metadata = new Dictionary<string, object>
             {
                 ["cardflowTodoId"] = todo.Id,

@@ -37,8 +37,39 @@ public static class ExpressSeeder
             new(20, "阶段0多租户: Express 存量行 F租户ID 回填到根组织单租户(=根组织id) (2026-07-01)", MigrateV20),
             new(21, "阶段1收尾(裁定): EXP业务代理/EXP末端驿站(按租户隔离) 加 F租户ID 列+索引+回填根组织单租户 (2026-07-02)", MigrateV21),
             new(22, "阶段2C(M5): EXP快递网点 加 F网点公司ID/F品牌编码 + (公司,品牌)过滤唯一索引 + 回填品牌(自F快递品牌) + 退役死字段 F实体公司/F快递品牌 (2026-07-02)", MigrateV22),
+            new(23, "极兔网点注册: EXP快递网点 种入 3 个极兔网点(3512907南郊/3512894城区/3512906陆渡→浏河)，按 SYS网点公司名称解析 F网点公司ID + 挂经营实体组织节点 + 品牌JT + 租户 (2026-07-03)", MigrateV23),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>
+    /// 极兔网点注册（配合 CardFlowSeeder V64 极兔导入）：把极兔总部系统 3 个网点编号沉为 EXP快递网点 主数据，
+    /// 并按经营实体归属到 SYS网点公司（陆渡=浏河同一经营实体）。F网点公司ID/F组织ID/F租户ID 全部由 SYS网点公司 解析，
+    /// 不硬编码 FID（V11 回填的 FID 跨环境不稳定）。若目标库尚无对应 SYS网点公司（如极简 fresh 库），SELECT 无行 → 不插入（graceful）。
+    /// 幂等：按 F编号 NOT EXISTS。品牌 JT；(公司,品牌) 过滤唯一索引天然满足（3 公司各一行）。
+    /// </summary>
+    private static void MigrateV23(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // (极兔网点编号, 网点简称, 网点全称, SYS网点公司名称关键字)
+        var points = new[]
+        {
+            ("3512907", "极兔南郊", "苏州太仓南郊网点(极兔)", "南郊"),
+            ("3512894", "极兔城区", "苏州太仓城区网点(极兔)", "城区"),
+            ("3512906", "极兔陆渡", "苏州太仓陆渡网点(极兔)", "浏河"), // 陆渡=浏河，归属浏河经营实体
+        };
+
+        foreach (var (code, shortName, fullName, companyKeyword) in points)
+        {
+            SeederHelper.ExecuteRawSql(ctx, $@"
+            IF NOT EXISTS (SELECT 1 FROM [EXP快递网点] WHERE [F编号] = N'{code}')
+            INSERT INTO [EXP快递网点]
+                ([F编号],[F网点简称],[F网点全称],[F组织ID],[F所属组织ID],[F租户ID],[F品牌编码],[F网点公司ID],[F状态],[F创建时间],[F更新时间])
+            SELECT N'{code}', N'{shortName}', N'{fullName}', c.[F组织节点ID], c.[F组织节点ID], c.[F租户ID], N'JT', c.[FID], 1, GETDATE(), GETDATE()
+            FROM [SYS网点公司] c
+            WHERE c.[F名称] LIKE N'%{companyKeyword}%';");
+        }
     }
 
     /// <summary>

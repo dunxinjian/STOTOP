@@ -88,6 +88,7 @@ public static class CardFlowSeeder
             new(64, "极兔总部交易明细导入: 建 STG极兔总部交易明细(含F租户ID) + 导入规则3140(excelInput,含网点→经营单元 transformRules) + 自动凭证骨架规则3141(ruleGroups待财务确认) + 流程2340/版本2341/首节点5140 + 租户戳 (2026-07-03)", MigrateV64),
             new(65, "韵达总部交易明细导入: 建 STG韵达总部交易明细(列对齐真实22列+派生收支列+F租户ID) + 导入规则3150(excelInput,符号→收支拆分+网点→经营单元 transformRules) + 自动凭证规则3151(77组品牌版映射,凭证节点未接线待财务确认) + 流程2350/版本2351/首节点5150(仅接导入) + 租户戳 (2026-07-04)", MigrateV65),
             new(66, "申通经营单元补齐(修缺陷1): STG申通总部交易明细 加 F归属网点编号列+网点编号→经营单元回填; 导入规则3130 加 网点→经营单元 transformRules; 自动凭证规则3131 164损益行加 business_unit(matchBy contains) — 与极兔/韵达口径统一 (2026-07-04)", MigrateV66),
+            new(67, "极兔收支双列对齐(照韵达V65): STG极兔总部交易明细 加 F发生额收入/F发生额支出(money) + 导入规则3140 收支派生(columnMapping多映+decimalFields+transformRules符号拆分:加款正=收入/扣款负=支出取绝对值) + 回填存量 (2026-07-04)", MigrateV67),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -208,6 +209,42 @@ public static class CardFlowSeeder
         ");
     }
 
+    /// <summary>
+    /// V67 极兔收支双列对齐（照韵达 V65 两列模型）：
+    ///   极兔单列带符号 F发生金额 → 派生非负 F发生额收入/F发生额支出（加款正=收入、扣款负=支出取绝对值，与韵达符号相反）。
+    ///   目的：凭证行按收/支列取数、方向固定，避免单列负数进借方成红字；且 createDraft 的 BuildDraftRequest 硬依赖此两列。
+    ///   ① ALTER 加两列(money)；② 全量替换规则 3140 config(多映+decimalFields+transformRules 派生)；③ 回填存量行(表通常空)。
+    /// </summary>
+    private static void MigrateV67(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // ① 加派生收支双列（独立 batch，避免同批建列后引用新列的延迟名称解析）
+        ExecSql(ctx, @"IF COL_LENGTH(N'STG极兔总部交易明细', N'F发生额收入') IS NULL ALTER TABLE [STG极兔总部交易明细] ADD [F发生额收入] MONEY NULL;");
+        ExecSql(ctx, @"IF COL_LENGTH(N'STG极兔总部交易明细', N'F发生额支出') IS NULL ALTER TABLE [STG极兔总部交易明细] ADD [F发生额支出] MONEY NULL;");
+
+        // ② 全量替换规则 3140 config：新增 发生金额→F发生额收入/F发生额支出 多映 + decimalFields 两列 + transformRules 按符号派生。
+        //    参数化 @cfg 避免大 JSON 的 SQL 单引号转义（JS 表达式内含单引号）。
+        const string cfg3140 = @"{""targetTable"":""STG极兔总部交易明细"",""outputMode"":""stg"",""headerRow"":1,""dataStartRow"":2,""columnIdentifier"":""预付款流水号,费用主类型,费用子类型,发生金额,本次账户余额"",""fullColumnIdentifier"":""预付款流水号,运单编号,账户ID,交易类型,费用主类型,费用子类型,发生金额,上次账户余额,本次账户余额,业务发生日期,预付款产生时间,结算对象"",""columnMapping"":[{""excelColumn"":""预付款流水号"",""dbColumn"":""F流水号""},{""excelColumn"":""运单编号"",""dbColumn"":""F运单编号""},{""excelColumn"":""账户ID"",""dbColumn"":""F账户ID""},{""excelColumn"":""交易类型"",""dbColumn"":""F交易类型""},{""excelColumn"":""所属网点"",""dbColumn"":""F所属网点""},{""excelColumn"":""转运中心"",""dbColumn"":""F转运中心""},{""excelColumn"":""所属代理"",""dbColumn"":""F所属代理""},{""excelColumn"":""网点编号"",""dbColumn"":""F网点编号""},{""excelColumn"":""网点编号"",""dbColumn"":""F归属网点编号""},{""excelColumn"":""结算对象"",""dbColumn"":""F网点名称""},{""excelColumn"":""结算财务中心"",""dbColumn"":""F结算中心""},{""excelColumn"":""结算对象"",""dbColumn"":""F结算对象""},{""excelColumn"":""费用主类型"",""dbColumn"":""F费用主类""},{""excelColumn"":""费用子类型"",""dbColumn"":""F费用子类""},{""excelColumn"":""发生金额"",""dbColumn"":""F发生金额""},{""excelColumn"":""发生金额"",""dbColumn"":""F发生额收入""},{""excelColumn"":""发生金额"",""dbColumn"":""F发生额支出""},{""excelColumn"":""本次账户余额"",""dbColumn"":""F本次余额""},{""excelColumn"":""业务发生日期"",""dbColumn"":""F业务日期""},{""excelColumn"":""预付款产生时间"",""dbColumn"":""F预付时间""},{""excelColumn"":""备注"",""dbColumn"":""F备注""}],""decimalFields"":[""F发生金额"",""F本次余额"",""F发生额收入"",""F发生额支出""],""dateFields"":[""业务发生日期"",""预付款产生时间""],""keyFields"":[""预付款流水号""],""totalRowDetection"":{""enabled"":true,""containsKeywords"":[""合计"",""总计""],""emptyFields"":[]},""transformRules"":[{""targetColumn"":""F发生额收入"",""expression"":""(parseFloat(row['F发生金额'])||0) > 0 ? (parseFloat(row['F发生金额'])||0) : 0""},{""targetColumn"":""F发生额支出"",""expression"":""(parseFloat(row['F发生金额'])||0) < 0 ? -(parseFloat(row['F发生金额'])||0) : 0""},{""targetColumn"":""F归属网点编号"",""expression"":""({'3512907':'南郊','3512894':'城区','3512906':'浏河'})[row['F网点编号']] || ''""}],""crossBatchDedupEnabled"":true,""crossBatchDedupFields"":[""F流水号""],""batchSplit"":{""enabled"":false}}";
+        var conn = ctx.Database.GetDbConnection();
+        if (conn.State != ConnectionState.Open) conn.Open();
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = ctx.Database.CurrentTransaction?.GetDbTransaction();
+            cmd.CommandTimeout = MigrationRunner.GetConfig().CommandTimeoutSeconds;
+            cmd.CommandText = "UPDATE [CF自动插件_规则] SET [F规则配置JSON] = @cfg WHERE [FID] = 3140;";
+            var p = cmd.CreateParameter(); p.ParameterName = "@cfg"; p.Value = cfg3140; cmd.Parameters.Add(p);
+            cmd.ExecuteNonQuery();
+        }
+
+        // ③ 回填存量行（表通常空；按 F发生金额 符号派生非负收/支列）
+        ExecSql(ctx, @"
+        UPDATE [STG极兔总部交易明细]
+        SET [F发生额收入] = CASE WHEN [F发生金额] > 0 THEN [F发生金额] ELSE 0 END,
+            [F发生额支出] = CASE WHEN [F发生金额] < 0 THEN -[F发生金额] ELSE 0 END
+        WHERE [F发生额收入] IS NULL OR [F发生额支出] IS NULL;");
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // 韵达总部交易明细 导入链路 + 凭证映射规则（V65）
     //   数据源 Taicang/韵达系统交易明细（22 列 / 单列带符号金额 交易金额 / 交易凭证唯一 / sheet「网点交易记录」/ 两网点 992209城区·744706浏河）。
@@ -224,6 +261,28 @@ public static class CardFlowSeeder
         // ① 建表 STG韵达总部交易明细（STG 前缀 EF 不自动建，必须显式 CREATE；列对齐 StgYundaHqTx + 派生收支列 + 插件标准列 F原始行号/F其他列数据/F业务主键）。
         //    含 F租户ID（本表建于 V62 之后，V62 的 STG 加列循环不覆盖；对齐 ITenantScoped 硬墙）。
         //    IsRequired 字符串列用 NOT NULL DEFAULT('')：插件把空值写 DBNull，SqlBulkCopy(KeepNulls off) 用 DEFAULT 回填。
+        //
+        // 前置修复(2026-07-05，用户批准)：dev 库存在两处遗留漂移，阻断本迁移、需先清理——
+        // ① 废弃 RLS：SECURITY POLICY [StgOrgPolicy](2026-05-11 建) + 谓词函数 [fn_StgOrgFilter](05-10 建)，
+        //    FILTER 谓词盖 5 张早期 STG 表(申通/极兔/韵达总部交易明细、费用支出记录、申通出港运单数据)。
+        //    代码库零引用；谓词 fail-open(SESSION_CONTEXT('CurrentOrgId') IS NULL 即全放行，而代码从不设置该上下文)
+        //    → 运行时从未过滤过任何行；租户/组织隔离的真实机制是 EF fail-closed 全局过滤器(design/23)。
+        //    唯一实际作用是 SCHEMABINDING 挡住这 5 张表的 DDL 重建(本迁移撞上)。整体删除，幂等，prod 无此对象则空跑。
+        //    存档(如需恢复按此重建)：
+        //      CREATE FUNCTION dbo.fn_StgOrgFilter(@orgId BIGINT) RETURNS TABLE WITH SCHEMABINDING AS RETURN
+        //          SELECT 1 AS allowed WHERE SESSION_CONTEXT(N'CurrentOrgId') IS NULL
+        //              OR @orgId = CONVERT(BIGINT, SESSION_CONTEXT(N'CurrentOrgId')) OR @orgId = 0;
+        //      CREATE SECURITY POLICY StgOrgPolicy
+        //          ADD FILTER PREDICATE dbo.fn_StgOrgFilter(FOrgId) ON dbo.STG申通总部交易明细,
+        //          ADD FILTER PREDICATE dbo.fn_StgOrgFilter(FOrgId) ON dbo.STG极兔总部交易明细,
+        //          ADD FILTER PREDICATE dbo.fn_StgOrgFilter(FOrgId) ON dbo.STG韵达总部交易明细,
+        //          ADD FILTER PREDICATE dbo.fn_StgOrgFilter(FOrgId) ON dbo.STG费用支出记录,
+        //          ADD FILTER PREDICATE dbo.fn_StgOrgFilter(FOrgId) ON dbo.STG申通出港运单数据 WITH (STATE = ON);
+        // ② 旧「投机占位」schema 的同名韵达表(缺 F交易凭证 等列、0 行)：IF NOT EXISTS 会跳过重建 →
+        //    后续按 F交易凭证 建索引报 1911。缺关键列则 DROP，让下方 CREATE 建出正确 schema；正确表存在则不动。
+        ExecSql(ctx, @"IF EXISTS (SELECT 1 FROM sys.security_policies WHERE name = N'StgOrgPolicy') DROP SECURITY POLICY [StgOrgPolicy];");
+        ExecSql(ctx, @"IF OBJECT_ID(N'dbo.fn_StgOrgFilter', N'IF') IS NOT NULL DROP FUNCTION [dbo].[fn_StgOrgFilter];");
+        ExecSql(ctx, @"IF OBJECT_ID(N'STG韵达总部交易明细', N'U') IS NOT NULL AND COL_LENGTH(N'STG韵达总部交易明细', N'F交易凭证') IS NULL DROP TABLE [STG韵达总部交易明细];");
         ExecSql(ctx, @"
         IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = N'STG韵达总部交易明细')
         CREATE TABLE [STG韵达总部交易明细] (

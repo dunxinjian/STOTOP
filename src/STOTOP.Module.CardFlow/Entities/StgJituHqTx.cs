@@ -37,4 +37,9 @@ public class StgJituHqTx : BaseEntity, IStagingRecord, ITenantScoped
     public decimal? F本次余额 { get; set; }
     public DateTime? F预付时间 { get; set; }
     public string? F备注 { get; set; }
+
+    // 派生收支双列（导入 transformRules 按 F发生金额 符号拆分：加款正=收入、扣款负=支出取绝对值）。
+    // 对齐申通/韵达双列模型：凭证行按收/支列取数、方向固定，避免单列负数红字；createDraft 亦硬依赖此两列。
+    public decimal? F发生额收入 { get; set; }
+    public decimal? F发生额支出 { get; set; }
 }

@@ -179,6 +179,29 @@ export interface CardFlowPathPreviewRequest {
   sourceType?: string | null
   sourceId?: number | null
   maxSteps?: number | null
+  details?: PreviewDetailRow[] | null
+}
+
+export interface PreviewDetailRow {
+  detailTableKey?: string | null
+  dataJson?: string | null
+  sortOrder?: number
+}
+
+/** 设计期呈现预览请求：草稿定义 + 样例数据 → 节点工作视图真值 */
+export interface CardPresentationPreviewRequest {
+  flowVersionId?: number | null
+  stageKey?: string | null
+  dataJson?: string | null
+  details?: PreviewDetailRow[] | null
+  viewerMode?: 'assignee' | 'observer' | 'initiator' | string | null
+}
+
+/** 呈现预览响应：工作视图 + 脱敏后的数据/明细 */
+export interface CardPresentationPreviewDto {
+  workView: StageWorkView
+  redactedDataJson: string
+  redactedDetails: CardDetailRowDto[]
 }
 
 export interface CardFlowPathPreviewDto {

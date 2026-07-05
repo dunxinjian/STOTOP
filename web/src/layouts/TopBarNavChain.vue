@@ -35,7 +35,7 @@
       >
         <span class="nav-tab__label">{{ it.tab.label }}</span>
         <span
-          v-if="navChainStore.chain.length > 1 && (it.index === navChainStore.activeIndex || hoverIndex === it.index)"
+          v-if="it.index === navChainStore.activeIndex || hoverIndex === it.index"
           class="nav-tab__close"
           @click.stop="onClose(it.index)"
         >
@@ -44,7 +44,7 @@
       </div>
       <template #overlay>
         <a-menu @click="(info: { key: string | number }) => onContextMenu(String(info.key), it.index)">
-          <a-menu-item key="close" :disabled="navChainStore.chain.length <= 1">关闭当前</a-menu-item>
+          <a-menu-item key="close">关闭当前</a-menu-item>
           <a-menu-item key="closeOther" :disabled="navChainStore.chain.length <= 1">关闭其他</a-menu-item>
           <a-menu-item key="closeRight" :disabled="it.index >= navChainStore.chain.length - 1">关闭右侧</a-menu-item>
         </a-menu>
@@ -88,7 +88,10 @@ const hiddenItems = computed(() =>
     .map((tab, i) => ({ tab, index: i })),
 )
 // 当前激活页签是否落在被折叠的集合里（用于给 “»N” 加激活样式）
-const hiddenHasActive = computed(() => navChainStore.activeIndex < visibleStart.value)
+// activeIndex=-1（无激活，如停留在固定页签）时不得高亮溢出按钮
+const hiddenHasActive = computed(
+  () => navChainStore.activeIndex >= 0 && navChainStore.activeIndex < visibleStart.value,
+)
 
 /** 测量当前已渲染的可见页签自然宽度并入缓存 */
 function measureRendered() {
@@ -177,11 +180,18 @@ function onHiddenSelect(path: string) {
 }
 
 function onClose(index: number) {
-  if (navChainStore.chain.length <= 1) return
+  // 关闭前记录：被关的是否正是“当前正在浏览”的链内页签
+  const wasActive = index === navChainStore.activeIndex
   const redirectPath = navChainStore.removeTab(index)
   if (redirectPath) {
+    // 关闭激活页签后跳到相邻页签
     router.push(redirectPath)
+  } else if (wasActive && navChainStore.chain.length === 0) {
+    // 关闭了唯一且正在浏览的页签 → 回落到工作台待办（固定页签始终可达）
+    markNavSource('menu')
+    router.push('/workhub/todo')
   }
+  // 其余情况（关闭的是非激活页签，或此时正停留在固定页签上）无需跳转
 }
 
 function onContextMenu(key: string, index: number) {

@@ -190,21 +190,25 @@ router.afterEach((to) => {
 
   // 导航链路Tab管理：所有导航均追加新Tab（不重置）。内存软上限见 navChain.CHAIN_MAX（超出按 LRU 淘汰）；
   // 顶栏实际可见几个由 TopBarNavChain 按宽度自适应，放不下的收进 “»N” 下拉。
-  // 工作台（/workhub/*：发起、待办）由顶栏固定页签承载，不进多页签链
-  if (!to.path.startsWith('/workhub')) {
-    import('@/stores/navChain').then(({ useNavChainStore, consumeNavSource }) => {
-      try {
-        const navChainStore = useNavChainStore()
-        consumeNavSource() // 消费来源标志（不再区分 menu/internal）
-        const tab = {
-          path: to.path,
-          label: (to.meta?.label as string) || (to.meta?.title as string) || '',
-          icon: (to.meta?.icon as string) || undefined,
-        }
-        navChainStore.pushToChain(tab)
-      } catch { /* pinia 未初始化时静默处理 */ }
-    }).catch(() => { /* 静默 */ })
-  }
+  // 工作台（/workhub/*：发起、待办）由顶栏固定页签承载，不进多页签链；
+  // 落到固定页签时须清掉链内激活态（activeIndex=-1），否则残留的“已激活”下标会让
+  // 该页签既点不动（onTabClick 认为已激活）又关不掉（被当作最后一个激活页签保护）。
+  import('@/stores/navChain').then(({ useNavChainStore, consumeNavSource }) => {
+    try {
+      const navChainStore = useNavChainStore()
+      if (to.path.startsWith('/workhub')) {
+        navChainStore.deselect()
+        return
+      }
+      consumeNavSource() // 消费来源标志（不再区分 menu/internal）
+      const tab = {
+        path: to.path,
+        label: (to.meta?.label as string) || (to.meta?.title as string) || '',
+        icon: (to.meta?.icon as string) || undefined,
+      }
+      navChainStore.pushToChain(tab)
+    } catch { /* pinia 未初始化时静默处理 */ }
+  }).catch(() => { /* 静默 */ })
 
   // 记录到 sidebar.recentPages（侧栏最近访问列表）
   import('@/stores/sidebar').then(({ useSidebarStore }) => {

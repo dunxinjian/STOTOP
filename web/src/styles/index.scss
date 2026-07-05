@@ -148,6 +148,21 @@ body {
     flex: 1;
     overflow: auto !important;
   }
+
+  // 无 scroll.y 的表格 antd 渲染 .ant-table-content（而非 header+body 分离结构），
+  // 上方链条 overflow:hidden 钳高后这里必须同样开滚动出口，否则超一屏的行被裁掉且无法滚动；
+  // 列头 sticky 保持"表体滚动、列头固定"与 .ant-table-body 分支一致。
+  .ant-table-content {
+    flex: 1;
+    overflow: auto !important;
+
+    > table > thead > tr > th,
+    > table > thead > tr > td {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+    }
+  }
 }
 
 // 通用卡片范式：圆角 + 边框 + 阴影 + 内边距四要素一齐（令牌化）

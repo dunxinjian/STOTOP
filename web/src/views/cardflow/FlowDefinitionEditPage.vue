@@ -52,14 +52,14 @@ import CardComponentRenderer from '@/components/cardflow/runtime/CardComponentRe
 import {
   getFlowDefinition, createFlowDefinition, updateFlowDefinition,
   publishFlowDefinition, getFlowDraftVersion, saveFlowDraftVersion,
-  getFlowGroups, getFlowDefinitions, previewFlowDraftPath,
+  getFlowGroups, getFlowDefinitions, previewFlowDraftPath, previewPresentation,
 } from '@/api/cardflow'
 import { getRoleList, getUserList, getUserDetail } from '@/api/system'
 import type {
   FlowDefinitionDto, FlowVersionDetailDto, StageDefinitionRequest,
   SchemaFieldDefinition, FlowGroupDto, StageRouteRuleRequest,
   DynamicStagePolicyRequest, CardComponentDefinition, CardComponentAccessRule,
-  CardComponentRuntime, CardHeaderConfig, CardPresentationSnapshot,
+  CardComponentRuntime, CardHeaderConfig, CardPresentationSnapshot, StageWorkView,
 } from '@/types/cardflow'
 import { useOrgContextStore } from '@/stores/orgContext'
 import { useUndoRedo, useAutoCommit } from '@/composables/useUndoRedo'
@@ -879,9 +879,52 @@ function canvasRuntimeComponentsFor(component: CardComponentDefinition): CardCom
   return [buildRuntimeComponent(component, null)]
 }
 
-const previewRuntimeComponents = computed<CardComponentRuntime[]>(() =>
-  buildPreviewComponentDefinitions().map(component => buildRuntimeComponent(component, selectedPreviewStage.value)),
-)
+// B3：节点卡片预览优先用后端 previewPresentation 真值（脱敏/聚合/access 归一与运行时一字不差），
+// 端点失败或缺 stageKey 时回退前端复刻 buildRuntimeComponent（渐进接入，先并行可比对再逐步删复刻）
+const previewEndpointWorkView = ref<StageWorkView | null>(null)
+
+async function refreshPreviewPresentation() {
+  const stage = selectedPreviewStage.value
+  if (!flowId.value || !stage?.id) {
+    previewEndpointWorkView.value = null
+    return
+  }
+  try {
+    const details = previewDetailRows.value.map((row, index) => {
+      const { _id, ...data } = row
+      return {
+        detailTableKey: state.detailTableKey || 'default',
+        dataJson: JSON.stringify(data),
+        sortOrder: index,
+      }
+    })
+    const res = await previewPresentation(flowId.value, {
+      stageKey: stage.id,
+      dataJson: JSON.stringify(previewSampleData.value),
+      details,
+      viewerMode: 'assignee',
+    })
+    previewEndpointWorkView.value = res.workView
+  } catch {
+    // 端点失败（草稿未保存/节点无 v2 视图等）→ 回退前端复刻，不阻断预览
+    previewEndpointWorkView.value = null
+  }
+}
+
+let previewRefreshTimer: ReturnType<typeof setTimeout> | null = null
+function schedulePreviewRefresh() {
+  if (previewRefreshTimer) clearTimeout(previewRefreshTimer)
+  previewRefreshTimer = setTimeout(refreshPreviewPresentation, 500)
+}
+// 端点读已保存草稿，故按预览节点切换刷新（编辑期改动经 30s 自动保存后随切换生效）
+watch(selectedPreviewStageId, schedulePreviewRefresh)
+
+const previewRuntimeComponents = computed<CardComponentRuntime[]>(() => {
+  if (previewEndpointWorkView.value?.components?.length) {
+    return previewEndpointWorkView.value.components
+  }
+  return buildPreviewComponentDefinitions().map(component => buildRuntimeComponent(component, selectedPreviewStage.value))
+})
 
 const previewVisibleComponentCount = computed(() =>
   previewRuntimeComponents.value.filter(component => component.visible && component.access !== 'hidden').length

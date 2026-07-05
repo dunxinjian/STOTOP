@@ -259,9 +259,16 @@ public sealed class CardFlowPathPreviewService : ICardFlowPathPreviewService
             cardData[pair.Key] = pair.Value;
         }
 
+        // 灌入明细样例数据，使引用 detailSummary.* 的条件边预演能真实求值（否则恒落默认分支，误导发布决策）
+        var detailData = (request.Details ?? new List<PreviewDetailRow>())
+            .OrderBy(row => row.SortOrder)
+            .Select(row => (IReadOnlyDictionary<string, object?>)ParseObject(row.DataJson))
+            .ToList();
+
         var context = ConditionContextFactory.Build(new ConditionContextInputs
         {
             CardData = cardData,
+            DetailData = detailData,
             SourceModule = request.SourceModule,
             SourceType = request.SourceType,
             SourceId = request.SourceId,

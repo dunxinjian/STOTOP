@@ -36,7 +36,8 @@ export const useNavChainStore = defineStore('navChain', () => {
   // ---------- State ----------
 
   const chain = ref<NavTab[]>([])
-  const activeIndex = ref<number>(0)
+  // 当前激活的页签下标；-1 表示“无链内页签激活”（例如正停留在顶栏固定页签 发起/待办 上）
+  const activeIndex = ref<number>(-1)
 
   // 访问序列：path -> 最近一次激活的自增序号，用于 LRU 淘汰（非响应式，仅内部记账）。
   const accessOrder = new Map<string, number>()
@@ -109,6 +110,16 @@ export const useNavChainStore = defineStore('navChain', () => {
   }
 
   /**
+   * 取消链内激活（activeIndex = -1）。
+   * 当路由落到顶栏固定页签（发起/待办 等 /workhub/*）上时调用：
+   * 此时没有任何链内页签处于“当前页”，链应整体呈未激活态，
+   * 从而允许重新点击某个页签跳转、允许关闭最后一个页签。
+   */
+  function deselect() {
+    activeIndex.value = -1
+  }
+
+  /**
    * 移除指定项；如果移除的是 activeIndex，则调整到相邻Tab（优先左侧）。
    * 返回需要导航到的 path（如果 active 变了的话），否则返回 undefined。
    */
@@ -119,7 +130,7 @@ export const useNavChainStore = defineStore('navChain', () => {
     if (removed) accessOrder.delete(removed.path)
 
     if (chain.value.length === 0) {
-      activeIndex.value = 0
+      activeIndex.value = -1
       return undefined
     }
 
@@ -143,7 +154,7 @@ export const useNavChainStore = defineStore('navChain', () => {
   function clear() {
     accessOrder.clear()
     chain.value = []
-    activeIndex.value = 0
+    activeIndex.value = -1
   }
 
   return {
@@ -157,6 +168,7 @@ export const useNavChainStore = defineStore('navChain', () => {
     pushToChain,
     resetChain,
     switchTo,
+    deselect,
     removeTab,
     clear,
   }
