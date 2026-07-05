@@ -102,6 +102,7 @@ public static class DingTalkConfigHelper
                 existing.AgentId = record.AgentId;
                 existing.Domain = record.Domain;
                 existing.RobotWebhookUrl = record.RobotWebhookUrl;
+                existing.RobotSecret = record.RobotSecret;
                 existing.IsEnabled = record.IsEnabled;
                 existing.AutoSync = record.AutoSync;
                 existing.SyncCron = record.SyncCron;
@@ -246,8 +247,10 @@ public class DingTalkConfigRecord
     public string CorpId { get; set; } = "";
     public string? AgentId { get; set; }
     public string? Domain { get; set; }
-    /// <summary>群机器人 Webhook（供告警/日报/周报 bot per-tenant 分发；M8 接入）。</summary>
+    /// <summary>群机器人 Webhook（供告警/日报/周报 bot per-tenant 分发）。</summary>
     public string? RobotWebhookUrl { get; set; }
+    /// <summary>群机器人加签密钥（可选 HMAC-SHA256）。</summary>
+    public string? RobotSecret { get; set; }
     public int IsEnabled { get; set; } = 1;
     public int AutoSync { get; set; }
     public string? SyncCron { get; set; } = "0 0 2 * * ?";

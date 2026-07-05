@@ -36,8 +36,11 @@ public class SysDingTalkConfig : BaseEntity, ITenantScoped
     /// <summary>自定义域名（可选，免登回调用）</summary>
     public string? FDomain { get; set; }
 
-    /// <summary>群机器人 Webhook（可选，供告警/日报/周报 bot per-tenant 分发；M8 接入）</summary>
+    /// <summary>群机器人 Webhook（可选，供告警/日报/周报 bot per-tenant 分发）</summary>
     public string? FRobotWebhookUrl { get; set; }
+
+    /// <summary>群机器人加签密钥（可选，HMAC-SHA256；未设则按关键词/IP 白名单安全，不签名）</summary>
+    public string? FRobotSecret { get; set; }
 
     /// <summary>是否启用（1=启用 / 0=停用）</summary>
     public int FIsEnabled { get; set; } = 1;

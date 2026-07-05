@@ -19,6 +19,7 @@ public class SysDingTalkConfigConfiguration : IEntityTypeConfiguration<SysDingTa
         builder.Property(e => e.FAgentId).HasColumnName("FAgentId").HasMaxLength(100);
         builder.Property(e => e.FDomain).HasColumnName("F自定义域名").HasMaxLength(200);
         builder.Property(e => e.FRobotWebhookUrl).HasColumnName("F群机器人Webhook").HasMaxLength(500);
+        builder.Property(e => e.FRobotSecret).HasColumnName("F群机器人Secret").HasMaxLength(200);
         builder.Property(e => e.FIsEnabled).HasColumnName("F是否启用").HasDefaultValue(1);
         builder.Property(e => e.FAutoSync).HasColumnName("F自动同步").HasDefaultValue(0);
         builder.Property(e => e.FSyncCron).HasColumnName("F同步Cron").HasMaxLength(50);

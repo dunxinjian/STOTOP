@@ -26,8 +26,18 @@ public static class SystemSeeder
             new(11, "阶段2C(M5): 从 FKind=网点公司 组织节点回填 SYS网点公司(1:1) (2026-07-02)", MigrateV11),
             new(12, "阶段2D(R8): 从任职(可放大)物化范围根回填 SYS数据范围授权(派生 Read,集团级归一) (2026-07-03)", MigrateV12),
             new(13, "阶段4A(平台层): SYS用户 加 F是否平台超管(回填 admin=1) + 回填 PLT租户单客户行(IDENTITY_INSERT FID=根组织id,保 F租户ID 不变) (2026-07-04)", MigrateV13),
+            new(14, "阶段4(钉钉per-tenant): SYS钉钉配置(CreateMissingTables 建) 补 F群机器人Secret 列——初次建表后新增,存量表补列;新库已含此列→幂等 no-op (2026-07-05)", MigrateV14),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>阶段4·钉钉 per-tenant 分发：SYS钉钉配置 表（由 CreateMissingTables 先建）补 F群机器人Secret 列。
+    /// 该列在初次建表(仅 F群机器人Webhook)后新增——存量库表缺列需补；新库 CreateMissingTables 已含此列→AddColumnIfMissing 幂等 no-op。</summary>
+    private static void MigrateV14(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        // SYS钉钉配置 由 CreateMissingTables 在种子前建；此处仅补初次建表后新增的可空列。
+        AddColumnIfMissing(ctx, "SYS钉钉配置", "F群机器人Secret", "nvarchar(200) NULL");
     }
 
     /// <summary>阶段4A·平台层地基：① SYS用户 加 F是否平台超管 列(bit NOT NULL DEFAULT 0)并回填 admin=1；

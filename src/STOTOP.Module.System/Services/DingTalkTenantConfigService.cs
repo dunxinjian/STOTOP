@@ -81,6 +81,7 @@ public sealed class DingTalkTenantConfigService : IDingTalkTenantConfigService
             row.FAgentId = config.AgentId;
             row.FDomain = config.Domain;
             row.FRobotWebhookUrl = config.RobotWebhookUrl;
+            row.FRobotSecret = config.RobotSecret;
             row.FIsEnabled = config.IsEnabled;
             row.FAutoSync = config.AutoSync;
             row.FSyncCron = config.SyncCron;
@@ -128,6 +129,7 @@ public sealed class DingTalkTenantConfigService : IDingTalkTenantConfigService
         AgentId = e.FAgentId,
         Domain = e.FDomain,
         RobotWebhookUrl = e.FRobotWebhookUrl,
+        RobotSecret = e.FRobotSecret,
         IsEnabled = e.FIsEnabled,
         AutoSync = e.FAutoSync,
         SyncCron = e.FSyncCron,

@@ -387,6 +387,8 @@ builder.Services.AddScoped<ShentongUnificationJob>();
 
 // 钉钉群机器人 Webhook 推送（AlertBotJob / DailyReportBotJob / WeeklyReportBotJob / BotPushController 依赖）
 builder.Services.AddSingleton<DingTalkBotService>();
+// per-tenant 群机器人 webhook 解析（bot 逐租户分发到各自钉钉群；Scoped——依赖 Scoped 的租户配置服务）
+builder.Services.AddScoped<BotWebhookResolver>();
 
 // SignalR
 builder.Services.AddSignalR();
