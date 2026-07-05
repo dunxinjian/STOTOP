@@ -663,6 +663,78 @@ public class TaskService : ITaskService
         });
     }
 
+    public async Task<List<TaskListDto>> GetMyPendingTasksLiteAsync(long orgId, long currentUserId, int take = 20)
+    {
+        // 可见性谓词与 GetMyTasksAsync 一致：本人指派/创建/参与的顶级非模板任务
+        var taskIds = await _db.Set<TmTaskMember>()
+            .Where(m => m.FUserId == currentUserId)
+            .Select(m => m.FTaskId)
+            .Distinct()
+            .ToListAsync();
+
+        // F状态<3（未完成）下推 + 封顶取前 N 条，避免全量取数
+        var tasks = await _db.Set<TmTask>()
+            .Where(t => t.FOrgId == orgId && !t.FIsTemplate && t.FParentTaskId == 0
+                     && t.FStatus < 3
+                     && (t.FAssigneeId == currentUserId || t.FCreatorId == currentUserId || taskIds.Contains(t.FID)))
+            .OrderByDescending(t => t.FCreateTime)
+            .Take(take)
+            .Select(t => new
+            {
+                t.FID,
+                t.FUID,
+                t.FTitle,
+                t.FOrgId,
+                t.FProjectId,
+                t.FParentTaskId,
+                t.FType,
+                t.FPriority,
+                t.FStatus,
+                t.FAssigneeId,
+                t.FCreatorId,
+                t.FPlanStart,
+                t.FPlanEnd,
+                t.FProgress,
+                t.FCode,
+                t.FCreateTime,
+                t.FUpdateTime,
+            })
+            .ToListAsync();
+
+        if (tasks.Count == 0) return new List<TaskListDto>();
+
+        // 一次字典解析负责人姓名与项目名（不跑 EnrichTaskListDtos 的子任务/标签等附加查询）
+        var userIds = tasks.Where(t => t.FAssigneeId.HasValue).Select(t => t.FAssigneeId!.Value).Distinct().ToList();
+        var userDict = await GetUserNameDict(userIds);
+        var projectIds = tasks.Where(t => t.FProjectId.HasValue).Select(t => t.FProjectId!.Value).Distinct().ToList();
+        var projectDict = projectIds.Count > 0
+            ? await _db.Set<TmProject>().Where(p => projectIds.Contains(p.FID)).Select(p => new { p.FID, p.FName }).ToDictionaryAsync(p => p.FID, p => p.FName)
+            : new Dictionary<long, string>();
+
+        return tasks.Select(t => new TaskListDto
+        {
+            Id = t.FID,
+            UID = t.FUID,
+            Title = t.FTitle,
+            OrgId = t.FOrgId,
+            ProjectId = t.FProjectId,
+            ProjectName = t.FProjectId.HasValue ? projectDict.GetValueOrDefault(t.FProjectId.Value) : null,
+            ParentTaskId = t.FParentTaskId,
+            Type = t.FType,
+            Priority = t.FPriority,
+            Status = t.FStatus,
+            AssigneeId = t.FAssigneeId,
+            AssigneeName = t.FAssigneeId.HasValue ? userDict.GetValueOrDefault(t.FAssigneeId.Value) : null,
+            CreatorId = t.FCreatorId,
+            PlanStart = t.FPlanStart,
+            PlanEnd = t.FPlanEnd,
+            Progress = t.FProgress,
+            Code = t.FCode,
+            CreateTime = t.FCreateTime,
+            UpdateTime = t.FUpdateTime,
+        }).ToList();
+    }
+
     public async Task<ApiResult<bool>> DeleteAsync(long id)
     {
         var task = await _db.Set<TmTask>().AsTracking().FirstOrDefaultAsync(t => t.FID == id);

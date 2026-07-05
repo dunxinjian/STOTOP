@@ -21,6 +21,11 @@ public interface ITaskService
     Task<ApiResult<List<TagSimpleDto>>> GetTagsAsync(long id);
     Task<ApiResult<bool>> SetTagsAsync(long id, SetTaskTagsRequest request);
     Task<ApiResult<PagedResult<TaskListDto>>> GetMyTasksAsync(long orgId, long currentUserId);
+    /// <summary>
+    /// WorkHub 专用：我的未完成任务精简列表（可见性谓词同 GetMyTasksAsync + F状态&lt;3 下推 + Take(take)）。
+    /// 不跑 EnrichTaskListDtos（跳过子任务统计/标签等附加查询），仅补 ProjectName/AssigneeName 保证 Summary 不空。
+    /// </summary>
+    Task<List<TaskListDto>> GetMyPendingTasksLiteAsync(long orgId, long currentUserId, int take = 20);
     Task<int> GetMyPendingCountAsync(long orgId, long currentUserId);
     Task<ApiResult<bool>> DeleteAsync(long id);
     Task<ApiResult<bool>> BatchUpdateAsync(List<long> taskIds, int? status, long? assigneeId);

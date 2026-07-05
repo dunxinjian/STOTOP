@@ -6,6 +6,7 @@ using STOTOP.Infrastructure.Events;
 using STOTOP.Module.Quality.Dtos;
 using STOTOP.Module.Quality.Entities;
 using STOTOP.Module.Quality.Events;
+using STOTOP.Module.System.Entities;
 
 namespace STOTOP.Module.Quality.Services.Exception;
 
@@ -42,23 +43,47 @@ public class ExceptionService : IExceptionService
             query = query.Where(e => e.FTitle.Contains(request.Keyword));
 
         var total = await query.CountAsync();
-        var items = await query
+        var rows = await query
             .OrderByDescending(e => e.FCreateTime)
             .Skip((request.PageIndex - 1) * request.PageSize)
             .Take(request.PageSize)
-            .Select(e => new ExceptionListDto
+            .Select(e => new
             {
-                Id = e.FID,
-                ExceptionNo = e.FExceptionNo,
-                Title = e.FTitle,
-                Type = e.FType,
-                Status = e.FStatus,
-                Priority = e.FPriority,
-                Source = e.FSource,
-                Deadline = e.FDeadline,
-                CreateTime = e.FCreateTime,
+                e.FID,
+                e.FExceptionNo,
+                e.FTitle,
+                e.FType,
+                e.FStatus,
+                e.FPriority,
+                e.FSource,
+                e.FAssigneeId,
+                e.FDeadline,
+                e.FCreateTime,
             })
             .ToListAsync();
+
+        // 批量解析负责人姓名（补齐此前漏投影的 AssigneeName）
+        var assigneeIds = rows.Where(r => r.FAssigneeId.HasValue).Select(r => r.FAssigneeId!.Value).Distinct().ToList();
+        var assigneeDict = assigneeIds.Count > 0
+            ? await _db.Set<SysUser>().Where(u => assigneeIds.Contains(u.FID)).Select(u => new { u.FID, u.FName }).ToDictionaryAsync(u => u.FID, u => u.FName)
+            : new Dictionary<long, string>();
+
+        var items = rows.Select(e => new ExceptionListDto
+        {
+            Id = e.FID,
+            ExceptionNo = e.FExceptionNo,
+            Title = e.FTitle,
+            Type = e.FType,
+            TypeText = MapExceptionType(e.FType),
+            Status = e.FStatus,
+            StatusText = MapExceptionStatus(e.FStatus),
+            Priority = e.FPriority,
+            PriorityText = MapExceptionPriority(e.FPriority),
+            Source = e.FSource,
+            AssigneeName = e.FAssigneeId.HasValue ? assigneeDict.GetValueOrDefault(e.FAssigneeId.Value) : null,
+            Deadline = e.FDeadline,
+            CreateTime = e.FCreateTime,
+        }).ToList();
 
         return ApiResult<PagedResult<ExceptionListDto>>.Success(new PagedResult<ExceptionListDto>
         {
@@ -68,6 +93,88 @@ public class ExceptionService : IExceptionService
             PageSize = request.PageSize,
         });
     }
+
+    public async Task<int> GetOpenCountAsync(long orgId)
+    {
+        // 与 WorkHub 列表口径一致：未关闭（F状态<3）的异常数，直接下推 DB 计数
+        return await _db.Set<QlException>()
+            .Where(e => e.FOrgId == orgId && e.FStatus < 3)
+            .CountAsync();
+    }
+
+    public async Task<List<ExceptionListDto>> GetOpenAlertsLiteAsync(long orgId, int take = 20)
+    {
+        // F状态<3 下推 + 封顶取前 N 条（按创建时间倒序），替代此前"取50条后内存过滤"
+        var rows = await _db.Set<QlException>()
+            .Where(e => e.FOrgId == orgId && e.FStatus < 3)
+            .OrderByDescending(e => e.FCreateTime)
+            .Take(take)
+            .Select(e => new
+            {
+                e.FID,
+                e.FExceptionNo,
+                e.FTitle,
+                e.FType,
+                e.FStatus,
+                e.FPriority,
+                e.FSource,
+                e.FAssigneeId,
+                e.FDeadline,
+                e.FCreateTime,
+            })
+            .ToListAsync();
+
+        if (rows.Count == 0) return new List<ExceptionListDto>();
+
+        var assigneeIds = rows.Where(r => r.FAssigneeId.HasValue).Select(r => r.FAssigneeId!.Value).Distinct().ToList();
+        var assigneeDict = assigneeIds.Count > 0
+            ? await _db.Set<SysUser>().Where(u => assigneeIds.Contains(u.FID)).Select(u => new { u.FID, u.FName }).ToDictionaryAsync(u => u.FID, u => u.FName)
+            : new Dictionary<long, string>();
+
+        return rows.Select(e => new ExceptionListDto
+        {
+            Id = e.FID,
+            ExceptionNo = e.FExceptionNo,
+            Title = e.FTitle,
+            Type = e.FType,
+            TypeText = MapExceptionType(e.FType),
+            Status = e.FStatus,
+            StatusText = MapExceptionStatus(e.FStatus),
+            Priority = e.FPriority,
+            PriorityText = MapExceptionPriority(e.FPriority),
+            Source = e.FSource,
+            AssigneeName = e.FAssigneeId.HasValue ? assigneeDict.GetValueOrDefault(e.FAssigneeId.Value) : null,
+            Deadline = e.FDeadline,
+            CreateTime = e.FCreateTime,
+        }).ToList();
+    }
+
+    // ===== 枚举→中文文案（与 QualityDashboardService 保持一致）=====
+    private static string MapExceptionType(int type) => type switch
+    {
+        0 => "数据异常",
+        1 => "流程超时",
+        2 => "规则违规",
+        _ => "未知"
+    };
+
+    private static string MapExceptionStatus(int status) => status switch
+    {
+        0 => "待处理",
+        1 => "处理中",
+        2 => "已超时",
+        3 => "已关闭",
+        _ => "未知"
+    };
+
+    private static string MapExceptionPriority(int priority) => priority switch
+    {
+        0 => "低",
+        1 => "中",
+        2 => "高",
+        3 => "紧急",
+        _ => "未知"
+    };
 
     public async Task<ApiResult<ExceptionDetailDto>> GetDetailAsync(long orgId, long id)
     {

@@ -111,7 +111,7 @@ public class WorkItemService : IWorkItemService
         return entity == null ? null : MapToDto(entity);
     }
 
-    public async Task<List<WorkItemDto>> GetPendingItemsAsync(long userId, string? module = null)
+    public async Task<List<WorkItemDto>> GetPendingItemsAsync(long userId, string? module = null, int? take = null)
     {
         var query = _db.Set<WfWorkItem>()
             .Where(w => w.FAssigneeId == userId && w.FStatus == (int)WorkItemStatus.Pending);
@@ -119,10 +119,14 @@ public class WorkItemService : IWorkItemService
         if (!string.IsNullOrEmpty(module))
             query = query.Where(w => w.FModule == module);
 
-        var items = await query
+        var ordered = query
             .OrderByDescending(w => w.FPriority)
-            .ThenBy(w => w.FCreateTime)
-            .ToListAsync();
+            .ThenBy(w => w.FCreateTime);
+
+        // take 非空时 DB 层封顶取前 N 条，避免某用户 pending 极多时全量取数
+        var items = take.HasValue
+            ? await ordered.Take(take.Value).ToListAsync()
+            : await ordered.ToListAsync();
 
         return items.Select(MapToDto).ToList();
     }
@@ -278,6 +282,18 @@ public class WorkItemService : IWorkItemService
         };
 
         return stats;
+    }
+
+    public async Task<Dictionary<int, int>> GetPendingCountByTypeAsync(long userId)
+    {
+        // 与 GetPendingItemsAsync 口径一致：指派人为本人且状态为待办，按类型分组计数
+        var grouped = await _db.Set<WfWorkItem>()
+            .Where(w => w.FAssigneeId == userId && w.FStatus == (int)WorkItemStatus.Pending)
+            .GroupBy(w => w.FType)
+            .Select(g => new { Type = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        return grouped.ToDictionary(g => g.Type, g => g.Count);
     }
 
     /// <summary>

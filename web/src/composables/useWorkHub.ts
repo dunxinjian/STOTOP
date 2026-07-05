@@ -150,6 +150,11 @@ let hasConnectedBefore = false
 /** 防抖定时器 */
 let statsDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
+/** 上次 StatsUpdated 对账兜底的时间戳（节流用，Date.now 毫秒） */
+let lastStatsSync = 0
+/** StatsUpdated 对账兜底最小间隔（毫秒） */
+const STATS_SYNC_THROTTLE_MS = 8000
+
 // ===== 内部工具方法 =====
 function debouncedFetchStats() {
   if (statsDebounceTimer) clearTimeout(statsDebounceTimer)
@@ -157,6 +162,33 @@ function debouncedFetchStats() {
     fetchStats()
     statsDebounceTimer = null
   }, 600)
+}
+
+/**
+ * 对账兜底：仅在页面可见 + 8s 节流窗口外才全量重拉一次 stats，收敛本地增量的漂移。
+ * StatsUpdated 推送与"移除时找不到 category"的兜底共用，避免高频推送/移除触发全量重拉。
+ */
+function throttledStatsSync() {
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+  const now = Date.now()
+  if (now - lastStatsSync < STATS_SYNC_THROTTLE_MS) return
+  lastStatsSync = now
+  fetchStats()
+}
+
+/**
+ * 本地增量维护角标：即时更新 UI，避免每次推送/操作都全量重拉后端 8 源统计。
+ * category 为工作项分类（approval/task/alert/notification/reminder/initiated），
+ * 与 stats 的同名数字字段一一对应；delta 为 +1（新增）/ -1（移除）。
+ * 用 Math.max(0, …) 兜底，杜绝负数。
+ */
+function adjustStat(category: WorkItem['category'] | '' | undefined, delta: number) {
+  if (!category) return
+  const s = stats.value
+  if (typeof s[category] === 'number') {
+    s[category] = Math.max(0, s[category] + delta)
+  }
+  s.total = Math.max(0, s.total + delta)
 }
 
 function buildParams(): Parameters<typeof getWorkItems>[0] {
@@ -277,7 +309,7 @@ function dismissPendingItems() {
 // ===== 筛选器操作 =====
 
 // 注：stats 是全类全量统计、不受任何筛选参数影响，因此切换筛选只需重取列表；
-// 角标数字由 SignalR 推送与操作后的 debouncedFetchStats 维护。
+// 角标数字由本地增量 adjustStat 即时维护，低频 fetchStats 对账兜底收敛漂移。
 function setFilter<K extends keyof WorkHubFilters>(key: K, value: WorkHubFilters[K]) {
   filters.value[key] = value
   fetchItems(true)
@@ -292,14 +324,15 @@ function resetFilters() {
 
 async function handleAction(itemId: string, actionKey: string) {
   await executeWorkItemAction(itemId, actionKey)
-  // 从列表中移除已处理的项
+  // 从列表中移除已处理的项（移除前取其 category 以本地增量减角标）
+  const removed = items.value.find(i => i.id === itemId)
   items.value = items.value.filter(i => i.id !== itemId)
   totalCount.value = Math.max(0, totalCount.value - 1)
   // 若移除的是当前选中项，清空选中
   if (selectedItemId.value === itemId) {
     selectedItemId.value = null
   }
-  debouncedFetchStats()
+  adjustStat(removed?.category, -1)
 }
 
 // ===== 可逆性分级安全机制 =====
@@ -335,7 +368,7 @@ async function commitAction(item: WorkItem, action: WorkItemAction) {
     if (action.finalizes === true) {
       archiveItem(item)
     }
-    debouncedFetchStats()
+    // 角标已在 executeAction 乐观移除时 adjustStat(-1)，此处不再重复减
   } catch (e) {
     console.warn('[useWorkHub] commitAction 失败', e)
   }
@@ -369,6 +402,8 @@ function executeAction(item: WorkItem, action: WorkItemAction) {
   if (selectedItemId.value === item.id) {
     selectedItemId.value = null
   }
+  // 乐观移除即刻减角标；撤销时在 rollback 里加回
+  adjustStat(item.category, -1)
 
   const pendingId = `${item.id}-${Date.now()}`
   const timer = setTimeout(() => {
@@ -385,6 +420,8 @@ function executeAction(item: WorkItem, action: WorkItemAction) {
     rollback: () => {
       items.value = originalItems
       selectedItemId.value = originalSelectedId
+      // 恢复列表的同时加回角标
+      adjustStat(item.category, +1)
     },
   })
 }
@@ -407,6 +444,8 @@ function confirmAction() {
   if (selectedItemId.value === item.id) {
     selectedItemId.value = null
   }
+  // 移除即减角标（无 Undo，commitAction 内不再重复减）
+  adjustStat(item.category, -1)
   commitAction(item, action)
   confirmDialog.value = null
 }
@@ -507,29 +546,34 @@ async function connect(userId: number | string) {
 
   const conn = manager.connection
 
-  // 统计更新
-  conn.on('StatsUpdated', () => {
-    debouncedFetchStats()
-  })
+  // 统计更新：后端「数字变了」信号。不再直接全量重拉，
+  // 改为节流对账兜底——仅页面可见且距上次对账 ≥ 阈值时才拉一次，收敛本地增量漂移。
+  conn.on('StatsUpdated', throttledStatsSync)
 
-  // 新工作项到达：推入待展示队列而非直接插入列表
+  // 新工作项到达：推入待展示队列而非直接插入列表；本地增量加角标
   conn.on('WorkItemAdded', (item: WorkItem) => {
     // 避免重复
     if (!pendingItems.value.find(i => i.id === item.id) && !items.value.find(i => i.id === item.id)) {
       pendingItems.value.unshift(item)
     }
-    debouncedFetchStats()
+    adjustStat(item.category, +1)
   })
 
-  // 移除工作项
+  // 移除工作项：先从列表/待展示队列按 id 找 category 再本地减；找不到则退化为对账兜底
   conn.on('WorkItemRemoved', (itemId: string) => {
+    const known = items.value.find(i => i.id === itemId) ?? pendingItems.value.find(i => i.id === itemId)
     items.value = items.value.filter(i => i.id !== itemId)
     pendingItems.value = pendingItems.value.filter(i => i.id !== itemId)
     totalCount.value = Math.max(0, totalCount.value - 1)
     if (selectedItemId.value === itemId) {
       selectedItemId.value = null
     }
-    debouncedFetchStats()
+    if (known) {
+      adjustStat(known.category, -1)
+    } else {
+      // 跨类项不在当前列表，无法确定 category，退化为低频对账兜底，不瞎减
+      throttledStatsSync()
+    }
   })
 
   // 更新工作项
@@ -540,17 +584,24 @@ async function connect(userId: number | string) {
     }
   })
 
-  // 工作项状态变更：从待办列表移除（已完成/已取消）或重新加入
+  // 工作项状态变更：终态（已完成/已取消）从待办列表移除；本地增量减角标，找不到 category 则对账兜底
   conn.on('WorkItemStatusChanged', (payload: { id: string; status: string; source: string }) => {
     if (payload.status === 'completed' || payload.status === 'cancelled') {
+      const known = items.value.find(i => i.id === payload.id) ?? pendingItems.value.find(i => i.id === payload.id)
       items.value = items.value.filter(i => i.id !== payload.id)
       pendingItems.value = pendingItems.value.filter(i => i.id !== payload.id)
       totalCount.value = Math.max(0, totalCount.value - 1)
       if (selectedItemId.value === payload.id) {
         selectedItemId.value = null
       }
+      if (known) {
+        adjustStat(known.category, -1)
+      } else {
+        // 跨类项不在当前列表，无法确定 category，退化为低频对账兜底，不瞎减
+        fetchStats()
+      }
     }
-    debouncedFetchStats()
+    // 非终态变更（如仅状态流转）不触碰角标
   })
 
   try {

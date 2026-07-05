@@ -75,7 +75,8 @@ public class WorkHubService : IWorkHubService
     // ===== WfWorkItem 数据源（WF 框架） =====
     private async Task<List<DtoWorkItemDto>> GetWfWorkItemsFromServiceAsync(IWorkItemService workItemService, long userId)
     {
-        var wfItems = await workItemService.GetPendingItemsAsync(userId);
+        // WF 列表源封顶 20 条（DB 层 Take，与其他源一致）；stats 的 WF 计数走 GetPendingCountByTypeAsync，不受此影响
+        var wfItems = await workItemService.GetPendingItemsAsync(userId, take: 20);
         return wfItems.Select(MapWfWorkItemToDto).ToList();
     }
 
@@ -211,83 +212,7 @@ public class WorkHubService : IWorkHubService
         var results = await Task.WhenAll(tasks);
         var allItems = results.SelectMany(r => r).ToList();
 
-        // 回填业务类型（BizTypeKey / BizTypeLabel）
-        EnrichBizTypes(allItems);
-
-        // 按优先级筛�?
-        if (!string.IsNullOrEmpty(priority))
-        {
-            allItems = allItems.Where(i => i.Priority == priority).ToList();
-        }
-
-        // 排序：优先级 �?时间戳（最新优先）
-        allItems = allItems
-            .OrderBy(i => PriorityOrder.GetValueOrDefault(i.Priority, 99))
-            .ThenByDescending(i => i.Timestamp)
-            .ToList();
-
-        var total = allItems.Count;
-        var pageItems = allItems
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToList();
-
-        // 填充 relatedLinks 与扩展 action 字段
-        foreach (var item in pageItems)
-        {
-            EnrichWorkItem(item);
-        }
-
-        return new PagedResult<DtoWorkItemDto>
-        {
-            Items = pageItems,
-            Total = total,
-            PageIndex = page,
-            PageSize = pageSize,
-        };
-    }
-
-    public async Task<WorkItemsWithStatsDto> GetWorkItemsWithStatsAsync(long userId, long orgId, string? category, string? priority, int page, int pageSize)
-    {
-        // 并行获取所有模块数据（只执行一次，同时用于 items 和 stats；stats 需要全类 count，故不按 category 裁剪数据源）
-        var tasks = new List<Task<List<DtoWorkItemDto>>>
-        {
-            ExecuteInScopeAsync<ITodoService>(svc => GetCardFlowTodosFromServiceAsync(svc, userId)),
-            ExecuteInScopeAsync<IPointApplicationService>(svc => GetPointsApprovalsFromServiceAsync(svc, orgId)),
-            ExecuteInScopeOptionalAsync<IVoucherService>(svc => GetFinanceApprovalsFromServiceAsync(svc)),
-            ExecuteInScopeAsync<ITaskService>(svc => GetTaskItemsFromServiceAsync(svc, orgId, userId)),
-            ExecuteInScopeAsync<IExceptionService>(svc => GetQualityAlertsFromServiceAsync(svc, orgId)),
-            ExecuteInScopeAsync<INotificationService>(svc => GetNotificationsFromServiceAsync(svc, userId)),
-            ExecuteInScopeAsync<IContractReminderService>(svc => GetContractRemindersFromServiceAsync(svc, userId)),
-            // WfWorkItem 主数据源
-            ExecuteInScopeAsync<IWorkItemService>(svc => GetWfWorkItemsFromServiceAsync(svc, userId)),
-        };
-
-        var results = await Task.WhenAll(tasks);
-        var allItems = results.SelectMany(r => r).ToList();
-
-        // 回填业务类型（BizTypeKey / BizTypeLabel）
-        EnrichBizTypes(allItems);
-
-        // 计算统计（基于全量数据，在 category/priority 过滤之前）
-        var statsResult = new WorkHubStatsDto
-        {
-            Total = allItems.Count,
-            Approval = allItems.Count(i => i.Category == "approval"),
-            Task = allItems.Count(i => i.Category == "task"),
-            Alert = allItems.Count(i => i.Category == "alert"),
-            Notification = allItems.Count(i => i.Category == "notification"),
-            Reminder = allItems.Count(i => i.Category == "reminder"),
-            Initiated = allItems.Count(i => i.Category == "initiated"),
-        };
-
-        // 按分类筛选（列表部分；统计仍为全类）
-        if (!string.IsNullOrEmpty(category))
-        {
-            allItems = allItems.Where(i => i.Category == category).ToList();
-        }
-
-        // 按优先级筛选
+        // 按优先级筛选（排序/过滤仅依赖 Priority/Timestamp，与 BizType 无关，故 BizType 回填延后到分页后）
         if (!string.IsNullOrEmpty(priority))
         {
             allItems = allItems.Where(i => i.Priority == priority).ToList();
@@ -305,9 +230,60 @@ public class WorkHubService : IWorkHubService
             .Take(pageSize)
             .ToList();
 
-        // 填充 relatedLinks 与扩展 action 字段
+        // 回填业务类型 + relatedLinks + action 扩展，仅对分页后的 pageItems
         foreach (var item in pageItems)
         {
+            var (key, label) = ResolveBizType(item);
+            item.BizTypeKey = key;
+            item.BizTypeLabel = label;
+            EnrichWorkItem(item);
+        }
+
+        return new PagedResult<DtoWorkItemDto>
+        {
+            Items = pageItems,
+            Total = total,
+            PageIndex = page,
+            PageSize = pageSize,
+        };
+    }
+
+    public async Task<WorkItemsWithStatsDto> GetWorkItemsWithStatsAsync(long userId, long orgId, string? category, string? priority, int page, int pageSize)
+    {
+        // stats 与 items 解耦：角标走各源 DB count（全类，不受 category 影响），
+        // 列表只查该 category 对应的源（传了 category 时），不传则查全部。并发跑二者。
+        var statsTask = ComputeStatsViaCountAsync(userId, orgId);
+        var itemsTask = FetchItemsAsync(userId, orgId, category);
+
+        await Task.WhenAll(statsTask, itemsTask);
+
+        var statsResult = statsTask.Result;
+        var allItems = itemsTask.Result;
+
+        // 按优先级筛选
+        if (!string.IsNullOrEmpty(priority))
+        {
+            allItems = allItems.Where(i => i.Priority == priority).ToList();
+        }
+
+        // 排序：优先级 → 时间戳（最新优先）——仅依赖 Priority/Timestamp，与 BizType 无关
+        allItems = allItems
+            .OrderBy(i => PriorityOrder.GetValueOrDefault(i.Priority, 99))
+            .ThenByDescending(i => i.Timestamp)
+            .ToList();
+
+        var total = allItems.Count;
+        var pageItems = allItems
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+
+        // 回填业务类型 + relatedLinks + action 扩展，仅对分页后的 pageItems
+        foreach (var item in pageItems)
+        {
+            var (key, label) = ResolveBizType(item);
+            item.BizTypeKey = key;
+            item.BizTypeLabel = label;
             EnrichWorkItem(item);
         }
 
@@ -324,35 +300,126 @@ public class WorkHubService : IWorkHubService
         };
     }
 
-    public async Task<WorkHubStatsDto> GetStatsAsync(long userId, long orgId)
+    /// <summary>
+    /// 按 category 只查对应源的列表项（不传 category 则查全部）：
+    /// approval→CardFlow+Points+Voucher+WF；task→Task+WF；alert→Exception+WF；
+    /// notification→Notification；reminder→Contract+WF。
+    /// </summary>
+    private async Task<List<DtoWorkItemDto>> FetchItemsAsync(long userId, long orgId, string? category)
     {
-        // 并行获取各模块数据（每个查询在独立 scope 中执行，避免 DbContext 并发问题）
-        var tasks = new List<Task<List<DtoWorkItemDto>>>
-        {
-            ExecuteInScopeAsync<ITodoService>(svc => GetCardFlowTodosFromServiceAsync(svc, userId)),
-            ExecuteInScopeAsync<IPointApplicationService>(svc => GetPointsApprovalsFromServiceAsync(svc, orgId)),
-            ExecuteInScopeOptionalAsync<IVoucherService>(svc => GetFinanceApprovalsFromServiceAsync(svc)),
-            ExecuteInScopeAsync<ITaskService>(svc => GetTaskItemsFromServiceAsync(svc, orgId, userId)),
-            ExecuteInScopeAsync<IExceptionService>(svc => GetQualityAlertsFromServiceAsync(svc, orgId)),
-            ExecuteInScopeAsync<INotificationService>(svc => GetNotificationsFromServiceAsync(svc, userId)),
-            ExecuteInScopeAsync<IContractReminderService>(svc => GetContractRemindersFromServiceAsync(svc, userId)),
-            // WfWorkItem 主数据源
-            ExecuteInScopeAsync<IWorkItemService>(svc => GetWfWorkItemsFromServiceAsync(svc, userId)),
-        };
+        var tasks = new List<Task<List<DtoWorkItemDto>>>();
 
-        // 并行执行所有查询
+        if (string.IsNullOrEmpty(category) || category == "approval")
+        {
+            tasks.Add(ExecuteInScopeAsync<ITodoService>(svc => GetCardFlowTodosFromServiceAsync(svc, userId)));
+            tasks.Add(ExecuteInScopeAsync<IPointApplicationService>(svc => GetPointsApprovalsFromServiceAsync(svc, orgId)));
+            tasks.Add(ExecuteInScopeOptionalAsync<IVoucherService>(svc => GetFinanceApprovalsFromServiceAsync(svc)));
+        }
+
+        if (string.IsNullOrEmpty(category) || category == "task")
+        {
+            tasks.Add(ExecuteInScopeAsync<ITaskService>(svc => GetTaskItemsFromServiceAsync(svc, orgId, userId)));
+        }
+
+        if (string.IsNullOrEmpty(category) || category == "alert")
+        {
+            tasks.Add(ExecuteInScopeAsync<IExceptionService>(svc => GetQualityAlertsFromServiceAsync(svc, orgId)));
+        }
+
+        if (string.IsNullOrEmpty(category) || category == "notification")
+        {
+            tasks.Add(ExecuteInScopeAsync<INotificationService>(svc => GetNotificationsFromServiceAsync(svc, userId)));
+        }
+
+        if (string.IsNullOrEmpty(category) || category == "reminder")
+        {
+            tasks.Add(ExecuteInScopeAsync<IContractReminderService>(svc => GetContractRemindersFromServiceAsync(svc, userId)));
+        }
+
+        // WfWorkItem 涵盖 approval/task/alert/reminder（不产 notification），notification 单类时无需查
+        if (string.IsNullOrEmpty(category) || category != "notification")
+        {
+            tasks.Add(ExecuteInScopeAsync<IWorkItemService>(svc => GetWfWorkItemsFromServiceAsync(svc, userId)));
+        }
+
         var results = await Task.WhenAll(tasks);
         var allItems = results.SelectMany(r => r).ToList();
 
+        // WF 是多类别聚合源，按 category 精筛（其余源本身已单类）
+        if (!string.IsNullOrEmpty(category))
+        {
+            allItems = allItems.Where(i => i.Category == category).ToList();
+        }
+
+        return allItems;
+    }
+
+    public async Task<WorkHubStatsDto> GetStatsAsync(long userId, long orgId)
+    {
+        // 角标改由各源 DB CountAsync 组装，避免"拉全量 8 源 DTO 再内存计数"
+        return await ComputeStatsViaCountAsync(userId, orgId);
+    }
+
+    // ===== 角标统计：各源 DB CountAsync 组装（口径见 workhub-stats-contract）=====
+
+    /// <summary>
+    /// 通过各源的 DB CountAsync 组装 6 个角标（approval/task/alert/notification/reminder/initiated + total）。
+    /// 每个 count 调用走独立 scope + FanOutGate（与列表 fan-out 同一并发闸）。
+    /// 口径必须与列表生成时的过滤逐一等价。
+    /// </summary>
+    private async Task<WorkHubStatsDto> ComputeStatsViaCountAsync(long userId, long orgId)
+    {
+        // 并发拉取 8 个源的计数（每个独立 scope + FanOutGate 限流）
+        var cardflowTask = CountInScopeAsync<ITodoService>(async svc => (await svc.GetCountAsync(userId)).Todo);
+        var pointsTask = CountInScopeAsync<IPointApplicationService>(svc => svc.GetPendingCountAsync(orgId));
+        var voucherTask = CountInScopeOptionalAsync<IVoucherService>(svc => svc.GetPendingAuditCountAsync(0));
+        var taskTask = CountInScopeAsync<ITaskService>(svc => svc.GetMyPendingCountAsync(orgId, userId));
+        var exceptionTask = CountInScopeAsync<IExceptionService>(svc => svc.GetOpenCountAsync(orgId));
+        var notificationTask = CountInScopeAsync<INotificationService>(async svc => (await svc.GetUnreadCountAsync(userId)).Data?.Total ?? 0);
+        var contractTask = CountInScopeAsync<IContractReminderService>(svc => svc.GetPendingCountAsync(userId));
+        var wfTask = WfCountByTypeInScopeAsync(userId);
+
+        await Task.WhenAll(cardflowTask, pointsTask, voucherTask, taskTask, exceptionTask, notificationTask, contractTask, wfTask);
+
+        var cardflowTodoCount = cardflowTask.Result;
+        var pointsCount = pointsTask.Result;
+        var voucherCount = voucherTask.Result;
+        var taskPendingCount = taskTask.Result;
+        var exceptionOpenCount = exceptionTask.Result;
+        var notificationUnreadCount = notificationTask.Result;
+        var contractCount = contractTask.Result;
+        var wfByType = wfTask.Result;
+
+        // WF type→category 映射（与 MapWfType 逐值一致）：1→approval, 2→alert, 3→reminder, 其余(含4/5)→task
+        int Wf(int type) => wfByType.GetValueOrDefault(type);
+        var wfApproval = Wf((int)WorkItemType.Approval);
+        var wfAlert = Wf((int)WorkItemType.Alert);
+        var wfReminder = Wf((int)WorkItemType.Reminder);
+        var wfTaskLike = wfByType
+            .Where(kv => kv.Key != (int)WorkItemType.Approval
+                      && kv.Key != (int)WorkItemType.Alert
+                      && kv.Key != (int)WorkItemType.Reminder)
+            .Sum(kv => kv.Value);
+
+        // 凭证特殊：列表是"1 条汇总"，故 stats 贡献 = count>0 ? 1 : 0
+        var voucherBadge = voucherCount > 0 ? 1 : 0;
+
+        var approval = cardflowTodoCount + pointsCount + voucherBadge + wfApproval;
+        var task = taskPendingCount + wfTaskLike;
+        var alert = exceptionOpenCount + wfAlert;
+        var notification = notificationUnreadCount;      // WF 不贡献
+        var reminder = contractCount + wfReminder;
+        var initiated = 0;                               // 当前无源产出
+
         return new WorkHubStatsDto
         {
-            Total = allItems.Count,
-            Approval = allItems.Count(i => i.Category == "approval"),
-            Task = allItems.Count(i => i.Category == "task"),
-            Alert = allItems.Count(i => i.Category == "alert"),
-            Notification = allItems.Count(i => i.Category == "notification"),
-            Reminder = allItems.Count(i => i.Category == "reminder"),
-            Initiated = allItems.Count(i => i.Category == "initiated"),
+            Approval = approval,
+            Task = task,
+            Alert = alert,
+            Notification = notification,
+            Reminder = reminder,
+            Initiated = initiated,
+            Total = approval + task + alert + notification + reminder + initiated,
         };
     }
 
@@ -421,6 +488,87 @@ public class WorkHubService : IWorkHubService
         }
     }
 
+    /// <summary>
+    /// 在独立 scope 中执行"计数类"查询（走 FanOutGate 并发闸），失败按 0 兜底
+    /// （与列表 fan-out 容错一致，单源慢/异常不阻塞整体角标）。
+    /// </summary>
+    private async Task<int> CountInScopeAsync<TService>(Func<TService, Task<int>> query) where TService : notnull
+    {
+        await FanOutGate.WaitAsync();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var service = scope.ServiceProvider.GetRequiredService<TService>();
+            var result = await query(service);
+            LogSourceElapsed(typeof(TService).Name, sw.ElapsedMilliseconds, result);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "并行计数执行失败：{Service}，耗时 {Elapsed}ms", typeof(TService).Name, sw.ElapsedMilliseconds);
+            return 0;
+        }
+        finally
+        {
+            FanOutGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// CountInScopeAsync 的可选服务版本（服务未注册或异常时返回 0）。
+    /// </summary>
+    private async Task<int> CountInScopeOptionalAsync<TService>(Func<TService, Task<int>> query) where TService : class
+    {
+        await FanOutGate.WaitAsync();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var service = scope.ServiceProvider.GetService<TService>();
+            if (service == null)
+                return 0;
+            var result = await query(service);
+            LogSourceElapsed(typeof(TService).Name, sw.ElapsedMilliseconds, result);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "并行计数执行失败：{Service}，耗时 {Elapsed}ms", typeof(TService).Name, sw.ElapsedMilliseconds);
+            return 0;
+        }
+        finally
+        {
+            FanOutGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// 在独立 scope 中执行 WF 按类型分组计数（走 FanOutGate），失败返回空字典。
+    /// </summary>
+    private async Task<Dictionary<int, int>> WfCountByTypeInScopeAsync(long userId)
+    {
+        await FanOutGate.WaitAsync();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var service = scope.ServiceProvider.GetRequiredService<IWorkItemService>();
+            var result = await service.GetPendingCountByTypeAsync(userId);
+            LogSourceElapsed(nameof(IWorkItemService), sw.ElapsedMilliseconds, result.Values.Sum());
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "并行计数执行失败：{Service}，耗时 {Elapsed}ms", nameof(IWorkItemService), sw.ElapsedMilliseconds);
+            return new Dictionary<int, int>();
+        }
+        finally
+        {
+            FanOutGate.Release();
+        }
+    }
+
     private void LogSourceElapsed(string serviceName, long elapsedMs, int count)
     {
         if (elapsedMs >= SlowSourceThresholdMs)
@@ -432,17 +580,8 @@ public class WorkHubService : IWorkHubService
     // ===== 质量异常告警 =====
     private static async Task<List<DtoWorkItemDto>> GetQualityAlertsFromServiceAsync(IExceptionService exceptionService, long orgId)
     {
-        // 查询未关闭（状态非 3）的异常
-        var request = new STOTOP.Module.Quality.Dtos.ExceptionPagedRequest
-        {
-            PageIndex = 1,
-            PageSize = 50,
-        };
-        var result = await exceptionService.GetPagedAsync(orgId, request);
-        if (result.Data == null) return new List<DtoWorkItemDto>();
-
-        // 只取未关闭的
-        var openItems = result.Data.Items.Where(e => e.Status < 3).ToList();
+        // 未关闭（状态<3）异常，DB 下推过滤 + Take(20) 封顶，替代此前"取50条后内存过滤"
+        var openItems = await exceptionService.GetOpenAlertsLiteAsync(orgId, 20);
 
         return openItems.Select(e => new DtoWorkItemDto
         {
@@ -471,11 +610,8 @@ public class WorkHubService : IWorkHubService
     // ===== 任务待办 =====
     private static async Task<List<DtoWorkItemDto>> GetTaskItemsFromServiceAsync(ITaskService taskService, long orgId, long userId)
     {
-        var result = await taskService.GetMyTasksAsync(orgId, userId);
-        if (result.Data == null) return new List<DtoWorkItemDto>();
-
-        // 只取未完成的任务（status < 3）
-        var pendingTasks = result.Data.Items.Where(t => t.Status < 3).ToList();
+        // 轻量取数：未完成任务（status<3）下推 + Take(20)，不跑 EnrichTaskListDtos 的附加查询
+        var pendingTasks = await taskService.GetMyPendingTasksLiteAsync(orgId, userId, 20);
 
         return pendingTasks.Select(t => new DtoWorkItemDto
         {
@@ -508,7 +644,7 @@ public class WorkHubService : IWorkHubService
         {
             IsRead = false,
             PageIndex = 1,
-            PageSize = 50,
+            PageSize = 20,
         };
         var result = await notificationService.GetPagedListAsync(request, userId);
         if (result.Data == null) return new List<DtoWorkItemDto>();
@@ -539,7 +675,8 @@ public class WorkHubService : IWorkHubService
     // ===== 合同到期提醒 =====
     private static async Task<List<DtoWorkItemDto>> GetContractRemindersFromServiceAsync(IContractReminderService contractReminderService, long userId)
     {
-        var reminders = await contractReminderService.GetPendingRemindersAsync(userId);
+        // Take(20) 封顶，避免全量取数
+        var reminders = await contractReminderService.GetPendingRemindersAsync(userId, 20);
 
         return reminders.Select(r => new DtoWorkItemDto
         {
@@ -571,7 +708,7 @@ public class WorkHubService : IWorkHubService
         var result = await todoService.GetMyTodosAsync(userId, new STOTOP.Module.CardFlow.Dtos.TodoQueryRequest
         {
             Page = 1,
-            PageSize = 50,
+            PageSize = 20,
             Status = "pending"
         });
 
@@ -593,10 +730,10 @@ public class WorkHubService : IWorkHubService
                     Key = "view",
                     Label = "进入处理",
                     Type = "primary",
-                    Route = $"/cardflow/approve/{todo.CardId}"
+                    Route = $"/cardflow/cards/{todo.CardId}"
                 }
             },
-            DetailRoute = $"/cardflow/approve/{todo.CardId}",
+            DetailRoute = $"/cardflow/cards/{todo.CardId}",
             Metadata = new Dictionary<string, object>
             {
                 ["cardflowTodoId"] = todo.Id,
@@ -614,7 +751,7 @@ public class WorkHubService : IWorkHubService
         var request = new STOTOP.Module.Points.Dtos.PendingApplicationPagedRequest
         {
             PageIndex = 1,
-            PageSize = 50,
+            PageSize = 20,
         };
         var result = await pointApplicationService.GetPendingAsync(orgId, request);
         if (result.Data == null) return new List<DtoWorkItemDto>();
@@ -738,17 +875,6 @@ public class WorkHubService : IWorkHubService
     }
 
     // ===== 辅助方法 =====
-
-    /// <summary>对合并后的工作项批量回填业务类型字段。</summary>
-    private static void EnrichBizTypes(IEnumerable<DtoWorkItemDto> items)
-    {
-        foreach (var item in items)
-        {
-            var (key, label) = ResolveBizType(item);
-            item.BizTypeKey = key;
-            item.BizTypeLabel = label;
-        }
-    }
 
     private static string MapCardFlowPriority(int priority) => priority switch
     {

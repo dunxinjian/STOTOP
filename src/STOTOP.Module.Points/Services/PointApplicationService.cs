@@ -159,6 +159,14 @@ public class PointApplicationService : IPointApplicationService
         });
     }
 
+    public async Task<int> GetPendingCountAsync(long orgId)
+    {
+        // 与列表口径一致：待审批（F状态==0）的申请数，直接下推 DB 计数
+        return await _db.Set<PmPointApplication>()
+            .Where(a => a.FOrgId == orgId && a.FStatus == 0)
+            .CountAsync();
+    }
+
     public async Task<ApiResult<bool>> ApproveAsync(long id, long approverId, ApprovePointApplicationRequest request)
     {
         var entity = await _db.Set<PmPointApplication>()
