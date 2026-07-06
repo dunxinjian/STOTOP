@@ -1,5 +1,7 @@
+using System.Data;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using STOTOP.Core.Services;
@@ -228,15 +230,26 @@ public class ProvisionTenantService : IProvisionTenantService
         if (relational)
         {
             // SqlServer 身份列插入指定 FID 须 IDENTITY_INSERT；EF 不插身份列值，走参数化原始 SQL。
+            // 用带显式 SqlDbType 的具名参数：可空列(套餐/到期)传 DBNull 时须有类型，否则 EF 报
+            // "no store type mapping for properties of type 'DBNull'"。
+            var ps = new[]
+            {
+                new SqlParameter("@fid", SqlDbType.BigInt) { Value = rootId },
+                new SqlParameter("@name", SqlDbType.NVarChar) { Value = request.Name },
+                new SqlParameter("@code", SqlDbType.NVarChar) { Value = request.Code },
+                new SqlParameter("@bind", SqlDbType.Int) { Value = request.AccountSetBindMode },
+                new SqlParameter("@chan", SqlDbType.Int) { Value = request.DefaultTodoChannel },
+                new SqlParameter("@plan", SqlDbType.BigInt) { Value = (object?)request.PlanId ?? DBNull.Value },
+                new SqlParameter("@act", SqlDbType.DateTime2) { Value = DateTime.Now },
+                new SqlParameter("@exp", SqlDbType.DateTime2) { Value = (object?)request.ExpireAt ?? DBNull.Value },
+                new SqlParameter("@status", SqlDbType.Int) { Value = (int)PltTenantStatus.Trial },
+            };
             const string sql = @"
 SET IDENTITY_INSERT [PLT租户] ON;
 INSERT INTO [PLT租户] ([FID],[F名称],[F编号],[F根组织ID],[F账套绑定模式],[F默认待办渠道],[F套餐ID],[F开通时间],[F到期时间],[F状态],[F创建时间],[F更新时间])
-VALUES ({0},{1},{2},{0},{3},{4},{5},{6},{7},{8},GETDATE(),GETDATE());
+VALUES (@fid,@name,@code,@fid,@bind,@chan,@plan,@act,@exp,@status,GETDATE(),GETDATE());
 SET IDENTITY_INSERT [PLT租户] OFF;";
-            await _ctx.Database.ExecuteSqlRawAsync(sql,
-                rootId, request.Name, request.Code, request.AccountSetBindMode, request.DefaultTodoChannel,
-                (object?)request.PlanId ?? DBNull.Value, DateTime.Now,
-                (object?)request.ExpireAt ?? DBNull.Value, (int)PltTenantStatus.Trial);
+            await _ctx.Database.ExecuteSqlRawAsync(sql, ps);
         }
         else
         {
