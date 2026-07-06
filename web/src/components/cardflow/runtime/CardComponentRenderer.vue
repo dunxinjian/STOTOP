@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, type Component } from 'vue'
 import type { CardComponentRuntime } from '@/types/cardflow'
 import type { DetailRow } from '../CardDetailTable.vue'
+import { CARD_COMPONENT_CAPABILITIES } from '../designer/cardComponentCapabilities'
 import AmountSummaryComponent from './components/AmountSummaryComponent.vue'
 import DetailTableComponent from './components/DetailTableComponent.vue'
 import RelationCardsComponent from './components/RelationCardsComponent.vue'
@@ -245,20 +246,27 @@ function updateAttachmentField(component: CardComponentRuntime, event: Event) {
   })))
 }
 
-function componentFor(type: string) {
-  const map: Record<string, any> = {
-    amountSummary: AmountSummaryComponent,
-    detailTable: DetailTableComponent,
-    relationCards: RelationCardsComponent,
-    budgetStatus: BudgetStatusComponent,
-    invoiceStatus: InvoiceStatusComponent,
-    loanOffset: LoanOffsetComponent,
-    paymentInfo: PaymentInfoComponent,
-    riskAlert: RiskAlertComponent,
-    routeDecision: RouteDecisionComponent,
-    dynamicApprover: DynamicApproverComponent,
-  }
-  return map[type] || null
+// 运行时专用渲染组件表：仅这 10 个有独立业务/明细 SFC；键与能力表 runtimeComponent 一一对齐。
+// 其余可发布组件由下方模板内联分支（cardField 通用控件 / sectionTitle 等）渲染，不进本表。
+const RUNTIME_COMPONENTS: Record<string, Component> = {
+  amountSummary: AmountSummaryComponent,
+  detailTable: DetailTableComponent,
+  relationCards: RelationCardsComponent,
+  budgetStatus: BudgetStatusComponent,
+  invoiceStatus: InvoiceStatusComponent,
+  loanOffset: LoanOffsetComponent,
+  paymentInfo: PaymentInfoComponent,
+  riskAlert: RiskAlertComponent,
+  routeDecision: RouteDecisionComponent,
+  dynamicApprover: DynamicApproverComponent,
+}
+
+// 经能力表 runtimeComponent 查表分发，使能力表成为「type → 运行时组件」的单一真源。
+// 与旧硬编码 map[type] 对所有输入等价（这 10 个 type 的能力 key === type 且 runtimeComponent === type，
+// 其余 type 无 runtimeComponent → null）。vitest 门禁校验能力声明与本表实现一致。
+function componentFor(type: string): Component | null {
+  const runtimeKey = CARD_COMPONENT_CAPABILITIES[type]?.runtimeComponent
+  return runtimeKey ? RUNTIME_COMPONENTS[runtimeKey] ?? null : null
 }
 
 function formatValue(component: CardComponentRuntime): string {

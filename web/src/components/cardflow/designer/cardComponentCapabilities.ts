@@ -14,6 +14,13 @@ export type CardComponentCapability = {
   experimental?: boolean
   requiresRuntimeIntegration?: boolean
   unsupportedReason?: string
+  /**
+   * 运行时专用渲染组件的键（CardComponentRenderer.RUNTIME_COMPONENTS 的键）。
+   * 仅拥有独立业务/明细 SFC 的组件设置此值；其余可发布组件由 CardComponentRenderer 的
+   * 内联模板分支（cardField 通用控件 / sectionTitle 等）渲染，无需运行时组件。
+   * componentFor 据此查表分发，能力表即渲染分发的单一真源；vitest 门禁校验其与实现一致。
+   */
+  runtimeComponent?: string
 }
 
 const COMMON_FIELD_CONFIG = ['display', 'binding', 'fieldFormat', 'validation', 'permission', 'visibility']
@@ -209,6 +216,7 @@ export const CARD_COMPONENT_CAPABILITIES: Record<string, CardComponentCapability
   detailTable: {
     key: 'detailTable',
     type: 'detailTable',
+    runtimeComponent: 'detailTable',
     title: '明细/表格',
     tier: 'P0',
     publishable: true,
@@ -224,6 +232,7 @@ export const CARD_COMPONENT_CAPABILITIES: Record<string, CardComponentCapability
   amountSummary: {
     key: 'amountSummary',
     type: 'amountSummary',
+    runtimeComponent: 'amountSummary',
     title: '金额摘要',
     tier: 'P0',
     publishable: true,
@@ -241,6 +250,7 @@ export const CARD_COMPONENT_CAPABILITIES: Record<string, CardComponentCapability
   budgetStatus: {
     key: 'budgetStatus',
     type: 'budgetStatus',
+    runtimeComponent: 'budgetStatus',
     title: '预算申请',
     tier: 'P0',
     publishable: true,
@@ -257,6 +267,7 @@ export const CARD_COMPONENT_CAPABILITIES: Record<string, CardComponentCapability
   invoiceStatus: {
     key: 'invoiceStatus',
     type: 'invoiceStatus',
+    runtimeComponent: 'invoiceStatus',
     title: '发票',
     tier: 'P0',
     publishable: true,
@@ -273,6 +284,7 @@ export const CARD_COMPONENT_CAPABILITIES: Record<string, CardComponentCapability
   loanOffset: {
     key: 'loanOffset',
     type: 'loanOffset',
+    runtimeComponent: 'loanOffset',
     title: '借款冲抵',
     tier: 'P0',
     publishable: true,
@@ -289,6 +301,7 @@ export const CARD_COMPONENT_CAPABILITIES: Record<string, CardComponentCapability
   paymentInfo: {
     key: 'paymentInfo',
     type: 'paymentInfo',
+    runtimeComponent: 'paymentInfo',
     title: '收款账户',
     tier: 'P0',
     publishable: true,
@@ -305,6 +318,7 @@ export const CARD_COMPONENT_CAPABILITIES: Record<string, CardComponentCapability
   riskAlert: {
     key: 'riskAlert',
     type: 'riskAlert',
+    runtimeComponent: 'riskAlert',
     title: '风险提示',
     tier: 'P0',
     publishable: true,
@@ -322,6 +336,7 @@ export const CARD_COMPONENT_CAPABILITIES: Record<string, CardComponentCapability
   relationCards: {
     key: 'relationCards',
     type: 'relationCards',
+    runtimeComponent: 'relationCards',
     title: '关联审批单',
     tier: 'P0',
     publishable: true,
@@ -356,6 +371,7 @@ export const CARD_COMPONENT_CAPABILITIES: Record<string, CardComponentCapability
   routeDecision: {
     key: 'routeDecision',
     type: 'routeDecision',
+    runtimeComponent: 'routeDecision',
     title: '流转说明',
     tier: 'P0',
     publishable: true,
@@ -371,6 +387,7 @@ export const CARD_COMPONENT_CAPABILITIES: Record<string, CardComponentCapability
   dynamicApprover: {
     key: 'dynamicApprover',
     type: 'dynamicApprover',
+    runtimeComponent: 'dynamicApprover',
     title: '动态审批说明',
     tier: 'P0',
     publishable: true,
