@@ -14,6 +14,8 @@ public static class SystemModuleExtensions
     {
         // 注册服务
         services.AddScoped<IAdminAuthorizationService, AdminAuthorizationService>();
+        // 请求级租户数据作用域（R5·stage4C 前置：管理类接口把非隔离 SYS 表收敛到当前登录者所辖租户）
+        services.AddScoped<ITenantAdminScopeAccessor, TenantAdminScopeAccessor>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRoleService, RoleService>();

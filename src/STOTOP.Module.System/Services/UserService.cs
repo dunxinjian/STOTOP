@@ -16,13 +16,44 @@ public class UserService : IUserService
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IChangeLogService _changeLogService;
     private readonly IEventDispatcher _eventDispatcher;
+    private readonly ITenantAdminScopeAccessor _tenantScope;
 
-    public UserService(STOTOPDbContext context, IHttpContextAccessor httpContextAccessor, IChangeLogService changeLogService, IEventDispatcher eventDispatcher)
+    public UserService(STOTOPDbContext context, IHttpContextAccessor httpContextAccessor, IChangeLogService changeLogService, IEventDispatcher eventDispatcher, ITenantAdminScopeAccessor tenantScope)
     {
         _context = context;
         _httpContextAccessor = httpContextAccessor;
         _changeLogService = changeLogService;
         _eventDispatcher = eventDispatcher;
+        _tenantScope = tenantScope;
+    }
+
+    // ===== R5·stage4C 租户数据墙助手 =====
+
+    /// <summary>目标用户是否在当前作用域内（平台级 admin 恒真；否则须为受限租户的已接受成员）。</summary>
+    private async Task<bool> IsUserInScopeAsync(long userId, TenantDataScope scope)
+    {
+        if (scope.IsPlatformAdmin) return true;
+        var tids = scope.TenantIds.ToList();
+        if (tids.Count == 0) return false;
+        return await _context.Set<SysTenantMember>()
+            .AnyAsync(m => m.FUserId == userId && m.FInviteStatus == 2 && tids.Contains(m.FTenantId));
+    }
+
+    /// <summary>校验待授角色在作用域内可授：仅允许「本租户私有角色」或「平台级非管理员共享角色」；
+    /// 命中平台管理员角色(如全局 role1)或他租户角色 → 拒绝（挡"给自己/新用户授全局 admin"提权）。</summary>
+    private async Task<bool> AreRolesAssignableAsync(IReadOnlyCollection<long> roleIds, TenantDataScope scope)
+    {
+        if (scope.IsPlatformAdmin || roleIds.Count == 0) return true;
+        var distinctIds = roleIds.Distinct().ToList();
+        var tids = scope.TenantIds.ToList();
+        var roles = await _context.Set<SysRole>()
+            .Where(r => distinctIds.Contains(r.FID))
+            .Select(r => new { r.FID, r.FScope, r.FTenantId, r.FIsAdmin })
+            .ToListAsync();
+        if (roles.Count != distinctIds.Count) return false; // 有 roleId 查不到 → 视为不可授（防伪造）
+        return roles.All(r =>
+            (r.FScope == SysRoleScope.Tenant && tids.Contains(r.FTenantId)) ||
+            (r.FScope == SysRoleScope.Platform && !r.FIsAdmin));
     }
 
     private (long? UserId, string? UserName) GetCurrentUser()
@@ -40,6 +71,15 @@ public class UserService : IUserService
             .Include(u => u.UserRoles)
             .ThenInclude(ur => ur.Role)
             .AsQueryable();
+
+        // R5·stage4C：非平台 admin 只见本租户已接受成员（SYS用户 无租户列 → 经 SYS租户成员 EXISTS 收敛）。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!scope.IsPlatformAdmin)
+        {
+            var tids = scope.TenantIds.ToList();
+            query = query.Where(u => _context.Set<SysTenantMember>()
+                .Any(m => m.FUserId == u.FID && m.FInviteStatus == 2 && tids.Contains(m.FTenantId)));
+        }
 
         if (!string.IsNullOrWhiteSpace(request.Keyword))
         {
@@ -121,6 +161,21 @@ public class UserService : IUserService
 
     public async Task<ApiResult<UserDto>> GetByIdAsync(long id)
     {
+        // R5·stage4C：非平台 admin 不得读取他租户用户（不泄露存在性）。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!await IsUserInScopeAsync(id, scope))
+            return ApiResult<UserDto>.Fail("用户不存在");
+
+        var dto = await BuildUserDtoAsync(id);
+        if (dto == null)
+            return ApiResult<UserDto>.Fail("用户不存在");
+
+        return ApiResult<UserDto>.Success(dto);
+    }
+
+    /// <summary>构造用户 DTO（含角色/组织/岗位），不做租户作用域校验——供 GetByIdAsync(已校验) 与 创建/更新 返回复用。</summary>
+    private async Task<UserDto?> BuildUserDtoAsync(long id)
+    {
         var user = await _context.Set<SysUser>()
             .Include(u => u.UserRoles)
             .ThenInclude(ur => ur.Role)
@@ -128,7 +183,7 @@ public class UserService : IUserService
 
         if (user == null)
         {
-            return ApiResult<UserDto>.Fail("用户不存在");
+            return null;
         }
 
         var dto = new UserDto
@@ -154,13 +209,13 @@ public class UserService : IUserService
             }).ToList()
         };
 
-        // 查询用户组织列表
-        dto.Organizations = await GetUserOrganizationsAsync(id);
+        // 查询用户组织列表（内部加载，不再二次作用域校验）
+        dto.Organizations = await LoadUserOrganizationsAsync(id);
 
         // 查询用户岗位列表
         dto.Positions = await GetUserPositionsAsync(id);
 
-        return ApiResult<UserDto>.Success(dto);
+        return dto;
     }
 
     public async Task<ApiResult<UserDto>> CreateAsync(CreateUserRequest request)
@@ -168,6 +223,13 @@ public class UserService : IUserService
         if (await _context.Set<SysUser>().AnyAsync(u => u.FAccount == request.Account))
         {
             return ApiResult<UserDto>.Fail("账号已存在");
+        }
+
+        // R5·stage4C：非平台 admin 不得越权授全局/他租户角色（含全局 admin 角色）。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!await AreRolesAssignableAsync(request.RoleIds, scope))
+        {
+            return ApiResult<UserDto>.Fail("无权分配所选角色");
         }
 
         var user = new SysUser
@@ -202,11 +264,19 @@ public class UserService : IUserService
         await _changeLogService.LogChangeAsync("用户", user.FID, user.FName,
             "创建", $"创建用户：{user.FName}（{user.FAccount}）", operatorId, operatorName);
 
-        return await GetByIdAsync(user.FID);
+        // 新用户尚未建租户成员，直接构造 DTO 返回（不走会 fail-closed 的 GetByIdAsync）。
+        return ApiResult<UserDto>.Success((await BuildUserDtoAsync(user.FID))!);
     }
 
     public async Task<ApiResult<UserDto>> UpdateAsync(long id, UpdateUserRequest request)
     {
+        // R5·stage4C：非平台 admin 不得改写他租户用户，且不得越权授全局/他租户角色。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!await IsUserInScopeAsync(id, scope))
+            return ApiResult<UserDto>.Fail("用户不存在");
+        if (!await AreRolesAssignableAsync(request.RoleIds, scope))
+            return ApiResult<UserDto>.Fail("无权分配所选角色");
+
         var user = await _context.Set<SysUser>()
             .Include(u => u.UserRoles)
             .AsTracking()
@@ -270,11 +340,16 @@ public class UserService : IUserService
             await _changeLogService.LogChangeAsync("用户", id, user.FName, "修改", changeJson, operatorId, operatorName);
         }
 
-        return await GetByIdAsync(id);
+        return ApiResult<UserDto>.Success((await BuildUserDtoAsync(id))!);
     }
 
     public async Task<ApiResult<bool>> DeleteAsync(long id)
     {
+        // R5·stage4C：非平台 admin 不得删除他租户用户（不泄露存在性）。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!await IsUserInScopeAsync(id, scope))
+            return ApiResult<bool>.Fail("用户不存在");
+
         var user = await _context.Set<SysUser>()
             .AsTracking()
             .FirstOrDefaultAsync(u => u.FID == id);
@@ -306,6 +381,11 @@ public class UserService : IUserService
 
     public async Task<ApiResult<bool>> ResetPasswordAsync(long id, string newPassword)
     {
+        // R5·stage4C：非平台 admin 不得重置他租户用户密码（防跨租户账号接管，不泄露存在性）。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!await IsUserInScopeAsync(id, scope))
+            return ApiResult<bool>.Fail("用户不存在");
+
         // 注意：由于全局配置了 NoTracking，必须使用 AsTracking() 才能正确更新
         var user = await _context.Set<SysUser>()
             .AsTracking()
@@ -323,6 +403,15 @@ public class UserService : IUserService
     }
 
     public async Task<List<UserOrganizationDto>> GetUserOrganizationsAsync(long userId)
+    {
+        // R5·stage4C：非平台 admin 不得读取他租户用户的组织归属（越权枚举向量）。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!await IsUserInScopeAsync(userId, scope))
+            return new List<UserOrganizationDto>();
+        return await LoadUserOrganizationsAsync(userId);
+    }
+
+    private async Task<List<UserOrganizationDto>> LoadUserOrganizationsAsync(long userId)
     {
         return await _context.Set<SysUserOrganization>()
             .Where(uo => uo.FUserId == userId)

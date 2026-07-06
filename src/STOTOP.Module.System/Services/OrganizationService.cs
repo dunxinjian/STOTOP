@@ -16,13 +16,15 @@ public class OrganizationService : IOrganizationService
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IChangeLogService _changeLogService;
     private readonly IEventDispatcher _eventDispatcher;
+    private readonly ITenantAdminScopeAccessor _tenantScope;
 
-    public OrganizationService(STOTOPDbContext context, IHttpContextAccessor httpContextAccessor, IChangeLogService changeLogService, IEventDispatcher eventDispatcher)
+    public OrganizationService(STOTOPDbContext context, IHttpContextAccessor httpContextAccessor, IChangeLogService changeLogService, IEventDispatcher eventDispatcher, ITenantAdminScopeAccessor tenantScope)
     {
         _context = context;
         _httpContextAccessor = httpContextAccessor;
         _changeLogService = changeLogService;
         _eventDispatcher = eventDispatcher;
+        _tenantScope = tenantScope;
     }
 
     private (long? UserId, string? UserName) GetCurrentUser()
@@ -36,8 +38,16 @@ public class OrganizationService : IOrganizationService
 
     public async Task<ApiResult<List<OrganizationDto>>> GetTreeAsync()
     {
-        var orgs = await _context.Set<SysOrganization>()
-            .Include(o => o.OrgType)
+        // R5·stage4C：非平台 admin 只见本租户子树（SYS组织架构.F租户ID 收敛）。
+        var scope = await _tenantScope.ResolveAsync();
+        var orgQuery = _context.Set<SysOrganization>().Include(o => o.OrgType).AsQueryable();
+        if (!scope.IsPlatformAdmin)
+        {
+            var tids = scope.TenantIds.ToList();
+            orgQuery = orgQuery.Where(o => tids.Contains(o.FTenantId));
+        }
+
+        var orgs = await orgQuery
             .OrderBy(o => o.FSort)
             .ThenBy(o => o.FCreateTime)
             .ToListAsync();
@@ -50,8 +60,16 @@ public class OrganizationService : IOrganizationService
 
     public async Task<ApiResult<List<OrganizationDto>>> GetOrgChartAsync()
     {
-        var orgs = await _context.Set<SysOrganization>()
-            .Include(o => o.Manager)
+        // R5·stage4C：非平台 admin 只见本租户子树。
+        var scope = await _tenantScope.ResolveAsync();
+        var orgQuery = _context.Set<SysOrganization>().Include(o => o.Manager).AsQueryable();
+        if (!scope.IsPlatformAdmin)
+        {
+            var tids = scope.TenantIds.ToList();
+            orgQuery = orgQuery.Where(o => tids.Contains(o.FTenantId));
+        }
+
+        var orgs = await orgQuery
             .OrderBy(o => o.FSort)
             .ThenBy(o => o.FCreateTime)
             .ToListAsync();
@@ -94,6 +112,11 @@ public class OrganizationService : IOrganizationService
         var (levelError, parentNode) = await ValidateOrgKindAsync(orgType, request.ParentId);
         if (levelError != null)
             return ApiResult<OrganizationDto>.Fail(levelError);
+
+        // R5·stage4C：非平台 admin 只能在本租户子树下建节点，且不得新建租户根（parentId=0）。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!scope.IsPlatformAdmin && (request.ParentId == 0 || parentNode == null || !scope.Allows(parentNode.FTenantId)))
+            return ApiResult<OrganizationDto>.Fail("无权在此位置创建组织");
 
 #pragma warning disable CS0618
         var org = new SysOrganization
@@ -154,6 +177,13 @@ public class OrganizationService : IOrganizationService
             return ApiResult<OrganizationDto>.Fail("组织不存在");
         }
 
+        // R5·stage4C：非平台 admin 不得改写他租户组织（不泄露存在性）。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!scope.IsPlatformAdmin && !scope.Allows(org.FTenantId))
+        {
+            return ApiResult<OrganizationDto>.Fail("组织不存在");
+        }
+
         if (await _context.Set<SysOrganization>().AnyAsync(o => o.FCode == request.Code && o.FID != id))
         {
             return ApiResult<OrganizationDto>.Fail("组织编码已存在");
@@ -171,6 +201,15 @@ public class OrganizationService : IOrganizationService
         var (levelError, parentNode) = await ValidateOrgKindAsync(orgType, request.ParentId);
         if (levelError != null)
             return ApiResult<OrganizationDto>.Fail(levelError);
+
+        // R5·stage4C：非平台 admin 不得把节点迁到他租户，也不得提升为租户根。
+        if (!scope.IsPlatformAdmin)
+        {
+            if (request.ParentId == 0 && org.FParentId != 0)
+                return ApiResult<OrganizationDto>.Fail("无权将组织提升为租户根");
+            if (request.ParentId != 0 && (parentNode == null || !scope.Allows(parentNode.FTenantId)))
+                return ApiResult<OrganizationDto>.Fail("无权将组织迁移到该位置");
+        }
 
         // 记录旧值用于对比
 #pragma warning disable CS0618
@@ -258,6 +297,13 @@ public class OrganizationService : IOrganizationService
             .AsTracking()
             .FirstOrDefaultAsync(o => o.FID == id);
         if (org == null)
+        {
+            return ApiResult<bool>.Fail("组织不存在");
+        }
+
+        // R5·stage4C：非平台 admin 不得删除他租户组织（不泄露存在性）。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!scope.IsPlatformAdmin && !scope.Allows(org.FTenantId))
         {
             return ApiResult<bool>.Fail("组织不存在");
         }
