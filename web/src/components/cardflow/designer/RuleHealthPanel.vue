@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import type { DynamicStagePolicyRequest, SchemaFieldDefinition, StageRouteRuleRequest } from '@/types/cardflow'
 import type { StageDefinition } from '../StageDefinitionEditor.vue'
-import { runRuleHealthChecks, type HealthItem } from '@/utils/cardflowDiagnostics'
+import { runRuleHealthChecks, type HealthItem, type DiagnosticTarget } from '@/utils/cardflowDiagnostics'
 
 const props = defineProps<{
   stages: StageDefinition[]
@@ -10,6 +10,9 @@ const props = defineProps<{
   dynamicPolicies: DynamicStagePolicyRequest[]
   fields: SchemaFieldDefinition[]
 }>()
+
+// 点击某条诊断跳转到现场（由 FlowDefinitionEditPage 选中对应节点/边并开抽屉）
+const emit = defineEmits<{ navigate: [target: DiagnosticTarget] }>()
 
 // 诊断逻辑单一真源：utils/cardflowDiagnostics（纯函数，与发布校验同源，杜绝两处漂移）
 const items = computed<HealthItem[]>(() =>
@@ -33,9 +36,20 @@ const items = computed<HealthItem[]>(() =>
         v-for="item in items"
         :key="`${item.title}-${item.detail}`"
         class="cf-rule-health__item"
-        :class="`cf-rule-health__item--${item.level}`"
+        :class="[
+          `cf-rule-health__item--${item.level}`,
+          { 'cf-rule-health__item--clickable': item.target },
+        ]"
+        :role="item.target ? 'button' : undefined"
+        :tabindex="item.target ? 0 : undefined"
+        @click="item.target && emit('navigate', item.target)"
+        @keydown.enter.prevent="item.target && emit('navigate', item.target)"
+        @keydown.space.prevent="item.target && emit('navigate', item.target)"
       >
-        <strong>{{ item.title }}</strong>
+        <strong>
+          {{ item.title }}
+          <span v-if="item.target" class="cf-rule-health__locate">定位 →</span>
+        </strong>
         <span>{{ item.detail }}</span>
       </article>
     </div>
@@ -109,6 +123,26 @@ const items = computed<HealthItem[]>(() =>
   &--ok {
     border-color: var(--color-success);
     background: var(--color-success-light);
+  }
+
+  &--clickable {
+    cursor: pointer;
+    transition: box-shadow .15s, transform .05s;
+
+    &:hover { box-shadow: 0 0 0 2px var(--border-strong); }
+    &:active { transform: translateY(1px); }
+    &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+
+    strong { display: flex; align-items: center; gap: 6px; }
+  }
+
+  .cf-rule-health__locate {
+    margin-top: 0;
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-3);
+    white-space: nowrap;
   }
 }
 </style>

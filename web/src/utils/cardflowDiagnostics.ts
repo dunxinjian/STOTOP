@@ -11,10 +11,18 @@ import { resolveComponentCapability } from '@/components/cardflow/designer/cardC
 
 export type HealthLevel = 'error' | 'warning' | 'ok'
 
+/** 诊断跳转目标：node=节点(stage.id)，edge=条件边(route.edgeKey)。供设计器"点击直达现场"（切步骤+选中+开抽屉）。 */
+export interface DiagnosticTarget {
+  kind: 'node' | 'edge'
+  key: string
+}
+
 export interface HealthItem {
   level: HealthLevel
   title: string
   detail: string
+  /** 点击该诊断跳转到的现场（选中节点/边并开抽屉）；ok 汇总项与引用已删项无目标。 */
+  target?: DiagnosticTarget
 }
 
 export interface RuleHealthContext {
@@ -112,11 +120,12 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
     const result: HealthItem[] = []
     routes.forEach(route => {
       if (!stageKeys.has(route.fromStageKey) || !stageKeys.has(route.toStageKey)) {
-        result.push({ level: 'error', title: '流转规则引用失效', detail: `「${route.routeName}」引用了已删除的节点，保存草稿会被后端拒绝。` })
+        result.push({ level: 'error', title: '流转规则引用失效', detail: `「${route.routeName}」引用了已删除的节点，保存草稿会被后端拒绝。`, target: { kind: 'edge', key: route.edgeKey } })
       }
     })
     dynamicPolicies.forEach(policy => {
       if (!stageKeys.has(policy.sourceStageKey)) {
+        // 来源节点已删除，无可跳转现场，故不设 target
         result.push({ level: 'error', title: '动态策略引用失效', detail: `「${policy.policyName}」的来源节点已删除。` })
       }
     })
@@ -129,9 +138,9 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
     fromKeys.forEach(fromStageKey => {
       const defaults = activeRoutes.filter(route => route.fromStageKey === fromStageKey && route.isDefault)
       if (defaults.length === 0) {
-        result.push({ level: 'error', title: '缺少默认分支', detail: `节点「${stageName(fromStageKey)}」配置了条件流转，但没有“其他情况”默认分支。` })
+        result.push({ level: 'error', title: '缺少默认分支', detail: `节点「${stageName(fromStageKey)}」配置了条件流转，但没有“其他情况”默认分支。`, target: { kind: 'node', key: fromStageKey } })
       } else if (defaults.length > 1) {
-        result.push({ level: 'error', title: '默认分支重复', detail: `节点「${stageName(fromStageKey)}」有 ${defaults.length} 条默认分支，发布要求恰好一条。` })
+        result.push({ level: 'error', title: '默认分支重复', detail: `节点「${stageName(fromStageKey)}」有 ${defaults.length} 条默认分支，发布要求恰好一条。`, target: { kind: 'node', key: fromStageKey } })
       }
     })
     return result
@@ -141,7 +150,7 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
     const result: HealthItem[] = []
     activeRoutes.forEach(route => {
       if (!route.isDefault && !route.conditionJson) {
-        result.push({ level: 'error', title: '分支缺少条件', detail: `「${route.routeName}」不是默认分支但未配置流转条件，发布会被拒绝。` })
+        result.push({ level: 'error', title: '分支缺少条件', detail: `「${route.routeName}」不是默认分支但未配置流转条件，发布会被拒绝。`, target: { kind: 'edge', key: route.edgeKey } })
       }
     })
     const byFrom = new Map<string, number[]>()
@@ -150,7 +159,7 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
     })
     byFrom.forEach((priorities, fromStageKey) => {
       if (new Set(priorities).size !== priorities.length) {
-        result.push({ level: 'warning', title: '优先级重复', detail: `节点「${stageName(fromStageKey)}」的条件分支存在重复优先级（保存时会自动按序重编）。` })
+        result.push({ level: 'warning', title: '优先级重复', detail: `节点「${stageName(fromStageKey)}」的条件分支存在重复优先级（保存时会自动按序重编）。`, target: { kind: 'node', key: fromStageKey } })
       }
     })
     return result
@@ -169,7 +178,7 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
           const right = flattenConditions(parseCondition(group[j].conditionJson))
           if (left.length === 0 || right.length === 0) continue
           if (rulesOverlap(left, right)) {
-            result.push({ level: 'warning', title: '规则重叠', detail: `「${group[i].routeName}」和「${group[j].routeName}」的条件区间存在交集，可能同时命中，请确认优先级。` })
+            result.push({ level: 'warning', title: '规则重叠', detail: `「${group[i].routeName}」和「${group[j].routeName}」的条件区间存在交集，可能同时命中，请确认优先级。`, target: { kind: 'edge', key: group[i].edgeKey } })
           }
         }
       }
@@ -187,7 +196,7 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
     })
     stages.slice(0, -1).forEach(stage => {
       if (!outgoing.has(stage.id)) {
-        result.push({ level: 'warning', title: '死路节点', detail: `节点「${stage.name || stage.id}」没有后续条件边，规则模式下运行到此会直接结束。` })
+        result.push({ level: 'warning', title: '死路节点', detail: `节点「${stage.name || stage.id}」没有后续条件边，规则模式下运行到此会直接结束。`, target: { kind: 'node', key: stage.id } })
       }
     })
     const first = stages[0]?.id
@@ -196,7 +205,7 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
       const visiting = new Set<string>()
       const dfs = (key: string) => {
         if (visiting.has(key)) {
-          result.push({ level: 'error', title: '循环路径', detail: `检测到从「${stageName(key)}」回到已访问路径的循环。` })
+          result.push({ level: 'error', title: '循环路径', detail: `检测到从「${stageName(key)}」回到已访问路径的循环。`, target: { kind: 'node', key } })
           return
         }
         if (visited.has(key)) return
@@ -209,7 +218,7 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
       stages.forEach(stage => {
         if (!visited.has(stage.id)) {
           // 后端 RouteGraphValidator 将不可达视为发布阻断错误，与其保持一致
-          result.push({ level: 'error', title: '无法到达', detail: `节点「${stage.name || stage.id}」不在起点可达路径上，发布会被拒绝。` })
+          result.push({ level: 'error', title: '无法到达', detail: `节点「${stage.name || stage.id}」不在起点可达路径上，发布会被拒绝。`, target: { kind: 'node', key: stage.id } })
         }
       })
     }
@@ -219,18 +228,20 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
   function checkHandlers(): HealthItem[] {
     const result: HealthItem[] = []
     dynamicPolicies.forEach(policy => {
+      // 动态策略在来源节点抽屉内编辑，故跳转到来源节点（来源已删则 checkDanglingRefs 另报，此处仍指向便于定位）
+      const policyTarget: DiagnosticTarget = { kind: 'node', key: policy.sourceStageKey }
       const fallback = parseCondition(policy.fallbackJson)
       if (!fallback?.type) {
-        result.push({ level: 'error', title: '处理人兜底缺失', detail: `动态策略「${policy.policyName}」没有 fallback，处理人解析失败时无法安全兜底。` })
+        result.push({ level: 'error', title: '处理人兜底缺失', detail: `动态策略「${policy.policyName}」没有 fallback，处理人解析失败时无法安全兜底。`, target: policyTarget })
       }
       // 后端发布校验：afterRouteBeforeTarget 时机必须配置续接节点
       if ((policy.triggerTiming || 'afterRouteBeforeTarget') === 'afterRouteBeforeTarget' && !policy.continuationStageKey) {
-        result.push({ level: 'error', title: '缺少继续节点', detail: `动态策略「${policy.policyName}」触发时机为"路由后、目标前"，必须选择继续节点，否则发布会被拒绝。` })
+        result.push({ level: 'error', title: '缺少继续节点', detail: `动态策略「${policy.policyName}」触发时机为"路由后、目标前"，必须选择继续节点，否则发布会被拒绝。`, target: policyTarget })
       }
     })
     stages.filter(stage => stage.type === 'manual').forEach(stage => {
       if (!stage.assigneeStrategy) {
-        result.push({ level: 'error', title: '处理人策略缺失', detail: `人工节点「${stage.name || stage.id}」没有配置处理人策略。` })
+        result.push({ level: 'error', title: '处理人策略缺失', detail: `人工节点「${stage.name || stage.id}」没有配置处理人策略。`, target: { kind: 'node', key: stage.id } })
       }
     })
     return result
@@ -241,7 +252,7 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
     const numericOperators = new Set(['gt', 'gte', 'lt', 'lte'])
     // 后端 ConditionRuleEvaluator 的合法寻址前缀，这些字段不在卡片 schema 里但运行时可解析
     const runtimePrefixes = ['detailSummary.', 'source.', 'initiator.', 'orgChain', 'roles.']
-    const inspect = (owner: string, json?: string | null) => {
+    const inspect = (owner: string, json: string | null | undefined, target: DiagnosticTarget) => {
       flattenConditions(parseCondition(json)).forEach(condition => {
         const rawField = String(condition.field || '')
         if (runtimePrefixes.some(prefix => rawField.startsWith(prefix))) return
@@ -249,17 +260,17 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
         const key = rawField.startsWith('card.') ? rawField.slice(5) : rawField
         const field = fieldMap.get(key)
         if (!field) {
-          result.push({ level: 'error', title: '字段不存在', detail: `${owner} 引用了不存在的字段「${rawField}」。` })
+          result.push({ level: 'error', title: '字段不存在', detail: `${owner} 引用了不存在的字段「${rawField}」。`, target })
           return
         }
         // 后端 CompareOrdered 同时支持数值与日期比较
         if (numericOperators.has(condition.operator) && !['money', 'number', 'date'].includes(field.type)) {
-          result.push({ level: 'error', title: '字段类型不匹配', detail: `${owner} 使用 ${condition.operator} 比较非金额/数字/日期字段「${field.label}」。` })
+          result.push({ level: 'error', title: '字段类型不匹配', detail: `${owner} 使用 ${condition.operator} 比较非金额/数字/日期字段「${field.label}」。`, target })
         }
       })
     }
-    activeRoutes.forEach(route => inspect(`流转规则「${route.routeName}」`, route.conditionJson))
-    dynamicPolicies.forEach(policy => inspect(`动态策略「${policy.policyName}」`, policy.conditionJson))
+    activeRoutes.forEach(route => inspect(`流转规则「${route.routeName}」`, route.conditionJson, { kind: 'edge', key: route.edgeKey }))
+    dynamicPolicies.forEach(policy => inspect(`动态策略「${policy.policyName}」`, policy.conditionJson, { kind: 'node', key: policy.sourceStageKey }))
     return result
   }
 
@@ -278,7 +289,7 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
 }
 
 // ==================== 发布校验（CardFlow2 配置）====================
-// 抽自 FlowDefinitionEditPage.validateCardFlow2Config，纯函数，返回中文风险文案（string[]）。
+// 抽自 FlowDefinitionEditPage.validateCardFlow2Config，纯函数，返回结构化风险项 PublishIssue[]（文案+可选跳转 target）。
 // 与 runRuleHealthChecks 同源，避免"节点链校验"与"规则健康面板"两处逐步漂移。
 
 export interface PublishValidationContext {
@@ -312,38 +323,45 @@ function collectConditionFields(condition: any, fields: Set<string>) {
   }
 }
 
-/** 发布/预览前的配置风险校验，返回中文风险文案；空数组表示可发布。 */
-export function validatePublishConfig(ctx: PublishValidationContext): string[] {
-  const { stages, routes, dynamicPolicies, cardSchema, detailSchema, cardComponents, approvalAdminUserIds } = ctx
+/** 发布风险项：中文文案 + 可选跳转现场（node=节点 / edge=边；组件类无 node/edge 现场故无 target）。 */
+export interface PublishIssue {
+  message: string
+  target?: DiagnosticTarget
+}
 
-  const validateStageReferenceKeys = (stage: StageDefinition, index: number): string[] => {
-    const msgs: string[] = []
+/** 发布/预览前的配置风险校验，返回结构化风险项（message + 可选 target）；空数组表示可发布。 */
+export function validatePublishConfig(ctx: PublishValidationContext): PublishIssue[] {
+  const { stages, routes, dynamicPolicies, cardSchema, detailSchema, cardComponents, approvalAdminUserIds } = ctx
+  const issues: PublishIssue[] = []
+
+  const validateStageReferenceKeys = (stage: StageDefinition, index: number) => {
+    const target: DiagnosticTarget = { kind: 'node', key: stage.id }
     const cardKeys = new Set(cardSchema.map(field => field.key))
     const detailKeys = new Set(detailSchema.map(field => `default.${field.key}`))
     const stageName = stage.name || `第 ${index + 1} 个节点`
 
     for (const key of stage.inputFields || []) {
-      if (!cardKeys.has(key)) msgs.push(`节点[${stageName}]补充字段[${key}]不存在`)
+      if (!cardKeys.has(key)) issues.push({ message: `节点[${stageName}]补充字段[${key}]不存在`, target })
     }
 
     for (const [key, rule] of Object.entries(stage.viewProfile?.fieldAccess || {})) {
       const accessRule = rule as any
-      if (!cardKeys.has(key)) msgs.push(`节点[${stageName}]字段权限[${key}]不存在`)
+      if (!cardKeys.has(key)) issues.push({ message: `节点[${stageName}]字段权限[${key}]不存在`, target })
       if ((accessRule.access === 'hidden' || accessRule.access === 'masked') && accessRule.required) {
-        msgs.push(`节点[${stageName}]字段权限[${key}]不能同时隐藏/脱敏且必填`)
+        issues.push({ message: `节点[${stageName}]字段权限[${key}]不能同时隐藏/脱敏且必填`, target })
       }
     }
 
     for (const [key, rule] of Object.entries(stage.viewProfile?.detailAccess || {})) {
       const accessRule = rule as any
-      if (!detailKeys.has(key)) msgs.push(`节点[${stageName}]明细字段权限[${key}]不存在`)
+      if (!detailKeys.has(key)) issues.push({ message: `节点[${stageName}]明细字段权限[${key}]不存在`, target })
       if ((accessRule.access === 'hidden' || accessRule.access === 'masked') && accessRule.required) {
-        msgs.push(`节点[${stageName}]明细字段权限[${key}]不能同时隐藏/脱敏且必填`)
+        issues.push({ message: `节点[${stageName}]明细字段权限[${key}]不能同时隐藏/脱敏且必填`, target })
       }
     }
 
     for (const key of stage.viewProfile?.summary?.fields || []) {
-      if (!cardKeys.has(key)) msgs.push(`节点[${stageName}]摘要字段[${key}]不存在`)
+      if (!cardKeys.has(key)) issues.push({ message: `节点[${stageName}]摘要字段[${key}]不存在`, target })
     }
 
     if (stage.conditionJson) {
@@ -351,93 +369,93 @@ export function validatePublishConfig(ctx: PublishValidationContext): string[] {
       const fields = new Set<string>()
       collectConditionFields(condition, fields)
       for (const key of fields) {
-        if (!cardKeys.has(key)) msgs.push(`节点[${stageName}]进入条件字段[${key}]不存在`)
+        if (!cardKeys.has(key)) issues.push({ message: `节点[${stageName}]进入条件字段[${key}]不存在`, target })
       }
     }
-
-    return msgs
   }
 
-  const validateCardComponentPublishability = (): string[] => {
-    const msgs: string[] = []
+  const validateCardComponentPublishability = () => {
     cardComponents.forEach((component, index) => {
       const componentName = component.title || `第 ${index + 1} 个组件`
       const capability = resolveComponentCapability(component.type, component.props || {})
       const componentStatus = component.props?.componentStatus || (capability.publishable ? 'ready' : 'deferred')
       const requiresRuntimeIntegration = !!(component.props?.requiresRuntimeIntegration || capability.requiresRuntimeIntegration)
 
+      // 卡片组件在组件配置抽屉编辑（非节点/边），无 node/edge 现场，故不设 target
       if (!capability.publishable || component.props?.publishable === false || componentStatus === 'deferred' || requiresRuntimeIntegration) {
-        msgs.push(`组件[${componentName}]暂未支持发布：${capability.unsupportedReason || component.props?.unsupportedReason || '缺少运行态集成能力'}`)
+        issues.push({ message: `组件[${componentName}]暂未支持发布：${capability.unsupportedReason || component.props?.unsupportedReason || '缺少运行态集成能力'}` })
       }
 
       if (component.binding?.source && !capability.supportedBindings.includes(component.binding.source)) {
-        msgs.push(`组件[${componentName}]绑定来源[${component.binding.source}]不符合该组件能力边界`)
+        issues.push({ message: `组件[${componentName}]绑定来源[${component.binding.source}]不符合该组件能力边界` })
       }
     })
-    return msgs
   }
 
-  const msgs: string[] = []
   const stageKeys = new Set(stages.map(stage => stage.id))
-  msgs.push(...validateCardComponentPublishability())
+  validateCardComponentPublishability()
   stages.forEach((stage, index) => {
+    const target: DiagnosticTarget = { kind: 'node', key: stage.id }
     const stageName = stage.name || `第 ${index + 1} 个节点`
-    if (!stage.name?.trim()) msgs.push(`节点[${stageName}]名称不能为空`)
+    if (!stage.name?.trim()) issues.push({ message: `节点[${stageName}]名称不能为空`, target })
 
     if (stage.type === 'manual') {
       const config = tryParseObject(stage.assigneeConfigJson)
       if (!stage.assigneeStrategy) {
-        msgs.push(`节点[${stageName}]处理人策略未配置`)
+        issues.push({ message: `节点[${stageName}]处理人策略未配置`, target })
       } else if (stage.assigneeStrategy === 'role' && !config?.roleCode) {
-        msgs.push(`节点[${stageName}]按角色处理人未选择角色`)
+        issues.push({ message: `节点[${stageName}]按角色处理人未选择角色`, target })
       } else if (stage.assigneeStrategy === 'fixed' && !(config?.users || []).length) {
-        msgs.push(`节点[${stageName}]指定人员未选择处理人`)
+        issues.push({ message: `节点[${stageName}]指定人员未选择处理人`, target })
       } else if (stage.assigneeStrategy === 'fieldUsers' && !config?.fieldKey) {
-        msgs.push(`节点[${stageName}]按字段取人未选择人员字段`)
+        issues.push({ message: `节点[${stageName}]按字段取人未选择人员字段`, target })
       }
 
       if (config?.fallback?.type === 'flowAdmin' && approvalAdminUserIds.length === 0) {
-        msgs.push(`节点[${stageName}]使用审批管理员兜底，但流程配置未选择审批管理员`)
+        issues.push({ message: `节点[${stageName}]使用审批管理员兜底，但流程配置未选择审批管理员`, target })
       }
 
       if (!stage.actionPolicy?.allowedActions?.length) {
-        msgs.push(`节点[${stageName}]允许动作不能为空`)
+        issues.push({ message: `节点[${stageName}]允许动作不能为空`, target })
       }
 
       if (stage.ccConfigJson && !tryParseObject(stage.ccConfigJson)) {
-        msgs.push(`节点[${stageName}]抄送配置不是合法的 JSON 对象`)
+        issues.push({ message: `节点[${stageName}]抄送配置不是合法的 JSON 对象`, target })
       }
 
-      msgs.push(...validateStageReferenceKeys(stage, index))
+      validateStageReferenceKeys(stage, index)
     }
 
     if (stage.type === 'auto' && !stage.pluginRegistryId) {
-      msgs.push(`节点[${stageName}]自动插件未选择`)
+      issues.push({ message: `节点[${stageName}]自动插件未选择`, target })
     }
   })
 
   const routeSourceKeys = new Set(routes.map(route => route.fromStageKey))
   routeSourceKeys.forEach(sourceKey => {
     if (!routes.some(route => route.fromStageKey === sourceKey && route.isDefault)) {
-      msgs.push(`节点[${stages.find(stage => stage.id === sourceKey)?.name || sourceKey}]条件流转缺少默认分支`)
+      issues.push({ message: `节点[${stages.find(stage => stage.id === sourceKey)?.name || sourceKey}]条件流转缺少默认分支`, target: { kind: 'node', key: sourceKey } })
     }
   })
   routes.forEach(route => {
-    if (!stageKeys.has(route.fromStageKey)) msgs.push(`流转规则[${route.routeName}]来源节点不存在`)
-    if (!stageKeys.has(route.toStageKey)) msgs.push(`流转规则[${route.routeName}]目标节点不存在`)
-    if (!route.isDefault && !route.conditionJson) msgs.push(`流转规则[${route.routeName}]未配置流转条件`)
+    const target: DiagnosticTarget = { kind: 'edge', key: route.edgeKey }
+    if (!stageKeys.has(route.fromStageKey)) issues.push({ message: `流转规则[${route.routeName}]来源节点不存在`, target })
+    if (!stageKeys.has(route.toStageKey)) issues.push({ message: `流转规则[${route.routeName}]目标节点不存在`, target })
+    if (!route.isDefault && !route.conditionJson) issues.push({ message: `流转规则[${route.routeName}]未配置流转条件`, target })
   })
   dynamicPolicies.forEach(policy => {
-    if (!stageKeys.has(policy.sourceStageKey)) msgs.push(`动态策略[${policy.policyName}]来源节点不存在`)
-    if (!policy.fallbackJson) msgs.push(`动态策略[${policy.policyName}]未配置处理人 fallback`)
-    if ((policy.maxInsertCount || 20) > 20) msgs.push(`动态策略[${policy.policyName}]最大插入数不能超过 20`)
+    const target: DiagnosticTarget = { kind: 'node', key: policy.sourceStageKey }
+    // 来源节点已删则无可跳转现场，不设 target
+    if (!stageKeys.has(policy.sourceStageKey)) issues.push({ message: `动态策略[${policy.policyName}]来源节点不存在` })
+    if (!policy.fallbackJson) issues.push({ message: `动态策略[${policy.policyName}]未配置处理人 fallback`, target })
+    if ((policy.maxInsertCount || 20) > 20) issues.push({ message: `动态策略[${policy.policyName}]最大插入数不能超过 20`, target })
     // 后端发布校验：afterRouteBeforeTarget 时机必须配置续接节点，否则发布必失败
     const timing = policy.triggerTiming || 'afterRouteBeforeTarget'
     if (timing === 'afterRouteBeforeTarget' && !policy.continuationStageKey) {
-      msgs.push(`动态策略[${policy.policyName}]触发时机为"路由后、目标前"时必须选择继续节点`)
+      issues.push({ message: `动态策略[${policy.policyName}]触发时机为"路由后、目标前"时必须选择继续节点`, target })
     } else if (policy.continuationStageKey && !stageKeys.has(policy.continuationStageKey)) {
-      msgs.push(`动态策略[${policy.policyName}]的继续节点不存在`)
+      issues.push({ message: `动态策略[${policy.policyName}]的继续节点不存在`, target })
     }
   })
-  return msgs
+  return issues
 }

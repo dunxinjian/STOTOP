@@ -47,7 +47,7 @@ import RuleHealthPanel from '@/components/cardflow/designer/RuleHealthPanel.vue'
 import CardComponentCatalog from '@/components/cardflow/designer/CardComponentCatalog.vue'
 import CardComponentConfigDrawer from '@/components/cardflow/designer/CardComponentConfigDrawer.vue'
 import StageComponentViewEditor from '@/components/cardflow/designer/StageComponentViewEditor.vue'
-import { validatePublishConfig } from '@/utils/cardflowDiagnostics'
+import { validatePublishConfig, type DiagnosticTarget } from '@/utils/cardflowDiagnostics'
 import CardComponentRenderer from '@/components/cardflow/runtime/CardComponentRenderer.vue'
 import SchemaRenderer from '@/components/cardflow/SchemaRenderer.vue'
 import {
@@ -409,6 +409,13 @@ function selectDesignerBlank() {
   designerSelection.type = 'blank'
   designerSelection.key = null
   designerDrawerOpen.value = true
+}
+
+// 诊断"点击直达现场"：切到节点链步骤 + 选中对应节点/边并打开配置抽屉
+function focusDiagnosticTarget(target: DiagnosticTarget) {
+  activeStep.value = STEP_STAGES
+  if (target.kind === 'node') selectDesignerNode(target.key)
+  else selectDesignerEdge(target.key)
 }
 
 function createRoute(fromStageKey?: string) {
@@ -1600,10 +1607,10 @@ function validateForPublish(): boolean {
       msgs.push(`节点[${s.name}]条件 JSON 解析失败`)
     }
   }
-  const cardFlow2Messages = validateCardFlow2Config()
-  if (cardFlow2Messages.length) {
+  const cardFlow2Issues = validateCardFlow2Config()
+  if (cardFlow2Issues.length) {
     errors.stages = true
-    msgs.push(...cardFlow2Messages)
+    msgs.push(...cardFlow2Issues.map(issue => issue.message))
   }
   if (msgs.length) {
     message.error('发布前校验失败：' + msgs.join('；'))
@@ -2443,6 +2450,7 @@ function goBack() {
                   :routes="state.routes"
                   :dynamic-policies="state.dynamicPolicies"
                   :fields="state.cardSchema"
+                  @navigate="focusDiagnosticTarget"
                 />
               </div>
             </a-tab-pane>
@@ -2749,7 +2757,18 @@ function goBack() {
 
               <div v-if="previewConfigWarnings.length" class="fdef-preview-warning-list">
                 <strong>规则风险</strong>
-                <span v-for="warning in previewConfigWarnings" :key="warning">{{ warning }}</span>
+                <span
+                  v-for="warning in previewConfigWarnings"
+                  :key="warning.message"
+                  :class="{ 'fdef-preview-warning--clickable': warning.target }"
+                  :role="warning.target ? 'button' : undefined"
+                  :tabindex="warning.target ? 0 : undefined"
+                  @click="warning.target && focusDiagnosticTarget(warning.target)"
+                  @keydown.enter.prevent="warning.target && focusDiagnosticTarget(warning.target)"
+                >
+                  {{ warning.message }}
+                  <em v-if="warning.target" class="fdef-preview-warning__locate">定位 →</em>
+                </span>
               </div>
               <div v-else class="fdef-preview-good-state">
                 <CheckCircleFilled />
@@ -2900,6 +2919,7 @@ function goBack() {
           :routes="state.routes"
           :dynamic-policies="state.dynamicPolicies"
           :fields="state.cardSchema"
+          @navigate="focusDiagnosticTarget"
         />
       </section>
     </a-drawer>
@@ -4426,6 +4446,26 @@ function goBack() {
     font-size: 12px;
     line-height: 18px;
   }
+}
+
+.fdef-preview-warning--clickable {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 4px;
+  transition: background .15s;
+
+  &:hover { background: color-mix(in srgb, var(--color-warning) 14%, transparent); }
+  &:focus-visible { outline: 2px solid var(--color-warning); outline-offset: 1px; }
+}
+
+.fdef-preview-warning__locate {
+  margin-left: auto;
+  font-style: normal;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0.9;
 }
 
 .fdef-preview-good-state {
