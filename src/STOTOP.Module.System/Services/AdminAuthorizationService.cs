@@ -21,11 +21,14 @@ public class AdminAuthorizationService : IAdminAuthorizationService
         return user.Claims.Any(c => c.Type == ClaimTypes.Role && c.Value == AdminRoleClaim);
     }
 
-    // 全局判定 admin：SysUserRole 非 IOrgScoped，Set<> 不带组织过滤，与原 raw SQL 同口径。
-    // 用 AnyAsync(→EXISTS) 而非 SqlQueryRaw+First，避免 EF[10103]（First 无 OrderBy）噪音警告；勿改回 raw SQL。
+    // 全局判定 admin：SysUserRole 非 IOrgScoped，Set<> 不带组织过滤。
+    // R5：从"持 FRoleId=1"改为"持 F是否管理员=1 的角色"——含各租户私有 admin 角色（存量 role1 迁移 V15 已置 1）。
+    // 仍用 AnyAsync(→EXISTS) 避免 EF[10103] 噪音；勿改回 raw SQL。
     public async Task<bool> IsAdminByUserIdAsync(STOTOPDbContext db, long userId)
         => await db.Set<SysUserRole>()
-            .AnyAsync(ur => ur.FUserId == userId && ur.FRoleId == AdminRoleId);
+            .Where(ur => ur.FUserId == userId)
+            .Join(db.Set<SysRole>().Where(r => r.FIsAdmin), ur => ur.FRoleId, r => r.FID, (ur, r) => r.FID)
+            .AnyAsync();
 
     public async Task<bool> IsPlatformAdminByUserIdAsync(STOTOPDbContext db, long userId)
     {

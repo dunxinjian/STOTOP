@@ -12,6 +12,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace STOTOP.Module.System.Services;
 
@@ -286,10 +287,30 @@ public class AuthService : IAuthService
 
     private static async Task<List<string>> GetUserPermissionCodesAsync(STOTOPDbContext context, long userId)
     {
-        // admin 用户直接返回所有权限编码
-        var isAdmin = await context.Set<SysUserRole>()
-            .AnyAsync(ur => ur.FUserId == userId && ur.FRoleId == AdminAuthorizationService.AdminRoleId);
-        return await GetUserPermissionCodesAsync(context, userId, isAdmin);
+        // admin 用户直接返回所有权限编码（R5：admin 判定 = 持 F是否管理员=1 的角色）
+        return await GetUserPermissionCodesAsync(context, userId, await IsAdminByRolesAsync(context, userId));
+    }
+
+    /// <summary>R5：用户是否持有管理员型角色（F是否管理员=1，含各租户私有 admin 角色）。</summary>
+    private static Task<bool> IsAdminByRolesAsync(STOTOPDbContext context, long userId)
+        => context.Set<SysUserRole>()
+            .Where(ur => ur.FUserId == userId)
+            .Join(context.Set<SysRole>().Where(r => r.FIsAdmin), ur => ur.FRoleId, r => r.FID, (ur, r) => r.FID)
+            .AnyAsync();
+
+    /// <summary>R5：解析用户的管理员作用域。返回 (是否管理员, 是否平台级管理员, 租户级管理员的租户ID)。
+    /// 平台级(FScope=platform，如全局 admin) 拿全量菜单；租户级(FScope=tenant) 菜单按该租户套餐 FModuleFlags 裁剪。</summary>
+    private static async Task<(bool isAdmin, bool isPlatformAdmin, long? tenantAdminTenantId)> ResolveAdminScopeAsync(STOTOPDbContext context, long userId)
+    {
+        var adminRoles = await context.Set<SysUserRole>()
+            .Where(ur => ur.FUserId == userId)
+            .Join(context.Set<SysRole>().Where(r => r.FIsAdmin), ur => ur.FRoleId, r => r.FID,
+                (ur, r) => new { r.FScope, r.FTenantId })
+            .ToListAsync();
+        if (adminRoles.Count == 0) return (false, false, null);
+        if (adminRoles.Any(r => r.FScope == SysRoleScope.Platform)) return (true, true, null);
+        var tenantId = adminRoles.Select(r => r.FTenantId).FirstOrDefault(t => t != 0);
+        return (true, false, tenantId == 0 ? null : tenantId);
     }
 
     private static async Task<List<string>> GetUserPermissionCodesAsync(STOTOPDbContext context, long userId, bool isAdmin)
@@ -319,10 +340,8 @@ public class AuthService : IAuthService
 
     private static async Task<List<MenuDto>> GetUserMenusAsync(STOTOPDbContext context, long userId)
     {
-        // admin 用户直接返回所有模块和菜单
-        var isAdmin = await context.Set<SysUserRole>()
-            .AnyAsync(ur => ur.FUserId == userId && ur.FRoleId == AdminAuthorizationService.AdminRoleId);
-        return await GetUserMenusAsync(context, userId, isAdmin);
+        // admin 用户直接返回所有模块和菜单（R5：admin 判定 = 持 F是否管理员=1 的角色）
+        return await GetUserMenusAsync(context, userId, await IsAdminByRolesAsync(context, userId));
     }
 
     private static async Task<List<MenuDto>> GetUserMenusAsync(STOTOPDbContext context, long userId, bool isAdmin)
@@ -349,6 +368,10 @@ public class AuthService : IAuthService
                 IsVisible = p.FIsVisible
             }).ToList();
 
+            // R5：平台级 admin 拿全量菜单（MDSTO 现状不变）；租户级 admin 按该租户套餐 FModuleFlags 裁剪。
+            var (_, isPlatformAdmin, tenantAdminTenantId) = await ResolveAdminScopeAsync(context, userId);
+            if (!isPlatformAdmin && tenantAdminTenantId is long tid)
+                return await FilterMenusByPlanAsync(context, allMenuDtos, tid);
             return allMenuDtos;
         }
 
@@ -412,6 +435,62 @@ public class AuthService : IAuthService
 
         menu.Children = children;
         return menu;
+    }
+
+    /// <summary>R5：按租户套餐的模块开关裁剪菜单。保留 code∈开关集 的模块 + 顶层模块∈开关集 的菜单。
+    /// 套餐无绑定/开关为空 → 不裁剪（返回全量）。</summary>
+    private static async Task<List<MenuDto>> FilterMenusByPlanAsync(STOTOPDbContext context, List<MenuDto> allMenus, long tenantId)
+    {
+        var tenant = await context.Set<PltTenant>().FirstOrDefaultAsync(t => t.FID == tenantId);
+        if (tenant?.FPlanId == null) return allMenus;
+        var plan = await context.Set<PltPlan>().FirstOrDefaultAsync(p => p.FID == tenant.FPlanId.Value);
+        var enabled = ParseModuleFlags(plan?.FModuleFlags);
+        if (enabled == null || enabled.Count == 0) return allMenus;
+
+        var byId = allMenus.ToDictionary(m => m.Id);
+        string? RootModuleCode(MenuDto m)
+        {
+            var cur = m;
+            var guard = 0;
+            while (cur.ParentId != 0 && byId.TryGetValue(cur.ParentId, out var parent) && guard++ < 32)
+                cur = parent;
+            return cur.Type == "module" ? cur.Code : null;
+        }
+
+        return allMenus.Where(m =>
+            (m.Type == "module" && enabled.Contains(m.Code)) ||
+            (m.Type != "module" && RootModuleCode(m) is string rc && enabled.Contains(rc))
+        ).ToList();
+    }
+
+    /// <summary>解析套餐 FModuleFlags（JSON 模块开关）为启用的模块编码集合。
+    /// 支持数组 ["system","finance"] 或对象 {"system":true}；空/非法 → null（表示不限）。</summary>
+    private static HashSet<string>? ParseModuleFlags(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var el in root.EnumerateArray())
+                    if (el.ValueKind == JsonValueKind.String) set.Add(el.GetString()!);
+            }
+            else if (root.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in root.EnumerateObject())
+                    if (prop.Value.ValueKind == JsonValueKind.True ||
+                        (prop.Value.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(prop.Value.GetString())))
+                        set.Add(prop.Name);
+            }
+            return set.Count == 0 ? null : set;
+        }
+        catch
+        {
+            return null; // 解析失败 → 不裁剪，避免误锁菜单
+        }
     }
 
     public async Task<ApiResult<RefreshTokenResponse>> RefreshTokenAsync(string refreshToken, string? ipAddress = null, string? deviceFingerprint = null)

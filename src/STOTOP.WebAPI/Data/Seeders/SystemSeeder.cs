@@ -27,8 +27,26 @@ public static class SystemSeeder
             new(12, "阶段2D(R8): 从任职(可放大)物化范围根回填 SYS数据范围授权(派生 Read,集团级归一) (2026-07-03)", MigrateV12),
             new(13, "阶段4A(平台层): SYS用户 加 F是否平台超管(回填 admin=1) + 回填 PLT租户单客户行(IDENTITY_INSERT FID=根组织id,保 F租户ID 不变) (2026-07-04)", MigrateV13),
             new(14, "阶段4(钉钉per-tenant): SYS钉钉配置(CreateMissingTables 建) 补 F群机器人Secret 列——初次建表后新增,存量表补列;新库已含此列→幂等 no-op (2026-07-05)", MigrateV14),
+            new(15, "阶段4(R5·租户开通): SYS角色 加 F作用域/F租户ID/F是否管理员 列——存量角色回填 platform,admin角色(FID=1) F是否管理员=1;供租户私有 admin 角色 (2026-07-06)", MigrateV15),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>阶段4·R5 租户开通：SYS角色 加 F作用域(platform/tenant)/F租户ID/F是否管理员 三列。
+    /// 存量角色 F作用域 默认 platform(全局共享)、F租户ID 默认 0；全局 admin 角色(FID=1) 回填 F是否管理员=1，
+    /// 使 AuthService 的 isAdmin 判定从"持 FRoleId=1"平滑改为"持 F是否管理员=1 的角色"（含各租户私有 admin 角色）。
+    /// 列定义与模型(SysRoleConfiguration)一致，幂等(AddColumnIfMissing/WHERE)。</summary>
+    private static void MigrateV15(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        AddColumnIfMissing(ctx, "SYS角色", "F作用域", "nvarchar(20) NOT NULL CONSTRAINT [DF_SYS角色_F作用域] DEFAULT N'platform'");
+        AddColumnIfMissing(ctx, "SYS角色", "F租户ID", "bigint NOT NULL CONSTRAINT [DF_SYS角色_F租户ID] DEFAULT 0");
+        AddColumnIfMissing(ctx, "SYS角色", "F是否管理员", "bit NOT NULL CONSTRAINT [DF_SYS角色_F是否管理员] DEFAULT 0");
+
+        // 全局 admin 角色(FID=1) 标记为管理员型（存量语义：持 FRoleId=1 即 admin）
+        SeederHelper.ExecuteRawSql(ctx, @"
+        UPDATE [SYS角色] SET [F是否管理员] = 1 WHERE [FID] = 1 AND [F是否管理员] = 0;");
     }
 
     /// <summary>阶段4·钉钉 per-tenant 分发：SYS钉钉配置 表（由 CreateMissingTables 先建）补 F群机器人Secret 列。

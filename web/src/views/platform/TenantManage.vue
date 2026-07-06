@@ -84,18 +84,15 @@
       :destroyOnClose="true"
     >
       <a-form ref="formRef" :model="formData" :rules="formRules" layout="vertical" class="modal-form">
+        <div class="form-section-title">租户</div>
         <div class="form-grid">
           <a-form-item label="名称" name="name">
             <a-input v-model:value="formData.name" placeholder="请输入租户名称" :maxlength="100" />
           </a-form-item>
           <a-form-item label="编号" name="code">
-            <a-input v-model:value="formData.code" placeholder="唯一编号，如 MDSTO" :maxlength="50" />
+            <a-input v-model:value="formData.code" placeholder="唯一编号，如 TCMS" :maxlength="50" />
           </a-form-item>
         </div>
-        <a-form-item label="根组织 FID" name="rootOrgId">
-          <a-input-number v-model:value="formData.rootOrgId" placeholder="租户组织树根节点 FID" :min="1" style="width: 100%" />
-          <div class="form-hint">对应该租户组织树的根节点主键（FID）</div>
-        </a-form-item>
         <div class="form-grid">
           <a-form-item label="账套绑定模式" name="accountSetBindMode">
             <a-select v-model:value="formData.accountSetBindMode" :options="ACCOUNT_SET_BIND_MODE_OPTIONS" />
@@ -117,14 +114,54 @@
             <a-date-picker v-model:value="formData.expireAt" valueFormat="YYYY-MM-DD" style="width: 100%" />
           </a-form-item>
         </div>
-        <div class="form-note">新建后租户为「试用」状态；正式开通请用「开通/续费」创建订阅。</div>
+
+        <div class="form-section-title">组织根节点</div>
+        <div class="form-grid">
+          <a-form-item label="根组织名称" name="rootOrgName">
+            <a-input v-model:value="formData.rootOrgName" placeholder="如 太仓美申" :maxlength="100" />
+          </a-form-item>
+          <a-form-item label="根组织类别" name="rootOrgKind">
+            <a-select v-model:value="formData.rootOrgKind" :options="ROOT_ORG_KIND_OPTIONS" />
+          </a-form-item>
+        </div>
+
+        <div class="form-section-title">初始管理员</div>
+        <div class="form-grid">
+          <a-form-item label="管理员账号" name="adminAccount">
+            <a-input v-model:value="formData.adminAccount" placeholder="登录账号，全局唯一" :maxlength="50" />
+          </a-form-item>
+          <a-form-item label="管理员姓名" name="adminName">
+            <a-input v-model:value="formData.adminName" placeholder="姓名" :maxlength="50" />
+          </a-form-item>
+        </div>
+        <a-form-item label="管理员手机（可选）" name="adminPhone">
+          <a-input v-model:value="formData.adminPhone" placeholder="手机号" :maxlength="20" />
+        </a-form-item>
+
+        <div class="form-note">开通将自动建组织根 + 初始管理员（系统生成初始密码，仅展示一次）；租户为「试用」状态，正式开通请用「开通/续费」创建订阅。</div>
       </a-form>
       <template #footer>
         <div class="modal-footer">
           <a-button @click="dialogVisible = false">取消</a-button>
-          <a-button type="primary" :loading="submitLoading" @click="handleSubmit">确定</a-button>
+          <a-button type="primary" :loading="submitLoading" @click="handleSubmit">开通</a-button>
         </div>
       </template>
+    </a-modal>
+
+    <a-modal v-model:open="resultVisible" title="租户已开通" :width="480" :footer="null" :destroyOnClose="true">
+      <div class="pr-note">初始密码仅展示一次，请立即安全交付管理员。</div>
+      <div class="pr-row">
+        <span class="pr-label">管理员账号</span>
+        <span class="pr-value">{{ provisionResult?.adminAccount }}</span>
+      </div>
+      <div class="pr-row">
+        <span class="pr-label">初始密码</span>
+        <span class="pr-value pr-password">{{ provisionResult?.tempPassword }}</span>
+        <a-button type="link" size="small" @click="copyPassword">复制</a-button>
+      </div>
+      <div class="modal-footer" style="margin-top: 16px">
+        <a-button type="primary" @click="resultVisible = false">我已保存</a-button>
+      </div>
     </a-modal>
   </div>
 </template>
@@ -146,11 +183,13 @@ import {
   getPlans,
   type TenantDto,
   type PlanDto,
+  type ProvisionTenantResult,
 } from '@/api/platform'
 import {
   TENANT_STATUS_OPTIONS,
   ACCOUNT_SET_BIND_MODE_OPTIONS,
   TODO_CHANNEL_OPTIONS,
+  ROOT_ORG_KIND_OPTIONS,
 } from '@/types/platform'
 
 const router = useRouter()
@@ -260,26 +299,49 @@ const submitLoading = ref(false)
 const formData = reactive({
   name: '',
   code: '',
-  rootOrgId: undefined as number | undefined,
   accountSetBindMode: 1,
   defaultTodoChannel: 1,
   planId: undefined as number | undefined,
   expireAt: undefined as string | undefined,
+  rootOrgName: '',
+  rootOrgKind: 1,
+  adminAccount: '',
+  adminName: '',
+  adminPhone: '',
 })
 const formRules: Record<string, Rule[]> = {
   name: [{ required: true, message: '请输入租户名称', trigger: 'blur' }],
   code: [{ required: true, message: '请输入唯一编号', trigger: 'blur' }],
-  rootOrgId: [{ required: true, message: '请输入根组织 FID', trigger: 'blur' }],
+  rootOrgName: [{ required: true, message: '请输入根组织名称', trigger: 'blur' }],
+  adminAccount: [{ required: true, message: '请输入管理员账号', trigger: 'blur' }],
+  adminName: [{ required: true, message: '请输入管理员姓名', trigger: 'blur' }],
+}
+
+// 开通结果（临时密码一次性展示）
+const resultVisible = ref(false)
+const provisionResult = ref<ProvisionTenantResult | null>(null)
+async function copyPassword() {
+  if (!provisionResult.value) return
+  try {
+    await navigator.clipboard.writeText(provisionResult.value.tempPassword)
+    message.success('已复制初始密码')
+  } catch {
+    message.warning('复制失败，请手动选择')
+  }
 }
 
 function handleAdd() {
   formData.name = ''
   formData.code = ''
-  formData.rootOrgId = undefined
   formData.accountSetBindMode = 1
   formData.defaultTodoChannel = 1
   formData.planId = undefined
   formData.expireAt = undefined
+  formData.rootOrgName = ''
+  formData.rootOrgKind = 1
+  formData.adminAccount = ''
+  formData.adminName = ''
+  formData.adminPhone = ''
   dialogVisible.value = true
 }
 
@@ -288,17 +350,23 @@ async function handleSubmit() {
   try { await formRef.value.validate() } catch { return }
   submitLoading.value = true
   try {
-    await createTenant({
+    const result = await createTenant({
       name: formData.name,
       code: formData.code,
-      rootOrgId: formData.rootOrgId!,
       accountSetBindMode: formData.accountSetBindMode,
       defaultTodoChannel: formData.defaultTodoChannel,
       planId: formData.planId ?? null,
       expireAt: formData.expireAt ?? null,
+      rootOrgName: formData.rootOrgName,
+      rootOrgKind: formData.rootOrgKind,
+      adminAccount: formData.adminAccount,
+      adminName: formData.adminName,
+      adminPhone: formData.adminPhone || null,
     })
-    message.success('新建成功')
     dialogVisible.value = false
+    provisionResult.value = result
+    resultVisible.value = true
+    message.success('租户已开通')
     fetchList()
   } finally {
     submitLoading.value = false
@@ -315,6 +383,13 @@ onMounted(() => { fetchList(); fetchPlanOptions() })
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 16px;
+}
+
+.form-section-title {
+  margin: 4px 0 12px;
+  font-size: $font-size-base;
+  font-weight: 500;
+  color: var(--text-2);
 }
 
 .form-hint {
@@ -336,5 +411,38 @@ onMounted(() => { fetchList(); fetchPlanOptions() })
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.pr-note {
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: var(--color-warning-light);
+  color: var(--color-warning-text);
+  font-size: $font-size-sm;
+}
+
+.pr-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.pr-label {
+  width: 84px;
+  color: var(--text-3);
+  font-size: $font-size-sm;
+}
+
+.pr-value {
+  color: var(--text-1);
+  font-size: $font-size-base;
+}
+
+.pr-password {
+  font-family: var(--font-mono, monospace);
+  letter-spacing: 1px;
 }
 </style>

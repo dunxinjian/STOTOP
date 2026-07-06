@@ -1,7 +1,8 @@
 import { get, post, put } from './request'
 import type {
   TenantDto,
-  CreateTenantRequest,
+  ProvisionTenantRequest,
+  ProvisionTenantResult,
   UpdateTenantStatusRequest,
   PlanDto,
   SavePlanRequest,
@@ -12,7 +13,8 @@ import type {
 // 重新导出平台层类型，便于页面从 '@/api/platform' 一处引入
 export type {
   TenantDto,
-  CreateTenantRequest,
+  ProvisionTenantRequest,
+  ProvisionTenantResult,
   UpdateTenantStatusRequest,
   PlanDto,
   SavePlanRequest,
@@ -30,8 +32,9 @@ export function getTenant(id: number) {
   return get<TenantDto>(`/platform/tenants/${id}`)
 }
 
-export function createTenant(data: CreateTenantRequest) {
-  return post<number>('/platform/tenants', data)
+/** 开通新租户（R5）：建组织根+初始管理员+私有角色+成员+R8，返回一次性初始密码 */
+export function createTenant(data: ProvisionTenantRequest) {
+  return post<ProvisionTenantResult>('/platform/tenants', data)
 }
 
 /** 改租户状态（1 试用 / 2 正式 / 3 停用 / 4 冻结）。冻结/解冻/停用/转正式均走此接口 */

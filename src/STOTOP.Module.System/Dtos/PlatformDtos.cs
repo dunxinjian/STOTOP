@@ -75,3 +75,40 @@ public class CreateSubscriptionRequest
     public DateTime PeriodStart { get; set; }
     public DateTime PeriodEnd { get; set; }
 }
+
+/// <summary>新租户自动开通请求（R5）：一次登记租户 + 建组织根 + 建初始管理员。</summary>
+public class ProvisionTenantRequest
+{
+    // ---- 租户 ----
+    public string Name { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
+    public int AccountSetBindMode { get; set; } = 1;
+    public int DefaultTodoChannel { get; set; } = 1;
+    public long? PlanId { get; set; }
+    public DateTime? ExpireAt { get; set; }
+
+    // ---- 组织根节点 ----
+    public string RootOrgName { get; set; } = string.Empty;
+    /// <summary>根组织编码（SYS组织架构 全局唯一）；缺省取 <see cref="Code"/>。</summary>
+    public string? RootOrgCode { get; set; }
+    /// <summary>根组织类别：0 集团 / 1 区域公司 / 2 网点公司（合法根类别）。缺省 1 区域公司。</summary>
+    public int RootOrgKind { get; set; } = 1;
+
+    // ---- 初始管理员 ----
+    public string AdminAccount { get; set; } = string.Empty;
+    public string AdminName { get; set; } = string.Empty;
+    public string? AdminPhone { get; set; }
+}
+
+/// <summary>开通结果（R5）。<see cref="TempPassword"/> 一次性返回，请安全交付管理员。</summary>
+public class ProvisionTenantResult
+{
+    /// <summary>租户ID（= 根组织 FID = PLT租户.FID，三者一致）。</summary>
+    public long TenantId { get; set; }
+    public long RootOrgId { get; set; }
+    public long AdminUserId { get; set; }
+    public long AdminRoleId { get; set; }
+    public string AdminAccount { get; set; } = string.Empty;
+    /// <summary>系统生成的初始密码（仅本次返回，不落明文）。</summary>
+    public string TempPassword { get; set; } = string.Empty;
+}

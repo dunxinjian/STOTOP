@@ -21,15 +21,34 @@ export interface TenantDto {
   statusName: string
 }
 
-/** 新建租户（对应 CreatePlatformTenantRequest）；服务端强制置为试用(1) */
-export interface CreateTenantRequest {
+/** 新租户自动开通（对应 ProvisionTenantRequest，R5）：一次建租户+组织根+初始管理员 */
+export interface ProvisionTenantRequest {
   name: string
   code: string
-  rootOrgId: number
   accountSetBindMode: number
   defaultTodoChannel: number
   planId?: number | null
   expireAt?: string | null
+  /** 组织根节点名称 */
+  rootOrgName: string
+  /** 组织根编码（全局唯一）；缺省取 code */
+  rootOrgCode?: string | null
+  /** 组织根类别：0 集团 / 1 区域公司 / 2 网点公司 */
+  rootOrgKind: number
+  /** 初始管理员账号 */
+  adminAccount: string
+  adminName: string
+  adminPhone?: string | null
+}
+
+/** 开通结果（对应 ProvisionTenantResult）；tempPassword 仅返回一次 */
+export interface ProvisionTenantResult {
+  tenantId: number
+  rootOrgId: number
+  adminUserId: number
+  adminRoleId: number
+  adminAccount: string
+  tempPassword: string
 }
 
 /** 改状态（对应 UpdateTenantStatusRequest）；status=4 触发欠费冻结门禁 */
@@ -97,4 +116,11 @@ export const TODO_CHANNEL_OPTIONS: { value: number; label: string }[] = [
   { value: 1, label: '钉钉' },
   { value: 2, label: '企微' },
   { value: 3, label: '双推' },
+]
+
+/** 组织根类别选项（合法根类别） */
+export const ROOT_ORG_KIND_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: '集团' },
+  { value: 1, label: '区域公司' },
+  { value: 2, label: '网点公司' },
 ]

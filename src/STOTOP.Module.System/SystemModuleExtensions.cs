@@ -32,6 +32,8 @@ public static class SystemModuleExtensions
 
         // 平台层服务（阶段4B：PLT租户/套餐/订阅 跨租户管理，供 /api/platform/* 平台超管消费）
         services.AddScoped<IPlatformService, PlatformService>();
+        // 新租户自动开通编排（阶段4·R5：建组织根+管理员+私有角色+成员+R8 一事务）
+        services.AddScoped<IProvisionTenantService, ProvisionTenantService>();
 
         // 外部身份服务（阶段4D·M8：IDP 外部企业/用户身份/免登多租户消歧/成员邀请）
         services.AddScoped<IIdpService, IdpService>();
