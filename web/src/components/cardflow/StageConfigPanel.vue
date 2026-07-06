@@ -15,14 +15,13 @@ import { computed, onMounted, ref, watch, nextTick } from 'vue'
 import {
   UserOutlined,
   RobotOutlined,
-  ThunderboltOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons-vue'
 import ConditionBuilder from './ConditionBuilder.vue'
 import StageComponentViewEditor from './designer/StageComponentViewEditor.vue'
 import type { ConditionGroup, FieldOption } from './ConditionBuilder.vue'
-import type { StageDefinition, StageAccessMode, AssigneeFallbackType } from './StageDefinitionEditor.vue'
+import type { StageDefinition, StageNodeType, StageAccessMode, AssigneeFallbackType } from './StageDefinitionEditor.vue'
 import type { CardComponentDefinition, SchemaFieldDefinition, AutoPluginRegistryDto, AutoPluginRuleDto } from '@/types/cardflow'
 import { getRoleList, getUserList } from '@/api/system'
 import { getPluginRegistry, getPluginRules } from '@/api/cardflow'
@@ -261,6 +260,22 @@ function selectedManualStage() {
   if (!stage || stage.type !== 'manual') return null
   ensureStageConfigDefaults(stage)
   return stage
+}
+
+// 切换节点类型（manual↔auto）并按新类型补齐默认配置，避免切换后缺配置导致发布失败。
+// 不清理另一类型的既有字段（自动/人工各自忽略无关字段），防误切丢失配置。
+function onTypeChange(newType: StageNodeType) {
+  const stage = selectedStage.value
+  if (!stage || stage.type === newType) return
+  stage.type = newType
+  if (newType === 'manual') {
+    stage.approvalMode ||= 'single'
+    stage.assigneeStrategy ||= 'role'
+    ensureStageConfigDefaults(stage)
+  } else {
+    stage.processingGranularity ||= 'card'
+    stage.failurePolicy ||= 'halt'
+  }
 }
 
 function getFieldAccess(fieldKey: string): StageAccessMode {
@@ -556,17 +571,17 @@ function getStageHealth(stage: StageDefinition) {
       <a-tabs v-model:active-key="activeConfigTab" size="small" class="sde-tabs">
         <a-tab-pane key="basic" tab="基础">
           <div class="sde-tab-panel">
-            <div
-              class="sde-editor__type-badge"
-              :class="[
-                `sde-editor__type-badge--${selectedStage.type}`,
-                selectedStage.type === 'auto' && selectedStage.processingGranularity === 'batch' ? 'sde-editor__type-badge--batch' : ''
-              ]"
-            >
-              <UserOutlined v-if="selectedStage.type === 'manual'" />
-              <ThunderboltOutlined v-else-if="selectedStage.processingGranularity === 'batch'" />
-              <RobotOutlined v-else />
-              <span>{{ selectedStage.type === 'manual' ? '人工节点' : '自动节点' }}</span>
+            <div class="sde-fld">
+              <label class="sde-fld__label">节点类型</label>
+              <a-radio-group
+                :value="selectedStage.type"
+                button-style="solid"
+                size="small"
+                @change="(e: any) => onTypeChange(e.target.value)"
+              >
+                <a-radio-button value="manual"><UserOutlined /> 人工节点</a-radio-button>
+                <a-radio-button value="auto"><RobotOutlined /> 自动节点</a-radio-button>
+              </a-radio-group>
             </div>
 
             <div class="sde-fld">
@@ -876,23 +891,6 @@ function getStageHealth(stage: StageDefinition) {
   display: flex;
   flex-direction: column;
   gap: 14px;
-}
-
-.sde-editor__type-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 500;
-  background: var(--bg-muted);
-  color: var(--text-2);
-  width: fit-content;
-
-  &--manual { background: color-mix(in srgb, var(--cf-node-manual) 8%, transparent); color: var(--cf-node-manual); }
-  &--auto { background: color-mix(in srgb, var(--cf-node-auto) 8%, transparent); color: var(--cf-node-auto); }
-  &--batch { background: color-mix(in srgb, var(--cf-node-batch) 8%, transparent); color: var(--cf-node-batch); }
 }
 
 .sde-health {

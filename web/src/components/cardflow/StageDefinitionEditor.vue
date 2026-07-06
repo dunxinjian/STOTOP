@@ -7,7 +7,7 @@
  *  - 右栏：StageConfigPanel（选中节点的 5-tab 属性面板，见 StageConfigPanel.vue，可被画布抽屉共用）
  *  - 右栏就地编辑 stages[selectedIndex]，经容器对 stages 的 deep watch 统一 emitUpdate，无需保存按钮
  */
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import {
   DeleteOutlined,
   HolderOutlined,
@@ -99,10 +99,15 @@ const emit = defineEmits<{
 // ==================== 内部状态 ====================
 
 const stages = ref<StageDefinition[]>(clone(props.modelValue || []))
+// 从父级同步 modelValue 进镜像期间抑制回抛：外部变更（含画布抽屉直接改 state.stages）不应被本组件
+// 再 emit 出去——否则父级会用回抛的克隆整体替换 state.stages，抖动抽屉里同一 StageConfigPanel 的
+// selectedStage 身份、误触其回显把标签页弹回"基础"（见画布抽屉接入）。
+let suppressEmit = false
 
 watch(() => props.modelValue, (v) => {
   if (JSON.stringify(v) === JSON.stringify(stages.value)) return
   const selectedId = selectedIndex.value >= 0 ? stages.value[selectedIndex.value]?.id : undefined
+  suppressEmit = true
   stages.value = clone(v || [])
   // 外部整体替换（撤销/重做）后按 id 重新定位选中节点；右栏面板经 watch(selectedStage) 自动回显编辑态，
   // 否则右侧面板可能静默指向错位节点，后续编辑会把配置写进别的节点
@@ -110,6 +115,7 @@ watch(() => props.modelValue, (v) => {
     const idx = stages.value.findIndex(s => s.id === selectedId)
     selectedIndex.value = idx >= 0 ? idx : -1
   }
+  nextTick(() => { suppressEmit = false })
 }, { deep: true })
 
 function clone<T>(v: T): T { return JSON.parse(JSON.stringify(v)) }
@@ -198,8 +204,10 @@ function getStageHealth(stage: StageDefinition) {
   return computeStageHealth(stage, props.detailSchemaFields)
 }
 
-// stages 变化时自动 emit（右栏 StageConfigPanel 就地编辑经此统一上抛）
+// stages 变化时自动 emit（右栏 StageConfigPanel 就地编辑经此统一上抛）；
+// 从父级同步来的镜像重建不回抛（suppressEmit），避免外部编辑被回抛放大成整表替换。
 watch(stages, () => {
+  if (suppressEmit) return
   emitUpdate()
 }, { deep: true })
 </script>

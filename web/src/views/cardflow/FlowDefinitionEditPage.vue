@@ -38,7 +38,8 @@ import {
 import PageHeader from '@/components/PageHeader.vue'
 import SchemaFieldEditor from '@/components/cardflow/SchemaFieldEditor.vue'
 import type { DetailRow } from '@/components/cardflow/CardDetailTable.vue'
-import StageDefinitionEditor, { type StageDefinition, type StageAccessMode, type StageAccessRuleDraft } from '@/components/cardflow/StageDefinitionEditor.vue'
+import StageDefinitionEditor, { type StageDefinition } from '@/components/cardflow/StageDefinitionEditor.vue'
+import StageConfigPanel from '@/components/cardflow/StageConfigPanel.vue'
 import FlowStateCanvas from '@/components/cardflow/designer/FlowStateCanvas.vue'
 import RouteRuleCardEditor from '@/components/cardflow/designer/RouteRuleCardEditor.vue'
 import DynamicApprovalPolicyEditor from '@/components/cardflow/designer/DynamicApprovalPolicyEditor.vue'
@@ -46,7 +47,6 @@ import PathPreviewPanel from '@/components/cardflow/designer/PathPreviewPanel.vu
 import RuleHealthPanel from '@/components/cardflow/designer/RuleHealthPanel.vue'
 import CardComponentCatalog from '@/components/cardflow/designer/CardComponentCatalog.vue'
 import CardComponentConfigDrawer from '@/components/cardflow/designer/CardComponentConfigDrawer.vue'
-import StageComponentViewEditor from '@/components/cardflow/designer/StageComponentViewEditor.vue'
 import { validatePublishConfig, type DiagnosticTarget } from '@/utils/cardflowDiagnostics'
 import CardComponentRenderer from '@/components/cardflow/runtime/CardComponentRenderer.vue'
 import SchemaRenderer from '@/components/cardflow/SchemaRenderer.vue'
@@ -59,7 +59,7 @@ import { getRoleList, getUserList, getUserDetail } from '@/api/system'
 import type {
   FlowDefinitionDto, FlowVersionDetailDto, StageDefinitionRequest,
   SchemaFieldDefinition, FlowGroupDto, StageRouteRuleRequest,
-  DynamicStagePolicyRequest, CardComponentDefinition, CardComponentAccessRule,
+  DynamicStagePolicyRequest, CardComponentDefinition,
   CardComponentRuntime, CardHeaderConfig, CardPresentationSnapshot, StageWorkView,
 } from '@/types/cardflow'
 import { useOrgContextStore } from '@/stores/orgContext'
@@ -332,6 +332,14 @@ const selectedDesignerStage = computed(() =>
     : null
 )
 
+// 画布抽屉复用节点链的 StageConfigPanel（消双入口）：按选中 key 定位 state.stages 下标喂给面板，
+// 面板就地改 state.stages[idx]，经本页 state 深监听统一走自动保存/撤销，与旧 patchDesignerStage 同路径。
+const drawerStageIndex = computed(() =>
+  designerSelection.type === 'node'
+    ? state.stages.findIndex(stage => stage.id === designerSelection.key)
+    : -1
+)
+
 const selectedDesignerRoute = computed(() =>
   designerSelection.type === 'edge'
     ? state.routes.find(route => route.edgeKey === designerSelection.key) || null
@@ -359,24 +367,6 @@ const selectedCardComponent = computed(() =>
     : null
 )
 const editingComponent = selectedCardComponent
-
-const designerStageComponentAccess = computed<Record<string, CardComponentAccessRule>>(() =>
-  selectedDesignerStage.value?.viewProfile?.componentAccess || {}
-)
-
-const approvalModeOptions = [
-  { value: 'single', label: '单签' },
-  { value: 'countersign', label: '会签' },
-  { value: 'orsign', label: '或签' },
-  { value: 'sequential', label: '顺签' },
-]
-
-const assigneeStrategyOptions = [
-  { value: 'role', label: '按角色' },
-  { value: 'fixed', label: '指定人员' },
-  { value: 'fieldUsers', label: '按字段取人' },
-  { value: 'initiator', label: '发起人' },
-]
 
 // B4 预览视角：处理人=运行态审批视图 / 旁观者=再过一层脱敏 / 发起人填单=可编辑填单
 const previewViewerModeOptions = [
@@ -493,37 +483,6 @@ function updateRoute(route: StageRouteRuleRequest) {
 function deleteRoute(edgeKey: string) {
   state.routes = state.routes.filter(route => route.edgeKey !== edgeKey)
   selectDesignerBlank()
-}
-
-function patchDesignerStage(partial: Partial<StageDefinition>) {
-  const stage = selectedDesignerStage.value
-  if (!stage) return
-  Object.assign(stage, partial)
-}
-
-function ensureDesignerStageViewProfile() {
-  const stage = selectedDesignerStage.value
-  if (!stage) return null
-  stage.viewProfile ||= { fieldAccess: {}, detailAccess: {}, componentAccess: {}, summary: { fields: [] } }
-  stage.viewProfile.fieldAccess ||= {}
-  stage.viewProfile.detailAccess ||= {}
-  stage.viewProfile.componentAccess ||= {}
-  stage.viewProfile.summary ||= { fields: [] }
-  return stage.viewProfile
-}
-
-function updateDesignerStageComponentAccess(value: Record<string, CardComponentAccessRule>) {
-  const profile = ensureDesignerStageViewProfile()
-  if (!profile) return
-  const normalized: Record<string, StageAccessRuleDraft> = {}
-  for (const [key, rule] of Object.entries(value)) {
-    normalized[key] = {
-      access: rule.access as StageAccessMode,
-      required: rule.required ?? undefined,
-      maskPattern: rule.maskPattern ?? null,
-    }
-  }
-  profile.componentAccess = normalized
 }
 
 function addCardComponent(component: CardComponentDefinition) {
@@ -2816,45 +2775,14 @@ function goBack() {
           <span>节点链内部负责审批路径、处理人策略和节点视图权限</span>
         </header>
 
-        <div class="fdef-drawer-grid">
-          <label>
-            <span>节点名称</span>
-            <a-input
-              :value="selectedDesignerStage.name"
-              @update:value="(value: string) => patchDesignerStage({ name: value })"
-            />
-          </label>
-          <label>
-            <span>节点类型</span>
-            <a-select
-              :value="selectedDesignerStage.type"
-              style="width: 100%"
-              @change="(value: any) => patchDesignerStage({ type: value })"
-            >
-              <a-select-option value="manual">人工审批</a-select-option>
-              <a-select-option value="auto">自动处理</a-select-option>
-            </a-select>
-          </label>
-          <label v-if="selectedDesignerStage.type === 'manual'">
-            <span>审批模式</span>
-            <a-select
-              :value="selectedDesignerStage.approvalMode || 'single'"
-              :options="approvalModeOptions"
-              style="width: 100%"
-              @change="(value: any) => patchDesignerStage({ approvalMode: value })"
-            />
-          </label>
-          <label v-if="selectedDesignerStage.type === 'manual'">
-            <span>处理人策略</span>
-            <a-select
-              :value="selectedDesignerStage.assigneeStrategy"
-              :options="assigneeStrategyOptions"
-              allow-clear
-              style="width: 100%"
-              @change="(value: any) => patchDesignerStage({ assigneeStrategy: value || undefined })"
-            />
-          </label>
-        </div>
+        <!-- 画布节点抽屉复用节点链完整 5-tab 配置面板，消灭"抽屉子集配不全→发布失败"的双入口断头路 -->
+        <StageConfigPanel
+          :stages="state.stages"
+          :selected-index="drawerStageIndex"
+          :schema-fields="state.cardSchema"
+          :detail-schema-fields="state.detailSchema"
+          :card-components="state.cardComponents"
+        />
 
         <!-- 出边列表兜底：画布上平行/重叠边点不到时，从这里选任一条出边（含停用边）编辑 -->
         <div v-if="selectedStageOutgoingRoutes.length" class="fdef-drawer-outedges">
@@ -2891,11 +2819,6 @@ function goBack() {
           :fields="state.cardSchema"
         />
 
-        <StageComponentViewEditor
-          :components="state.cardComponents"
-          :model-value="designerStageComponentAccess"
-          @update:model-value="updateDesignerStageComponentAccess"
-        />
       </section>
 
       <RouteRuleCardEditor
@@ -3933,6 +3856,14 @@ function goBack() {
   gap: 16px;
 }
 
+/* 复用的 StageConfigPanel 根(.sde__right)原为节点链右栏设计(flex:1+内滚+内边距)；
+   放进抽屉时改为自然高度、无内滚、无内边距，让抽屉整体滚动 header+面板+出边列表。 */
+.fdef-drawer-section :deep(.sde__right) {
+  flex: none;
+  padding: 0;
+  overflow: visible;
+}
+
 .fdef-drawer-section__head {
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
@@ -3944,24 +3875,6 @@ function goBack() {
 
   span {
     margin-top: 4px;
-    font-size: 12px;
-  }
-}
-
-.fdef-drawer-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-
-  label {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 0;
-  }
-
-  label > span {
-    color: var(--text-3);
     font-size: 12px;
   }
 }
