@@ -18,7 +18,8 @@ public class CardFlowPathPreviewServiceTests
         var service = new CardFlowPathPreviewService(
             db,
             new ConditionRuleEvaluator(),
-            new AuditSnapshotPolicyService());
+            new AuditSnapshotPolicyService(),
+            new ApproverResolver(db));
 
         var large = await service.PreviewDraftVersionAsync(100, new CardFlowPathPreviewRequest
         {
@@ -101,7 +102,7 @@ public class CardFlowPathPreviewServiceTests
         SeedOrgRoutingFlow(db);
         await db.SaveChangesAsync();
 
-        var service = new CardFlowPathPreviewService(db, new ConditionRuleEvaluator(), new AuditSnapshotPolicyService());
+        var service = new CardFlowPathPreviewService(db, new ConditionRuleEvaluator(), new AuditSnapshotPolicyService(), new ApproverResolver(db));
 
         var hit = await service.PreviewDraftVersionAsync(300, new CardFlowPathPreviewRequest
         {
@@ -121,7 +122,7 @@ public class CardFlowPathPreviewServiceTests
         SeedDetailSummaryFlow(db);
         await db.SaveChangesAsync();
 
-        var service = new CardFlowPathPreviewService(db, new ConditionRuleEvaluator(), new AuditSnapshotPolicyService());
+        var service = new CardFlowPathPreviewService(db, new ConditionRuleEvaluator(), new AuditSnapshotPolicyService(), new ApproverResolver(db));
 
         var result = await service.PreviewDraftVersionAsync(310, new CardFlowPathPreviewRequest
         {
@@ -167,7 +168,7 @@ public class CardFlowPathPreviewServiceTests
         SeedEmptyConditionFlow(db);
         await db.SaveChangesAsync();
 
-        var service = new CardFlowPathPreviewService(db, new ConditionRuleEvaluator(), new AuditSnapshotPolicyService());
+        var service = new CardFlowPathPreviewService(db, new ConditionRuleEvaluator(), new AuditSnapshotPolicyService(), new ApproverResolver(db));
 
         var result = await service.PreviewDraftVersionAsync(400, new CardFlowPathPreviewRequest { DataJson = "{}" });
 
@@ -182,7 +183,7 @@ public class CardFlowPathPreviewServiceTests
         SeedDefinitionIdEdgeFlow(db);
         await db.SaveChangesAsync();
 
-        var service = new CardFlowPathPreviewService(db, new ConditionRuleEvaluator(), new AuditSnapshotPolicyService());
+        var service = new CardFlowPathPreviewService(db, new ConditionRuleEvaluator(), new AuditSnapshotPolicyService(), new ApproverResolver(db));
 
         var result = await service.PreviewDraftVersionAsync(410, new CardFlowPathPreviewRequest { DataJson = "{}" });
 
@@ -197,7 +198,7 @@ public class CardFlowPathPreviewServiceTests
         SeedTypeErrorFlow(db);
         await db.SaveChangesAsync();
 
-        var service = new CardFlowPathPreviewService(db, new ConditionRuleEvaluator(), new AuditSnapshotPolicyService());
+        var service = new CardFlowPathPreviewService(db, new ConditionRuleEvaluator(), new AuditSnapshotPolicyService(), new ApproverResolver(db));
 
         var result = await service.PreviewDraftVersionAsync(420, new CardFlowPathPreviewRequest
         {
@@ -262,7 +263,7 @@ public class CardFlowPathPreviewServiceTests
         SeedInOrgChainFlow(db);
         await db.SaveChangesAsync();
 
-        var service = new CardFlowPathPreviewService(db, new ConditionRuleEvaluator(), new AuditSnapshotPolicyService());
+        var service = new CardFlowPathPreviewService(db, new ConditionRuleEvaluator(), new AuditSnapshotPolicyService(), new ApproverResolver(db));
 
         // OrgId=10：org 链含祖先 20 → inOrgChain value=20 命中 vip 分支
         var hit = await service.PreviewDraftVersionAsync(900, new CardFlowPathPreviewRequest

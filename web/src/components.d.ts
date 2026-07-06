@@ -142,6 +142,7 @@ declare module 'vue' {
     LoanOffsetComponent: typeof import('./components/cardflow/runtime/components/LoanOffsetComponent.vue')['default']
     LockScreen: typeof import('./components/security/LockScreen.vue')['default']
     MobileFormContainer: typeof import('./components/MobileFormContainer.vue')['default']
+    OrgSelect: typeof import('./components/cardflow/fields/OrgSelect.vue')['default']
     OrgSwitcher: typeof import('./components/OrgSwitcher.vue')['default']
     PageHeader: typeof import('./components/PageHeader.vue')['default']
     PageLayout: typeof import('./components/PageLayout.vue')['default']
@@ -167,7 +168,9 @@ declare module 'vue' {
     StatusTag: typeof import('./components/StatusTag.vue')['default']
     SvgIcon: typeof import('./components/SvgIcon/index.vue')['default']
     SystemAnnouncement: typeof import('./components/SystemAnnouncement.vue')['default']
+    TenantSwitcher: typeof import('./components/TenantSwitcher.vue')['default']
     ThemeSwitcher: typeof import('./components/ThemeSwitcher.vue')['default']
     TodoBadge: typeof import('./components/TodoBadge.vue')['default']
+    UserSelect: typeof import('./components/cardflow/fields/UserSelect.vue')['default']
   }
 }

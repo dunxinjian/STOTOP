@@ -7,6 +7,7 @@ using STOTOP.Module.Finance.Entities;
 using STOTOP.Module.OA.Entities;
 using STOTOP.Module.Quality.Entities;
 using STOTOP.Module.System.Entities;
+using STOTOP.Module.Workflow.Entities;
 
 namespace STOTOP.Module.CardFlow.Tests;
 
@@ -20,6 +21,7 @@ public static class TestDbContextFactory
         STOTOPDbContext.RegisterModuleAssembly(typeof(FinVoucher).Assembly);
         STOTOPDbContext.RegisterModuleAssembly(typeof(ExpSalesman).Assembly);
         STOTOPDbContext.RegisterModuleAssembly(typeof(QlException).Assembly);
+        STOTOPDbContext.RegisterModuleAssembly(typeof(WfRevokeLog).Assembly);
 
         var options = new DbContextOptionsBuilder<STOTOPDbContext>()
             .UseInMemoryDatabase($"{databaseName}_{Guid.NewGuid():N}")
@@ -38,6 +40,7 @@ public static class TestDbContextFactory
         STOTOPDbContext.RegisterModuleAssembly(typeof(FinVoucher).Assembly);
         STOTOPDbContext.RegisterModuleAssembly(typeof(ExpSalesman).Assembly);
         STOTOPDbContext.RegisterModuleAssembly(typeof(QlException).Assembly);
+        STOTOPDbContext.RegisterModuleAssembly(typeof(WfRevokeLog).Assembly);
 
         var options = new DbContextOptionsBuilder<STOTOPDbContext>()
             .UseInMemoryDatabase($"{databaseName}_{Guid.NewGuid():N}")

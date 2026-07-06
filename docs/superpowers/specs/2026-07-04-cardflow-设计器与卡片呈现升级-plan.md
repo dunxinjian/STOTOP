@@ -140,3 +140,25 @@ B8（信封项先行于布局持久化）──→ B9（同文件面串行）
 - B1/B9 行为变更批：护栏测试先红后绿 / 快照对照先固化现状。
 - B7 发布门禁：dev 库全量 dry-run 零误报为合入硬条件。
 - 预览手验用登录绕行配方（fetch /auth/login 写 stotop_* 键）；移动形态验证注意 preview_resize 不触发 window resize，抓 setupState recompute。
+
+---
+
+## 七、接手继续（B4–B9 交接，2026-07-05）
+
+**已完成（改动在磁盘，未提交）**：B1 全部 · B2 全部 · B3 全部 · B5 核心（移动 view [object Object] 根治）。均编译 + type-check 通过；B1 附 53 测试全绿。逐文件清单与坑见记忆 `cardflow-designer-upgrade-plan`。
+
+**剩余**：B5 其余（明细 enum 双修 / 移动 edit 财务字段只读兜底 / 明细性能小修 / MobileCardFillPage returned 收口）· B4 · B6 · B7 · B8 · B9。
+
+**新会话接手前必读**：
+1. 本文件（方案全文）+ 记忆 `cardflow-designer-upgrade-plan`（含实施进度、逐文件、复用坑）。
+2. `git status` 确认磁盘现状——**不要假设干净树**；B1–B3+B5 改动叠加在别的会话的 CardFlow 大修之上，交织未提交。
+
+**环境铁律（血泪坑）**：
+- **共享工作树多会话并发**：编译/测试/提交会被别的会话的半成品文件（如 BatchRevokeHandler/WorkItemService）阶段性阻塞；别硬重试，如实标注，等其编译恢复。
+- **后端编译**：`scripts/dev/build-filter.ps1 cardflow`；后端运行时锁 dll，跑测试用 `dotnet test <csproj> -o <scratch>`（`-o` 到 scratchpad 绕锁），`--arch x64` 在并发 restore 冲突时去掉。
+- **命名空间遮蔽**：`STOTOP.Module.Task` / `STOTOP.Module.System` 遮蔽 `System.Threading.Tasks.Task` 与 `System.IO`——测试/controller 里用 `global::` 全限定。
+- **并发友好写法**：新后端能力优先「静态 helper + MVC 自动发现的 controller」，零 DI 注册（不碰并发中的 CardFlowModuleExtensions），零改现有文件——B2/B3 后端即此法，一次编译通过。
+
+**已就位可复用的地基**：`preview-presentation` 端点（`POST /api/cardflow/definitions/{id}/draft-version/preview-presentation`，返回工作视图真值）+ 前端 `previewPresentation()` api + `previewEndpointWorkView` 预览接入——B4 分屏三视角×双设备直接在此之上扩（viewerMode=observer/initiator 后端已留参数位，B4 补差异化）。`utils/cardflowFieldFormat.ts`（B5）、`utils/cardflowAccess.ts`（B1）供 B5 其余/B6 复用。
+
+**B9 巨石重构提示**：`FlowDefinitionEditPage.vue` 2800 行 + 与 undo/30s自动保存/串行化保存三机制交互面大——StageConfigPanel 抽取须「零逻辑改动纯搬移」，独立分支小步，每步 type-check。

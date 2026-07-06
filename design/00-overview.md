@@ -29,11 +29,11 @@ STOTOP 是一个模块化企业管理系统，覆盖快递计费、财务、CRM�
 
 ## 4. 模块注册现状
 
-`STOTOP.WebAPI` 是组合根，当前按 `Program.cs` 注册下列模块和服务：
+`STOTOP.WebAPI` 是组合根，当前按 `Program.cs` 注册下列模块和服务。注：在所有业务模块之前，先注册多租户/平台地基服务 `IPlatformScopeFactory` / `ITenantResolver` / `ITenantScopeFactory` / `ITenantIterationService`（`Program.cs:313-317`）；平台超管/租户/套餐/订阅/IDP/开通能力内聚在 System 模块，无独立 Platform 模块（多租户隔离硬约束见 `design/21` §1.5）。WorkHub 为组合根内的聚合服务而非独立 `STOTOP.Module.*` 模块。
 
 | 顺序 | 模块/服务 | 说明 |
 |------|-----------|------|
-| 1 | System | 用户、角色、组织、权限、菜单 |
+| 1 | System | 用户、角色、组织、权限、菜单、**平台超管/租户/套餐/订阅/IDP/开通** |
 | 2 | Finance | 财务、账套、凭证、报表、预算相关能力 |
 | 3 | Supplier | 供应商与银行账户 |
 | 4 | HR | 员工与人事基础资料 |
@@ -52,7 +52,7 @@ STOTOP 是一个模块化企业管理系统，覆盖快递计费、财务、CRM�
 | 17 | Quality | 质量异常、知识库、派发处理 |
 | 18 | Conference | 会议、活动、餐饮、场地 |
 | 19 | Workflow | 事件、派发、质量处理等底层协作能力 |
-| 20 | WorkHub | 跨模块待办、通知、工作入口聚合 |
+| 20 | WorkHub | 跨模块待办、通知、工作入口聚合（组合根内聚合服务，非独立 `STOTOP.Module.*` 模块，无 `AddWorkHubModule`） |
 
 CardFlow 必须早于 Express 注册，因为 Express 依赖导入服务与自动插件进度能力。
 
@@ -120,10 +120,10 @@ graph TB
 | [18-vehicle.md](18-vehicle.md) | Vehicle 车辆、租赁、维保 |
 | [19-webapi.md](19-webapi.md) | WebAPI 启动配置、中间件、模块注册 |
 | [20-frontend.md](20-frontend.md) | 前端架构、路由、状态管理 |
-| [21-dev-rules.md](21-dev-rules.md) | 开发规则：前后端约定、命名、设计令牌门禁、测试与协作（与根 CLAUDE.md 一致） |
+| [21-dev-rules.md](21-dev-rules.md) | 开发规则：前后端约定、命名、多租户隔离、设计令牌门禁、测试与协作（**开发规范单一真源**；根 CLAUDE.md 是其面向 AI 的精简索引） |
 | [22-claude-workflow.md](22-claude-workflow.md) | 用 Claude Code 高效开发：日常闭环、斜杠命令、子代理、大库提速、权限与门禁 |
-| [23-multitenant-org-redesign.md](23-multitenant-org-redesign.md) | **（拟议·未实施）** 多租户组织/租户/身份/数据权限重设计：区域公司=租户、四层隔离、两列两层 fail-closed 过滤器、R8 数据范围、外部 IdP、SaaS、迁移分阶段 |
-| [24-tenant-migration-playbook.md](24-tenant-migration-playbook.md) | **（拟议·未实施）** 多租户隔离迁移实施手册：阶段0-4 依赖图、阶段0 加列+回填+三重校验全量代码/SQL、阶段1 fail-closed 过滤器落点、隔离自检纳门禁、关键文件锚点（配套 23） |
+| [23-multitenant-org-redesign.md](23-multitenant-org-redesign.md) | **（stage0-4 已实施；本文为原始目标态设计，as-built 偏差见各阶段提交与 CLAUDE.md/design/21 §1.5）** 多租户组织/租户/身份/数据权限重设计：区域公司=租户、四层隔离、两列两层 fail-closed 过滤器、R8 数据范围、外部 IdP、SaaS、迁移分阶段 |
+| [24-tenant-migration-playbook.md](24-tenant-migration-playbook.md) | **（stage0-4 已实施）** 多租户隔离迁移实施手册：阶段0-4 依赖图、阶段0 加列+回填+三重校验全量代码/SQL、阶段1 fail-closed 过滤器落点、隔离自检纳门禁、关键文件锚点（配套 23） |
 | [25-account-set-rule-p0.md](25-account-set-rule-p0.md) | **（已实施）** 账套规则（FinAccountSetRule）P0：制单审核分离/结转科目映射/凭证字白名单三项账套级会计控制，含 as-built 偏差与激活记录（V20、FID 2129/2130、baseline 模板明细漂移修复） |
 
-新增设计文档默认使用中文，并优先记录当前运行边界而不是历史计划。标注"拟议"的文档为目标态设计，尚未落地。
+新增设计文档默认使用中文，并优先记录当前运行边界而不是历史计划。标注"目标态设计"的文档记录原始设计意图，其 as-built 落地状态以标签与代码为准。
