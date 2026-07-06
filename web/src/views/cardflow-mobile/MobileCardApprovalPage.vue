@@ -55,6 +55,7 @@ import type {
   UpdateCardDetailRequest,
 } from '@/types/cardflow'
 import { parseCardSchemaFields, parseDetailSchemaFields } from '@/utils/cardflowSchema'
+import { useStageWorkView } from '@/composables/useStageWorkView'
 
 // ==================== Route / Store ====================
 
@@ -143,47 +144,10 @@ const viewMode = computed<'fill' | 'resubmit' | 'approve' | 'readonly'>(() => {
   return 'readonly'
 })
 
-const stageWorkView = computed(() => card.value?.currentStageWorkView ?? null)
-const runtimeComponents = computed(() => stageWorkView.value?.components ?? [])
-const hasRuntimeComponents = computed(() => runtimeComponents.value.length > 0)
-
-function writableAccess(access: string | undefined) {
-  return access === 'editable' || access === 'required'
-}
-
-function applyStageFieldAccess(schema: SchemaFieldDefinition[]): SchemaFieldDefinition[] {
-  const access = stageWorkView.value?.fieldAccess
-  if (!access) return schema
-  return schema
-    .filter(field => access[field.key]?.access !== 'hidden')
-    .map((field) => {
-      const rule = access[field.key]
-      if (!rule) return field
-      const writable = writableAccess(rule.access)
-      return {
-        ...field,
-        readonly: !writable || field.readonly,
-        required: rule.required ?? (rule.access === 'required'),
-      }
-    })
-}
-
-function applyStageDetailAccess(schema: SchemaFieldDefinition[]): SchemaFieldDefinition[] {
-  const access = stageWorkView.value?.detailAccess
-  if (!access) return schema
-  return schema
-    .filter((field) => {
-      const rules = Object.entries(access).filter(([key]) => key.endsWith(`.${field.key}`))
-      return rules.length === 0 || rules.some(([, rule]) => rule.access !== 'hidden')
-    })
-    .map((field) => {
-      const rules = Object.entries(access).filter(([key]) => key.endsWith(`.${field.key}`))
-      if (rules.length === 0) return field
-      const editable = rules.some(([, rule]) => writableAccess(rule.access))
-      const required = rules.some(([, rule]) => rule.required || rule.access === 'required')
-      return { ...field, readonly: !editable || field.readonly, required: required || field.required }
-    })
-}
+// StageWorkView 应用逻辑统一走 useStageWorkView（移动口径 cardRequiredFallback='access'，D1 分歧见 composable 注释）。
+const stageView = useStageWorkView(card, { cardRequiredFallback: 'access' })
+const runtimeComponents = stageView.runtimeComponents
+const hasRuntimeComponents = stageView.hasRuntimeComponents
 
 function legacyStageInputKeys(): string[] {
   if (!currentStage.value || stageDefinitions.value.length === 0) return []
@@ -198,21 +162,12 @@ function legacyStageInputKeys(): string[] {
   return []
 }
 
-/** 当前节点的补充输入字段（来自 work view；兼容旧版 inputFieldsJson） */
-const stageInputFields = computed<SchemaFieldDefinition[]>(() => {
-  const base = cardSchema.value.length > 0 ? cardSchema.value : fallbackSchemaFromData(cardData.value)
-  const access = stageWorkView.value?.fieldAccess
-  if (access) {
-    return base
-      .filter(field => writableAccess(access[field.key]?.access))
-      .map(field => ({
-        ...field,
-        required: access[field.key]?.required ?? (access[field.key]?.access === 'required'),
-      }))
-  }
-  const keys = legacyStageInputKeys()
-  return base.filter(field => keys.includes(field.key))
-})
+/** 当前节点的补充输入字段（来自 work view；无 fieldAccess 时兼容旧版 inputFieldsJson）。 */
+const stageInputFields = computed<SchemaFieldDefinition[]>(() =>
+  stageView.buildStageInputFields(
+    cardSchema.value.length > 0 ? cardSchema.value : fallbackSchemaFromData(cardData.value),
+    { legacyKeys: legacyStageInputKeys },
+  ))
 
 const initiatorTime = computed(() => formatDate(card.value?.submitTime || card.value?.createdTime))
 
@@ -293,13 +248,13 @@ async function init() {
 // ==================== Effective schemas ====================
 
 const effectiveCardSchema = computed(() =>
-  applyStageFieldAccess(cardSchema.value.length > 0 ? cardSchema.value : fallbackSchemaFromData(cardData.value)))
+  stageView.applyFieldAccess(cardSchema.value.length > 0 ? cardSchema.value : fallbackSchemaFromData(cardData.value)))
 
 const effectiveDetailSchema = computed<SchemaFieldDefinition[]>(() => {
-  if (detailSchema.value.length > 0) return applyStageDetailAccess(detailSchema.value)
+  if (detailSchema.value.length > 0) return stageView.applyDetailAccess(detailSchema.value)
   if (detailRows.value.length === 0) return []
   const first = detailRows.value[0]
-  return applyStageDetailAccess(Object.keys(first).filter(k => k !== '_id').map(k => ({
+  return stageView.applyDetailAccess(Object.keys(first).filter(k => k !== '_id').map(k => ({
     key: k, label: k,
     type: typeof (first as Record<string, unknown>)[k] === 'number' ? 'money' : 'text',
   })) as SchemaFieldDefinition[])
@@ -312,13 +267,7 @@ function onClickBack() {
   else router.push('/cardflow/upload-center')
 }
 
-const stageAllowedActions = computed(() => stageWorkView.value?.actionPolicy?.allowedActions ?? null)
-
-function canStageAction(action: string): boolean {
-  const allowed = stageAllowedActions.value
-  if (!allowed || allowed.length === 0) return true
-  return allowed.some(item => item.toLowerCase() === action.toLowerCase())
-}
+const canStageAction = stageView.canStageAction
 
 function openReject() {
   if (!canStageAction('reject')) { showToast('当前节点不允许退回'); return }

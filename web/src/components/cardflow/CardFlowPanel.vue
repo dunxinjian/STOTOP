@@ -46,6 +46,7 @@ import { useAccountSetStore } from '@/stores/accountSet'
 import { useOrgContextStore } from '@/stores/orgContext'
 import { useUserStore } from '@/stores/user'
 import { defaultCardHeaderConfig, parseCardSchemaFields, parseCardSchemaHeader, parseDetailSchemaFields } from '@/utils/cardflowSchema'
+import { useStageWorkView } from '@/composables/useStageWorkView'
 
 // ==================== Props & Emits ====================
 
@@ -191,63 +192,16 @@ function isAttachmentField(field: SchemaFieldDefinition): boolean {
 
 const mainCardSchema = computed(() => cardSchema.value.filter((field) => !isAttachmentField(field)))
 const attachmentSchema = computed(() => cardSchema.value.filter(isAttachmentField))
-const stageWorkView = computed(() => cardDetail.value?.currentStageWorkView ?? null)
+// StageWorkView 应用逻辑统一走 useStageWorkView（PC 口径 cardRequiredFallback='schema'，D1 分歧见 composable 注释）。
+const stageView = useStageWorkView(cardDetail, { cardRequiredFallback: 'schema' })
 
-function applyStageFieldAccess(schema: SchemaFieldDefinition[]): SchemaFieldDefinition[] {
-  const access = stageWorkView.value?.fieldAccess
-  if (!access) return schema
-  return schema
-    .filter((field) => access[field.key]?.access !== 'hidden')
-    .map((field) => {
-      const rule = access[field.key]
-      if (!rule) return field
-      const writable = rule.access === 'editable' || rule.access === 'required'
-      return {
-        ...field,
-        readonly: !writable || field.readonly,
-        required: rule.required ?? field.required,
-      }
-    })
-}
+const visibleMainCardSchema = computed(() => stageView.applyFieldAccess(mainCardSchema.value))
+const visibleAttachmentSchema = computed(() => stageView.applyFieldAccess(attachmentSchema.value))
+const visibleDetailSchema = computed(() => stageView.applyDetailAccess(detailSchema.value))
 
-function applyStageDetailAccess(schema: SchemaFieldDefinition[]): SchemaFieldDefinition[] {
-  const access = stageWorkView.value?.detailAccess
-  if (!access) return schema
-  return schema
-    .filter((field) => {
-      const rules = Object.entries(access).filter(([key]) => key.endsWith(`.${field.key}`))
-      return rules.length === 0 || rules.some(([, rule]) => rule.access !== 'hidden')
-    })
-    .map((field) => {
-      const rules = Object.entries(access).filter(([key]) => key.endsWith(`.${field.key}`))
-      const editable = rules.some(([, rule]) => rule.access === 'editable' || rule.access === 'required')
-      const required = rules.some(([, rule]) => rule.required || rule.access === 'required')
-      return rules.length === 0
-        ? field
-        : { ...field, readonly: !editable || field.readonly, required: required || field.required }
-    })
-}
-
-const visibleMainCardSchema = computed(() => applyStageFieldAccess(mainCardSchema.value))
-const visibleAttachmentSchema = computed(() => applyStageFieldAccess(attachmentSchema.value))
-const visibleDetailSchema = computed(() => applyStageDetailAccess(detailSchema.value))
-
-/** 审批模式下当前节点可填写的补充字段（editable/required） */
-const stageInputFields = computed<SchemaFieldDefinition[]>(() => {
-  if (props.mode !== 'approval') return []
-  const access = stageWorkView.value?.fieldAccess
-  if (!access) return []
-  return cardSchema.value
-    .filter((field) => {
-      const rule = access[field.key]
-      return rule?.access === 'editable' || rule?.access === 'required'
-    })
-    .map((field) => ({
-      ...field,
-      readonly: false,
-      required: access[field.key]?.required ?? (access[field.key]?.access === 'required'),
-    }))
-})
+/** 审批模式下当前节点可填写的补充字段（editable/required）。mode 门控 + 强制可编辑为 PC 现状。 */
+const stageInputFields = computed<SchemaFieldDefinition[]>(() =>
+  stageView.buildStageInputFields(cardSchema.value, { enabled: props.mode === 'approval', forceEditable: true }))
 
 /** 退回指定节点候选：本轮已完成的人工节点，按节点定义 ID 去重 */
 const rejectStageCandidates = computed<Array<{ label: string; value: number }>>(() => {
@@ -265,8 +219,8 @@ const rejectStageCandidates = computed<Array<{ label: string; value: number }>>(
   }
   return options
 })
-const stageRuntimeComponents = computed(() => stageWorkView.value?.components ?? [])
-const hasStageRuntimeComponents = computed(() => stageRuntimeComponents.value.length > 0)
+const stageRuntimeComponents = stageView.runtimeComponents
+const hasStageRuntimeComponents = stageView.hasRuntimeComponents
 
 function updateRuntimeDetailRows(rows: DetailRow[]) {
   editDetailRows.value = rows
@@ -370,13 +324,7 @@ const moreActions = [
   { name: '抄送', subname: '知会相关人员', action: 'cc', value: 'cc' },
   { name: '催办', subname: '催促当前审批人', value: 'urge' },
 ]
-const stageAllowedActions = computed(() => stageWorkView.value?.actionPolicy?.allowedActions ?? null)
-
-function canStageAction(action: string): boolean {
-  const allowed = stageAllowedActions.value
-  if (!allowed || allowed.length === 0) return true
-  return allowed.some((item) => item.toLowerCase() === action.toLowerCase())
-}
+const canStageAction = stageView.canStageAction
 
 const visibleMoreActions = computed(() =>
   moreActions.filter((item) => !item.action || canStageAction(item.action)),
