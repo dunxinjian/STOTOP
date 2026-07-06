@@ -1,100 +1,75 @@
 # CLAUDE.md
 
-本文件供 Claude Code / AI 助手在本仓库工作时作为上下文加载，也是团队开发规则的快速参考。内容与 `design/21-dev-rules.md` 一致（正式规范并入 `design/` 体系）。技术栈：后端 .NET 10 / ASP.NET Core / EF Core / SQL Server / Hangfire / SignalR；前端 Vue 3 / Vite / TypeScript / Pinia / Ant Design Vue（PC）+ Vant（移动端）。
+本文件供 Claude Code / AI 助手在本仓库工作时作为上下文加载。**完整开发规范以 [`design/21-dev-rules.md`](design/21-dev-rules.md) 为单一真源**；本文是其面向 AI 的精简索引，只保留最易违反的红线与 AI 专属的运行/提速/记忆指引。技术栈：后端 .NET 10 / ASP.NET Core / EF Core / SQL Server / Hangfire / SignalR；前端 Vue 3 / Vite / TypeScript / Pinia / Ant Design Vue（PC）+ Vant（移动端）。
 
-默认用中文交流。以代码为准；本文若与代码冲突，先核对代码再更新本文。
+默认用中文交流。**以代码为准**；本文若与代码冲突，先核对代码再更新本文与 `design/21`。最后核对：2026-07-06 / 分支 `feat/platform-admin-console`。
+
+## TL;DR（30 秒）
+
+- 后端 `:9000` / 前端 `:9001`；启动用 `scripts/dev/` 或 slash `/module` `/build` `/test` `/check` `/precommit` `/scaffold`（新建后端模块）`/rule-review`（规约审），别手敲 dotnet/vite。
+- 只改单模块用 `.slnf` 闭包提速（`/build <name>`），别加载全图（生产 23 项 `.csproj`）。
+- 提交前须过：`.cs` 编译门禁（hook）+ 前端 `type-check` + `lint:style` + 裸 hex 门禁。
+- **多租户已上线**：`ITenantScoped` 实体走 fail-closed 硬墙——无租户上下文会读空集/写抛异常。写实体/查询/Job 前先读 [§多租户](#多租户与平台隔离硬约束)。
+- 存疑先查 memory 索引与模块级 `src/STOTOP.Module.<X>/CLAUDE.md`；不擅自开分支/push。
 
 ## 0. 运行与边界
 
-- 后端 `:9000`，前端 `:9001`；前端代理 `/api`、`/hangfire`、`/hubs` 到后端。健康检查 `/health`，版本 `/api/version`。
-- 启动用 `scripts/dev/`（`backend.ps1` / `frontend.ps1` / `check-health.ps1`），不要手敲 dotnet/vite。
-- 系统数据库连接的运行时来源是 `db-connections.json`，不是 `appsettings.json`。
-- **大库提速（feedback loop）**：日常只改单模块时用 `src/*.slnf` 工作区过滤器，只加载/编译该模块的依赖闭包而非整个 60 项目图——IDE 直接打开对应 `.slnf`，或 `scripts/dev/build-filter.ps1 <name>`（现有 `cardflow`/`express`/`finance`/`crm`/`task`/`core`/`dormitory`）。跑测试用 `scripts/dev/test-dotnet.ps1 [filter]`，自动发现 `tests/` 下全部 `*.Tests.csproj`（新增测试项目零改动纳入）。注：`cardflow.slnf` 只含生产闭包不含 `CardFlow.Tests`（后者引用 `WebAPI` 会拉入全图）。
-- **架构边界（硬约束）**：
-  - 新审批 / 动态表单 / 节点流转 / 卡片待办一律进 **CardFlow**。
-  - Workflow 只做事件、派发、质量处理等底层能力，不复制 CardFlow 运行时。
-  - `STOTOP.Module.OA` 与 `OASeeder` 仅用于历史数据兼容与退役清理，不注册 OA 控制器、不作新入口。
-  - 不要新建 `STOTOP.Module.DataCenter`，导入/校验能力集中在 CardFlow / Express。
+- 后端 `:9000`，前端 `:9001`；代理 `/api`、`/hangfire`、`/hubs`；健康检查 `/health`，版本 `/api/version`。启动用 `scripts/dev/`（`backend.ps1`/`frontend.ps1`/`check-health.ps1`）。
+- 系统数据库连接的运行时来源是 `src/STOTOP.WebAPI/db-connections.json`（不是 `appsettings.json`，也不在仓库根）。
+- **大库提速**：`src/*.slnf` 只编该模块依赖闭包（现有 `cardflow`/`express`/`finance`/`crm`/`task`/`core`/`dormitory`；`scripts/dev/build-filter.ps1 <name>` 或 `/build`）。测试用 `scripts/dev/test-dotnet.ps1 [filter]` 或 `/test`（自动发现 `tests/**/*.Tests.csproj`）。`cardflow.slnf` 不含 `CardFlow.Tests`（引 WebAPI 会拉全图）。
+- **两道提交门禁**：`.husky/pre-commit` 只拦新增裸 hex；改动 `.cs` 的**编译门禁**是 Claude Code hook `scripts/dev/hook-precommit-gate.ps1`（编译失败即拒提交，不跑测试/type-check）。
+- **后端运行时锁 `STOTOP.WebAPI.dll`**：全图 build 用 `-o <scratch>` 或 `/p:UseSharedCompilation=false` 绕锁，或先停后端。
+- **无 EF Migrations**：schema/数据靠启动 seeder + `Data/Seeders/Baseline/baseline-reference-data.json` 对齐；改动走版本化 seeder（V 编号），规则体放 `Data/Seeders/Resources/*.json`。不要 `dotnet ef migrations`。两坑：原生 SQL 用 `SeederHelper.ExecuteRawSql`，别用 EF `ExecuteSqlRaw`（无参也 `String.Format`，SQL 里 `{}` 抛 FormatException）；改 baseline JSON 后须重建到 bin（`ResolveBaselinePath` 首选 `AppContext.BaseDirectory` 的 bin 副本，否则跑旧文件）。
+- **进模块前看** `src/STOTOP.Module.<X>/CLAUDE.md`（目前 CardFlow 有），其坑位优先于泛化规则。
+- **架构边界（硬约束）**：新审批/动态表单/节点流转/卡片待办进 **CardFlow**；Workflow 只做事件/派发/质量底层能力，不复制 CardFlow 运行时；OA 只作历史兼容（不注册控制器）；**不新建 `STOTOP.Module.DataCenter`，也不新建 `STOTOP.Module.Platform`——平台/租户能力全在 System 模块**。
 
-## 1. 后端规则
+## 多租户与平台隔离（硬约束）
 
-### 分层
-每个 `STOTOP.Module.*` 标准目录：`Controllers/`、`Services/` + `Services/Interfaces/`、`Entities/`、`Configurations/`（`IEntityTypeConfiguration<T>`）、`Dtos/`。基础层：`STOTOP.Core`（`BaseEntity`、`ApiResult`、接口契约）、`STOTOP.Infrastructure`（DbContext、Repository、Middleware、Events）、`STOTOP.WebAPI`（组合根，不写业务逻辑）。
+> stage0-4 已落地并织入生产路径（`STOTOPDbContext`/`Program.cs`/中间件/System）。**新写实体/查询/Job/控制器前必读**。完整说明见 [`design/21` §1.5](design/21-dev-rules.md) 与 `design/23-25`。
 
-### 模块注册
-每模块提供 `Add{Module}Module(this IServiceCollection)` 扩展（`{Module}ModuleExtensions.cs`）：逐个 `AddScoped<IXxxService, XxxService>()` + `ApplyConfiguration(...)` + 事件处理器注册。`Program.cs` 按既定顺序组合，**CardFlow 必须早于 Express 注册**（Express 依赖其导入服务/自动插件进度）。
+- **租户过滤器 fail-closed 硬墙**：`ITenantScoped` 实体（键 `F租户ID`）——平台作用域放行，否则须当前租户非空且相等。**无租户上下文 → 读空集、写抛异常（不认 null、不认 0）**（对比组织过滤器 null 时放行）。
+- **绕过唯一入口 = `IPlatformScopeFactory.Enter`**（平台/seeder/迁移）；业务 Service 注入它 = 越权后门。**非 HTTP 链路（后台/批次/CLI）**读写租户数据须显式 `ITenantScopeFactory.Enter(tid)` 或 `IPlatformScopeFactory.Enter(reason)`，否则读空/写崩。
+- **组合过滤器**：同实体 `IOrgScoped+ITenantScoped` 由 DbContext 一次性 AND 组合；EF `HasQueryFilter` 覆盖非叠加，**绝不分轮各调一次**。
+- **后台 Job** 不设根租户跑全库，用 `ITenantIterationService.ForEachActiveTenantAsync` 逐活跃租户；批次链用 `ITenantResolver.ResolveTenantForOrg(batchOrgId)`，**绝不一律 `GetRootTenantId`**。单客户下退化 1 次。
+- **平台层** `/api/platform/*` 脱离租户上下文，**必须标 `[PlatformOnly]`**（校验 `SysUser.FIsPlatformAdmin`）；中间件顺序 `TenantFreezeMiddleware` 须在 `OrgContextMiddleware` 之后（欠费冻结返 402）。
+- **R8 数据范围 fail-open**：`SysScopeGrant` 跨节点可视域**不在全局过滤器**，列表/报表须显式 `ApplyVisibilityScope(...)` opt-in，漏调只受租户墙+单节点组织约束。
+- **新增受租户隔离实体**：实现 `ITenantScoped`（加列 `F租户ID`），建表/改列走版本化 seeder（V 编号）**不用 migrations**；参照 System 模块 `Sys*` 实体既有写法。
 
-### Controller
-- 路由 `[Route("api/{module}/{resource}")]`，模块/资源名全小写（如 `api/crm/bonus`）。
-- HTTP 动词语义：`GET` 查 / `POST` 增 / `PUT` 改 / `DELETE` 删。
-- 权限用 `[RequirePermission("module:resource:action")]`（自定义 filter），如 `crm:bonus:view`。
-- 返回统一包装 `ApiResult` / `ApiResult<T>`：`{ code, message, data }`；`ApiResult.Success(data)` / `ApiResult.Fail(msg, code)`。JSON 输出 camelCase。
+## 1. 后端红线速查（细则见 `design/21` §1）
 
-### Service
-- `IXxxService`（接口在 `Services/Interfaces/`）+ `XxxService`，构造函数注入。
-- 所有 I/O 方法加 `Async` 后缀、返回 `Task` / `Task<T>`。
-- 数据访问优先 `IRepository<T>`：`Query()` 返回 `IQueryable<T>` 做 LINQ；`Add/Update/Delete` 内部自动 `SaveChangesAsync`；跨多仓储事务才直接用 DbContext。
+- 分层：`Controllers/Services(+Interfaces)/Entities/Configurations/Dtos`（+ `EventHandlers/Events/Filters/Jobs`）。模块 `Add{Module}Module` 扩展；**CardFlow 必须早于 Express 注册**。
+- Controller：`[Route("api/{module}/{resource}")]` 全小写（如 `api/crm/bonus`）；`[RequirePermission("module:resource:action")]`（如 `crm:bonus:view`；action 用 view/create/update/delete）；返回 `ApiResult`/`ApiResult<T>`（camelCase）。携带数据的成功是**泛型** `ApiResult<T>.Success(data)`；非泛型 `ApiResult` 只有 `Ok(message)` / `Fail(message, code)`。
+- Service：`IXxxService` + `Async` 后缀；优先 `IRepository<T>`（`Query()`/`AddAsync/UpdateAsync/DeleteAsync` **即时**落库——`AddAsync` 立即 `SaveChanges` 取自增主键；多写/跨仓储事务直接用 DbContext）。两个"真库崩、InMemory 假绿"坑：① 真库事务须 `IExecutionStrategy.ExecuteAsync` 包裹（裸 `BeginTransaction` 撞 `EnableRetryOnFailure` 100% 崩）；② 全局 `NoTracking`——重查已跟踪实体再 `Update`/`Entry().State` 撞 identity conflict，须 `.AsTracking()`。
+- 数据/命名：单一 `STOTOPDbContext`；`BaseEntity(long FID)`/`BaseGuidEntity(FUID)`。**DB 列名 `F+中文`，C# 属性 `F+PascalCase`，`HasColumnName` 映射**（属性 `FStatus`/`FOrgId` → 列 `F状态`/`F组织ID`）。表名 = 英文前缀（`CRM`/`CF`/`SYS`/`PLT`…）+ 中文名（如 `CRM客户`/`CF操作日志`/`CON合同`）。字符串编号属性 `FCode` 的中文列名 **`F编号`/`F编码` 双轨并存**（勿假定唯一，映射错=建表/查询错）。隔离接口 `IOrgScoped(FOrgId, null 放行)` / `ITenantScoped(F租户ID, fail-closed)` / `IAccountSetScoped(与组织互斥)`。固定系统字段含 `F版本号`(并发)/`F状态`。
+- 异常：`GlobalExceptionMiddleware` 拦截（`Unauthorized→403`/`InvalidOperation→400` 透传消息/其余 500）。**消息/日志用中文，代码标识用英文 PascalCase**。
+- Hangfire：Job 类放模块 `Jobs/`（参照 Contract/CardFlow），`RecurringJob.AddOrUpdate` 集中在 `Program.cs` 注册；跨租户 Job 用 `ITenantIterationService` 别 `GetRootTenantId`（见 §多租户）。SignalR `/hubs/*`。
 
-### 数据访问与实体
-- 单一 `STOTOPDbContext`；实体继承 `BaseEntity`（`long FID`）或 `BaseGuidEntity`，EF 配置走 Fluent API 配置类。
-- 实现 `IOrgScoped` 的实体由全局查询过滤器按 `FOrgId` 自动隔离，保存时自动回填当前组织；跨组织需显式 `SuppressOrgIdFill()` / `IgnoreQueryFilters()`。
-- **数据库命名（强约束）**：
-  - 库名小写。
-  - 表名 = 模块前缀（大写英文，如 `CRM`/`CF`/`CON`/`CONF`/`HR`）+ 中文业务名，如 `CRM客户`、`CF操作日志`、`CON合同`、`HR员工`（`builder.ToTable(...)`）。
-  - **数据库列名用中文 `F+中文`（`F状态`、`F组织ID`、`F创建人`），C# 实体属性用英文 `F+PascalCase`（`FStatus`、`FOrgId`、`FCreatorName`），由配置类 `HasColumnName("F中文")` 映射**——两层不要混淆。
-  - 主键：自增数字 `FID`（`long`，`BaseEntity`）；字符串编号 `F编号`（属性 `FCode`）；GUID `FUID`（`BaseGuidEntity`）。
-  - 每表固定系统字段：`F组织ID`（`FOrgId`，组织隔离）、`F创建人/F创建时间/F更新人/F更新时间`、常见并发令牌 `F版本号`（`IsConcurrencyToken`）、软状态 `F状态`（`FStatus`）。
+## 2. 前端红线速查（细则见 `design/21` §2）
 
-### 异常与日志
-- 统一由 `GlobalExceptionMiddleware` 拦截：`UnauthorizedAccessException → 403`、`InvalidOperationException → 400`（透传消息，业务错误就抛它，无独立 BusinessException）、其余 `→ 500`（开发环境透出 inner 链，生产仅返回"服务器内部错误"）。
-- `ILogger<T>` 注入分级记录。**异常消息/日志/业务数据用中文，类名/方法/属性/权限码用英文 PascalCase**。
+- API：单一 axios `web/src/api/request.ts`（`/api`，15s）；请求注入 5 头 `Authorization`/`X-Device-Fingerprint`/`X-Org-Context`/`X-Tenant-Context`/`X-AccountSet-Id`；响应 401 刷新队列/403→`/403`/428 提示选组织租户/Blob 直通。类型从 `@/types/{module}` 导入。
+- 状态：setup store `defineStore('xxx', () => {...})`，`useXxxStore`。
+- 路由：三层（静态 / `/m/*` / `Layout`），**无 `/admin` 路由层**；管理页是 `Layout` 子路由，门禁按 `getCurrentModuleMenus(moduleCode).length>0` 失败跳 `/403`；`platform/*` 仅平台超管。
+- 样式：**禁裸 hex**，用 `var(--token)`（`stores/theme.ts`）/ SCSS `$`（`variables.scss`），真源 `web/docs/TOKENS.md`；豁免见 `.husky/pre-commit`。范式类 `.page-container/.page-card/.page-toolbar`。
+- 组件：PascalCase 自动导入（`components.d.ts` **不手改**）；AntD `A` 前缀；CardFlow 字段组件在 `components/cardflow/fields/`；PC/移动端命名隔离。
+- TS：`strict:true`，**禁裸 any**；`npm run type-check` 须过。多入口 `index/mobile/redirect.html`，别名 `@`→`src`。
+- 新增页：照抄成熟模块四件套 `api/{m}.ts`+`types/{m}.ts`+`stores/useXStore.ts`+`views/{m}/*.vue`（如 crm）；路由由后端菜单动态注入，别手写 `addRoute`。
 
-### 后台任务 / 实时
-- Hangfire：`RecurringJob.AddOrUpdate<Job>(id, j => j.ExecuteAsync(), cron)`，可加 `[AutomaticRetry]`，集中在 `Program.cs` 注册。
-- SignalR Hub 在 `/hubs/*`（progress、notification、workhub、cardflow 等）。
+## 3. 测试（细则见 `design/21` §3）
 
-## 2. 前端规则
+- xUnit；`tests/STOTOP.Module.*.Tests`；中文 `[Fact]` 方法名。各模块用其 `TestDbContextFactory.Create(...)` + InMemory + `TestOrgContextAccessor` + `RegisterModuleAssembly(...)`。
+- 租户/平台自检在 `System.Tests`（`Tenant*`/`Platform*`，含漏标门禁 `TenantLeakScanTests`）；`CardFlow.Tests`/`WebAPI.Tests` 拉近全图、flaky，多跑几次。
 
-### 目录职责
-`api/`（按模块一文件）、`stores/`（Pinia）、`router/`、`views/{module}/`、`components/`（PC）+ `components/form-widgets/`、`mobile/`（移动端独立子应用）、`styles/`、`utils/`、`composables/`、`types/{module}.ts`。
+## 4. 协作约定 + 存疑时
 
-### API 层
-单一 axios 实例 `web/src/api/request.ts`（baseURL `/api`，15s 超时）：
-- 请求拦截自动注入 `Authorization` / `X-Device-Fingerprint` / `X-Org-Context` / `X-AccountSet-Id`。
-- 响应拦截解析 `{ code, data, message }`、401 触发刷新队列、403 跳 `/403`、Blob 直通。
-- 业务函数用 `get/post/put/del<T>` 包装；类型从 `@/types/{module}` 导入，不在 api 文件里定义；命名 `get*/create*/update*/delete*`。
+- 缩进 `.cs`=4 / 其余=2 / `.sln`=Tab；utf-8/lf/文末换行。设计文档 `design/NN-*.md`，新增模块同步 `design/00-overview.md` 与 `Program.cs` 顺序。SDK 锁 `global.json`。
+- **并发会话共用主工作树有风险**，隔离用 git worktree（`.claude/worktrees/`）；探索忽略该目录与 `bin/obj`。
+- 探索某模块落点用子代理 `module-explorer`（只读定位实体/服务/控制器/前端）；提交前规约审用 `rule-reviewer`（或 `/rule-review` `/precommit`）。
+- **存疑时**：不擅自开分支/push（须点头）；大改先出 plan+锁模块+小步 build/test；子代理逐任务后必做整体终审+回归；DB/模型不一致先据设计意图判哪侧对；先查 memory 索引复用既有结论。
 
-### 状态
-统一 **setup store**：`defineStore('xxx', () => { ref/computed; return {...} })`，命名 `useXxxStore`。
+## 绝不（Never）
 
-### 路由与权限
-四层：静态 / 移动端 `/m/*` / PC 主布局 `Layout` / 管理后台 `/admin`。PC 用 history 模式，移动端用 hash 独立 router 实例。动态路由由后端菜单经 `permission` store 的 `generateRoutes()` 生成并 `addRoute('Layout', ...)`；全局守卫校验 token，admin 路由校验 `roles.includes('admin')`。
-
-### 样式 / 设计令牌（强约束 + 门禁）
-- **禁止裸 hex 颜色**，必须用设计令牌 `var(--token)`（运行时 `stores/theme.ts` 注入）或 SCSS `$变量`（`styles/variables.scss` 桥接）；真源是 `web/docs/TOKENS.md`。
-- `.husky/pre-commit` 是 diff 门禁：只拦 `web/src/**.{vue,scss}` **新增行**里的裸 hex（存量不阻塞）。豁免：`styles/{variables,ant-override,layout,button-styles}.scss`，或该行加注释 `/* hex-ok: 原因 */`（ECharts/SVG/打印导出场景）。`npm run lint:style` 用 stylelint 校验。
-- 全局范式类：`.page-container` / `.page-card` / `.page-toolbar`。
-
-### 组件
-PascalCase；PC 组件自动导入（`components.d.ts` 自动生成，不手改）；AntD 组件 `A` 前缀。表单输入统一放 `components/form-widgets/` 并经 `registerFormWidgets()` 注册到 form-create。同名 PC/移动端组件用**命名隔离**（如 `EmployeeSelect` vs `DormEmployeeSelect`），避免 `components.d.ts` 抖动。
-
-### TypeScript
-`strict: true`，禁裸 `any`（用 `unknown` + 类型守卫）；DTO/Request 类型集中在 `types/`。`npm run type-check`（vue-tsc）须通过。
-
-### 多入口
-`index.html`（PC）/ `mobile.html`（移动端）/ `redirect.html`，Vite rollup 三入口；路径别名 `@` → `src`。
-
-## 3. 测试规则
-
-- 框架 **xUnit**；项目 `tests/STOTOP.Module.*.Tests`；类 `XxxTests`，方法可用中文描述名（`[Fact]`）。
-- DbContext 用 `TestDbContextFactory.Create(...)` + InMemory 库 + 模拟组织上下文（`TestOrgContextAccessor`），需 `RegisterModuleAssembly(...)` 注册涉及模块。
-
-## 4. 协作约定
-
-- 缩进：`.cs`/csproj = 4 空格，其余（ts/vue/scss/json/md）= 2 空格，`.sln` = Tab；`charset=utf-8`、`lf`、文末换行。
-- 设计文档放 `design/NN-*.md`，默认中文，记录当前运行边界而非历史计划；新增模块同步更新 `design/00-overview.md` 索引与 `Program.cs` 注册顺序。
-- SDK 锁定 `global.json`（10.0.300，latestFeature）；macOS 本地禁用并行构建（`src/Directory.Build.props`）。
+手敲 dotnet/vite ・ 新建 DataCenter/Platform 模块 ・ 注册 OA 控制器 ・ 审批流写进 Workflow ・ 业务 Service 注入 `IPlatformScopeFactory` 绕租户墙 ・ 后台 Job 一律 `GetRootTenantId` 全库 ・ 同实体分轮 `HasQueryFilter` ・ `dotnet ef migrations` ・ 手改 `components.d.ts` ・ 裸 hex / 裸 any ・ 擅自开分支/push ・ 后端运行时全图 build 不加 `-o scratch`。
 
 ## 文档入口
 
-- [系统总览](design/00-overview.md) ・ [WebAPI 启动层](design/19-webapi.md) ・ [前端架构](design/20-frontend.md) ・ [开发规则](design/21-dev-rules.md)
+- [系统总览](design/00-overview.md) ・ [开发规则（单一真源）](design/21-dev-rules.md) ・ [Claude 开发流程](design/22-claude-workflow.md) ・ [WebAPI 启动层](design/19-webapi.md) ・ [前端架构](design/20-frontend.md) ・ [多租户重设计](design/23-multitenant-org-redesign.md)

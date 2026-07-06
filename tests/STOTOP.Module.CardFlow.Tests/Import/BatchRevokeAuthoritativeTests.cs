@@ -33,7 +33,6 @@ public class BatchRevokeAuthoritativeTests
     [Fact]
     public async Task 软删除权威路径_标记撤销_写撤销日志_级联取消_无工单()
     {
-        STOTOP.Infrastructure.Data.STOTOPDbContext.RegisterModuleAssembly(typeof(WfRevokeLog).Assembly);
         using var db = TestDbContextFactory.Create(nameof(BatchRevokeAuthoritativeTests));
         db.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTrackingWithIdentityResolution;
         await SeedBatchAsync(db);
