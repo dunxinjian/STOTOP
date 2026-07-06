@@ -20,11 +20,13 @@ public class PlatformController : ControllerBase
 {
     private readonly IPlatformService _platform;
     private readonly IIdpService _idp;
+    private readonly IProvisionTenantService _provision;
 
-    public PlatformController(IPlatformService platform, IIdpService idp)
+    public PlatformController(IPlatformService platform, IIdpService idp, IProvisionTenantService provision)
     {
         _platform = platform;
         _idp = idp;
+        _provision = provision;
     }
 
     // ---- 租户 ----
@@ -40,9 +42,10 @@ public class PlatformController : ControllerBase
         return t == null ? ApiResult<PlatformTenantDto?>.Fail("租户不存在", 404) : ApiResult<PlatformTenantDto?>.Success(t);
     }
 
+    /// <summary>开通新租户（R5）：建组织根 + 初始管理员 + 私有 admin 角色 + 成员 + R8，返回一次性初始密码。</summary>
     [HttpPost("tenants")]
-    public async Task<ApiResult<long>> CreateTenant([FromBody] CreatePlatformTenantRequest request)
-        => ApiResult<long>.Success(await _platform.CreateTenantAsync(request));
+    public async Task<ApiResult<ProvisionTenantResult>> CreateTenant([FromBody] ProvisionTenantRequest request)
+        => ApiResult<ProvisionTenantResult>.Success(await _provision.ProvisionAsync(request));
 
     /// <summary>更新租户状态（冻结/解冻/停用/正式）。冻结即触发 D7 白名单。</summary>
     [HttpPut("tenants/{id}/status")]

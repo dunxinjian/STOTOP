@@ -12,6 +12,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace STOTOP.Module.System.Services;
 
@@ -97,13 +98,14 @@ public class AuthService : IAuthService
         using var queryScope = _serviceScopeFactory.CreateScope();
         var queryContext = queryScope.ServiceProvider.GetRequiredService<STOTOPDbContext>();
         var adminAuthService = queryScope.ServiceProvider.GetRequiredService<IAdminAuthorizationService>();
-        var isAdmin = await adminAuthService.IsAdminByUserIdAsync(queryContext, user.FID);
+        var scope = await adminAuthService.ResolveAdminScopeAsync(queryContext, user.FID);
+        var scopeTenantIds = await GetScopeTenantIdsAsync(queryContext, user.FID, scope);
         var roles = await GetUserRoleCodesAsync(queryContext, user.FID);
-        var permissions = await GetUserPermissionCodesAsync(queryContext, user.FID, isAdmin);
-        var menus = await GetUserMenusAsync(queryContext, user.FID, isAdmin);
+        var permissions = await GetUserPermissionCodesAsync(queryContext, user.FID, scope);
+        var menus = await GetUserMenusAsync(queryContext, user.FID, scope);
 
         var accessTokenMinutes = await _securityConfigService.GetIntConfig("token.access_token_minutes", 30);
-        var token = GenerateJwtToken(user, roles, isAdmin, sessionId, accessTokenMinutes);
+        var token = GenerateJwtToken(user, roles, scope, scopeTenantIds, sessionId, accessTokenMinutes);
 
         // 记录审计日志
         await _securityAuditService.LogEvent(user.FID, user.FAccount, "Login", "Success",
@@ -126,7 +128,8 @@ public class AuthService : IAuthService
                 Email = user.FEmail,
                 Roles = roles,
                 Permissions = permissions,
-                Menus = menus
+                Menus = menus,
+                IsPlatformAdmin = user.FIsPlatformAdmin
             }
         };
 
@@ -186,7 +189,8 @@ public class AuthService : IAuthService
             Email = user.FEmail,
             Roles = roles,
             Permissions = permissions,
-            Menus = menus
+            Menus = menus,
+            IsPlatformAdmin = user.FIsPlatformAdmin
         };
 
         return ApiResult<UserInfoDto>.Success(userInfo);
@@ -198,15 +202,7 @@ public class AuthService : IAuthService
         return ApiResult<List<string>>.Success(permissions);
     }
 
-    private async Task<bool> CheckIsAdminAsync(long userId)
-    {
-        using var scope = _serviceScopeFactory.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<STOTOPDbContext>();
-        var adminAuthService = scope.ServiceProvider.GetRequiredService<IAdminAuthorizationService>();
-        return await adminAuthService.IsAdminByUserIdAsync(context, userId);
-    }
-
-    private string GenerateJwtToken(SysUser user, List<string> roles, bool isAdmin, string? sessionId = null, int? expireMinutes = null)
+    private string GenerateJwtToken(SysUser user, List<string> roles, AdminScope scope, IReadOnlyList<long> scopeTenantIds, string? sessionId = null, int? expireMinutes = null)
     {
         var jwtSettings = _configuration.GetSection("Jwt");
         var secretKey = jwtSettings["Secret"]!;
@@ -237,11 +233,9 @@ public class AuthService : IAuthService
             claims.Add(new Claim(ClaimTypes.Role, role));
         }
 
-        // 为 admin 用户添加特殊管理员角色标识
-        if (isAdmin)
-        {
-            claims.Add(new Claim(ClaimTypes.Role, AdminAuthorizationService.AdminRoleClaim));
-        }
+        // R5·stage4C：平台级 admin 才签发 OA_ADMIN 全量短路；租户级 admin 只签 tenantAdmin + scopeTenantId
+        // （作用域内功能全量放行、跨租户由服务层数据墙 + [PlatformOnly] 兜住）。
+        claims.AddRange(BuildAdminClaims(scope.IsPlatformAdmin, scope.IsAdmin && !scope.IsPlatformAdmin, scopeTenantIds));
 
         var token = new JwtSecurityToken(
             issuer: issuer,
@@ -252,6 +246,33 @@ public class AuthService : IAuthService
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    /// <summary>R5·stage4C：构造管理员/租户作用域 claim。
+    /// 平台级 admin → OA_ADMIN（RequirePermission 全量短路，MDSTO 现状不变，不签 scopeTenantId=不限租户）；
+    /// 租户级 admin → tenantAdmin=1（RequirePermission 作用域内功能放行）；
+    /// 非平台 admin（含租户 admin 与普通用户）→ 每个所辖租户一个 scopeTenantId（供管理类接口服务层数据墙）。</summary>
+    public static IEnumerable<Claim> BuildAdminClaims(bool isPlatformAdmin, bool isTenantAdmin, IReadOnlyList<long> scopeTenantIds)
+    {
+        if (isPlatformAdmin)
+        {
+            yield return new Claim(ClaimTypes.Role, AdminAuthorizationService.AdminRoleClaim);
+            yield break; // 平台级不限租户
+        }
+        if (isTenantAdmin)
+            yield return new Claim("tenantAdmin", "1");
+        foreach (var tid in scopeTenantIds)
+            yield return new Claim("scopeTenantId", tid.ToString());
+    }
+
+    /// <summary>解析写入 JWT 的 scopeTenantId：平台级 admin=空(不限)；租户级 admin=其管辖租户；普通用户=已接受的租户成员。</summary>
+    private static async Task<IReadOnlyList<long>> GetScopeTenantIdsAsync(STOTOPDbContext context, long userId, AdminScope scope)
+    {
+        if (scope.IsPlatformAdmin) return Array.Empty<long>();
+        if (scope.IsAdmin) return scope.TenantIds;
+        return await context.Set<SysTenantMember>()
+            .Where(m => m.FUserId == userId && m.FInviteStatus == 2)
+            .Select(m => m.FTenantId).Distinct().ToArrayAsync();
     }
 
     // ===== 使用共享 _context 的版本（供 LoginAsync 等串行场景使用）=====
@@ -284,22 +305,21 @@ public class AuthService : IAuthService
 
     private static async Task<List<string>> GetUserPermissionCodesAsync(STOTOPDbContext context, long userId)
     {
-        // admin 用户直接返回所有权限编码
-        var isAdmin = await context.Set<SysUserRole>()
-            .AnyAsync(ur => ur.FUserId == userId && ur.FRoleId == AdminAuthorizationService.AdminRoleId);
-        return await GetUserPermissionCodesAsync(context, userId, isAdmin);
+        var scope = await AdminAuthorizationService.ResolveAdminScopeCoreAsync(context, userId);
+        return await GetUserPermissionCodesAsync(context, userId, scope);
     }
 
-    private static async Task<List<string>> GetUserPermissionCodesAsync(STOTOPDbContext context, long userId, bool isAdmin)
+    private static async Task<List<string>> GetUserPermissionCodesAsync(STOTOPDbContext context, long userId, AdminScope scope)
     {
-        if (isAdmin)
-        {
-            return await context.Set<SysPermission>()
-                .Select(p => p.FCode)
-                .Distinct()
-                .ToListAsync();
-        }
+        // 平台级 admin：全量权限码（MDSTO 现状不变）。
+        if (scope.IsPlatformAdmin)
+            return await context.Set<SysPermission>().Select(p => p.FCode).Distinct().ToListAsync();
 
+        // 租户级 admin：作用域内全量，按该租户套餐 FModuleFlags 裁剪（与菜单裁剪同口径）。
+        if (scope.IsAdmin)
+            return await FilterPermissionCodesByPlanAsync(context, scope.TenantIds.Count > 0 ? scope.TenantIds[0] : 0);
+
+        // 普通用户：实授权限码。
         var roleIds = await context.Set<SysUserRole>()
             .Where(ur => ur.FUserId == userId)
             .Select(ur => ur.FRoleId)
@@ -315,17 +335,49 @@ public class AuthService : IAuthService
             .ToListAsync();
     }
 
-    private static async Task<List<MenuDto>> GetUserMenusAsync(STOTOPDbContext context, long userId)
+    /// <summary>R5·stage4C：租户级 admin 的权限码 = 全量 ∩ 该租户套餐启用模块（权限的根「模块」code ∈ 开关集）。
+    /// tenantId=0 或套餐无绑定/开关为空 → 返回全量（不裁剪）。与 <see cref="FilterMenusByPlanAsync"/> 同源。</summary>
+    private static async Task<List<string>> FilterPermissionCodesByPlanAsync(STOTOPDbContext context, long tenantId)
     {
-        // admin 用户直接返回所有模块和菜单
-        var isAdmin = await context.Set<SysUserRole>()
-            .AnyAsync(ur => ur.FUserId == userId && ur.FRoleId == AdminAuthorizationService.AdminRoleId);
-        return await GetUserMenusAsync(context, userId, isAdmin);
+        var all = await context.Set<SysPermission>()
+            .Select(p => new { p.FID, p.FCode, p.FParentId, p.FType })
+            .ToListAsync();
+        var allCodes = all.Select(p => p.FCode).Distinct().ToList();
+
+        if (tenantId == 0) return allCodes;
+        var tenant = await context.Set<PltTenant>().FirstOrDefaultAsync(t => t.FID == tenantId);
+        if (tenant?.FPlanId == null) return allCodes;
+        var plan = await context.Set<PltPlan>().FirstOrDefaultAsync(p => p.FID == tenant.FPlanId.Value);
+        var enabled = ParseModuleFlags(plan?.FModuleFlags);
+        if (enabled == null || enabled.Count == 0) return allCodes;
+
+        var byId = all.ToDictionary(p => p.FID);
+        string? RootModuleCode(long id)
+        {
+            var curId = id;
+            var guard = 0;
+            while (byId.TryGetValue(curId, out var cur) && guard++ < 32)
+            {
+                if (cur.FType == "模块") return cur.FCode;
+                if (cur.FParentId == 0) break;
+                curId = cur.FParentId;
+            }
+            return null;
+        }
+
+        return all.Where(p => RootModuleCode(p.FID) is string rc && enabled.Contains(rc))
+                  .Select(p => p.FCode).Distinct().ToList();
     }
 
-    private static async Task<List<MenuDto>> GetUserMenusAsync(STOTOPDbContext context, long userId, bool isAdmin)
+    private static async Task<List<MenuDto>> GetUserMenusAsync(STOTOPDbContext context, long userId)
     {
-        if (isAdmin)
+        var scope = await AdminAuthorizationService.ResolveAdminScopeCoreAsync(context, userId);
+        return await GetUserMenusAsync(context, userId, scope);
+    }
+
+    private static async Task<List<MenuDto>> GetUserMenusAsync(STOTOPDbContext context, long userId, AdminScope scope)
+    {
+        if (scope.IsAdmin)
         {
             var allPermissions = await context.Set<SysPermission>()
                 .Where(p => p.FType == "模块" || p.FType == "菜单")
@@ -347,6 +399,9 @@ public class AuthService : IAuthService
                 IsVisible = p.FIsVisible
             }).ToList();
 
+            // R5：平台级 admin 拿全量菜单（MDSTO 现状不变）；租户级 admin 按该租户套餐 FModuleFlags 裁剪。
+            if (!scope.IsPlatformAdmin && scope.TenantIds.Count > 0)
+                return await FilterMenusByPlanAsync(context, allMenuDtos, scope.TenantIds[0]);
             return allMenuDtos;
         }
 
@@ -412,6 +467,62 @@ public class AuthService : IAuthService
         return menu;
     }
 
+    /// <summary>R5：按租户套餐的模块开关裁剪菜单。保留 code∈开关集 的模块 + 顶层模块∈开关集 的菜单。
+    /// 套餐无绑定/开关为空 → 不裁剪（返回全量）。</summary>
+    private static async Task<List<MenuDto>> FilterMenusByPlanAsync(STOTOPDbContext context, List<MenuDto> allMenus, long tenantId)
+    {
+        var tenant = await context.Set<PltTenant>().FirstOrDefaultAsync(t => t.FID == tenantId);
+        if (tenant?.FPlanId == null) return allMenus;
+        var plan = await context.Set<PltPlan>().FirstOrDefaultAsync(p => p.FID == tenant.FPlanId.Value);
+        var enabled = ParseModuleFlags(plan?.FModuleFlags);
+        if (enabled == null || enabled.Count == 0) return allMenus;
+
+        var byId = allMenus.ToDictionary(m => m.Id);
+        string? RootModuleCode(MenuDto m)
+        {
+            var cur = m;
+            var guard = 0;
+            while (cur.ParentId != 0 && byId.TryGetValue(cur.ParentId, out var parent) && guard++ < 32)
+                cur = parent;
+            return cur.Type == "module" ? cur.Code : null;
+        }
+
+        return allMenus.Where(m =>
+            (m.Type == "module" && enabled.Contains(m.Code)) ||
+            (m.Type != "module" && RootModuleCode(m) is string rc && enabled.Contains(rc))
+        ).ToList();
+    }
+
+    /// <summary>解析套餐 FModuleFlags（JSON 模块开关）为启用的模块编码集合。
+    /// 支持数组 ["system","finance"] 或对象 {"system":true}；空/非法 → null（表示不限）。</summary>
+    private static HashSet<string>? ParseModuleFlags(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var el in root.EnumerateArray())
+                    if (el.ValueKind == JsonValueKind.String) set.Add(el.GetString()!);
+            }
+            else if (root.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in root.EnumerateObject())
+                    if (prop.Value.ValueKind == JsonValueKind.True ||
+                        (prop.Value.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(prop.Value.GetString())))
+                        set.Add(prop.Name);
+            }
+            return set.Count == 0 ? null : set;
+        }
+        catch
+        {
+            return null; // 解析失败 → 不裁剪，避免误锁菜单
+        }
+    }
+
     public async Task<ApiResult<RefreshTokenResponse>> RefreshTokenAsync(string refreshToken, string? ipAddress = null, string? deviceFingerprint = null)
     {
         var session = await _sessionService.ValidateRefreshToken(refreshToken);
@@ -430,11 +541,12 @@ public class AuthService : IAuthService
         // 旋转RefreshToken
         var newRefreshToken = await _sessionService.RotateRefreshToken(session.FID);
 
-        // 签发新的AccessToken
+        // 签发新的AccessToken（R5·stage4C：刷新须同样区分 platform/tenant admin，否则会给租户 admin 重签 OA_ADMIN）
         var roles = await GetUserRoleCodesAsync(user.FID);
         var accessTokenMinutes = await _securityConfigService.GetIntConfig("token.access_token_minutes", 30);
-        var isAdmin = await CheckIsAdminAsync(user.FID);
-        var token = GenerateJwtToken(user, roles, isAdmin, session.FSessionId, accessTokenMinutes);
+        var scope = await AdminAuthorizationService.ResolveAdminScopeCoreAsync(_context, user.FID);
+        var scopeTenantIds = await GetScopeTenantIdsAsync(_context, user.FID, scope);
+        var token = GenerateJwtToken(user, roles, scope, scopeTenantIds, session.FSessionId, accessTokenMinutes);
 
         // 记录审计日志
         await _securityAuditService.LogEvent(user.FID, user.FAccount, "TokenRefresh", "Success",
@@ -456,8 +568,9 @@ public class AuthService : IAuthService
 
         var roles = await GetUserRoleCodesAsync(userId);
         var accessTokenMinutes = await _securityConfigService.GetIntConfig("token.access_token_minutes", 30);
-        var isAdmin = await CheckIsAdminAsync(user.FID);
-        var token = GenerateJwtToken(user, roles, isAdmin, sessionId, accessTokenMinutes);
+        var scope = await AdminAuthorizationService.ResolveAdminScopeCoreAsync(_context, user.FID);
+        var scopeTenantIds = await GetScopeTenantIdsAsync(_context, user.FID, scope);
+        var token = GenerateJwtToken(user, roles, scope, scopeTenantIds, sessionId, accessTokenMinutes);
 
         return (token, accessTokenMinutes * 60);
     }

@@ -27,9 +27,17 @@ public class RequirePermissionAttribute : Attribute, IAsyncActionFilter
             return;
         }
 
-        // 使用集中的admin检查服务（从Claim读取，无DB查询）
+        // 使用集中的admin检查服务（从Claim读取，无DB查询）——OA_ADMIN 仅平台级 admin 持有（R5·stage4C）。
         var adminService = context.HttpContext.RequestServices.GetRequiredService<IAdminAuthorizationService>();
         if (adminService.IsAdmin(context.HttpContext.User))
+        {
+            await next();
+            return;
+        }
+
+        // R5·stage4C：租户级 admin（不签 OA_ADMIN）在其作用域内功能全量放行；
+        // 跨租户读写由管理类服务层租户数据墙 + [PlatformOnly] 兜住，故此处放行功能门禁是安全的。
+        if (context.HttpContext.User.HasClaim("tenantAdmin", "1"))
         {
             await next();
             return;

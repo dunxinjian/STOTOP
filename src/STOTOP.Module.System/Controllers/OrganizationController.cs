@@ -7,6 +7,7 @@ using STOTOP.Infrastructure.Data;
 using STOTOP.Module.System.Dtos;
 using STOTOP.Module.System.Entities;
 using STOTOP.Module.System.Filters;
+using STOTOP.Module.System.Services;
 using STOTOP.Module.System.Services.Interfaces;
 
 namespace STOTOP.Module.System.Controllers;
@@ -19,12 +20,14 @@ public class OrganizationController : ControllerBase
     private readonly IOrganizationService _organizationService;
     private readonly STOTOPDbContext _context;
     private readonly IOrgContextService _orgContextService;
+    private readonly ITenantAdminScopeAccessor _tenantScope;
 
-    public OrganizationController(IOrganizationService organizationService, STOTOPDbContext context, IOrgContextService orgContextService)
+    public OrganizationController(IOrganizationService organizationService, STOTOPDbContext context, IOrgContextService orgContextService, ITenantAdminScopeAccessor tenantScope)
     {
         _organizationService = organizationService;
         _context = context;
         _orgContextService = orgContextService;
+        _tenantScope = tenantScope;
     }
 
     [HttpGet("tree")]
@@ -86,9 +89,17 @@ public class OrganizationController : ControllerBase
     [HttpGet("departments")]
     public async Task<ApiResult<List<object>>> GetDepartments()
     {
-        var items = await _context.Set<SysOrganization>()
+        // R5·stage4C：非平台 admin 只见本租户部门。
+        var scope = await _tenantScope.ResolveAsync();
+        var query = _context.Set<SysOrganization>()
             .Include(o => o.OrgType)
-            .Where(o => o.FStatus == 1 && o.OrgType != null && o.OrgType.FCode == "DEPT")
+            .Where(o => o.FStatus == 1 && o.OrgType != null && o.OrgType.FCode == "DEPT");
+        if (!scope.IsPlatformAdmin)
+        {
+            var tids = scope.TenantIds.ToList();
+            query = query.Where(o => tids.Contains(o.FTenantId));
+        }
+        var items = await query
             .OrderBy(o => o.FSort)
             .Select(o => (object)new { id = o.FID, code = o.FCode, name = o.FName, status = o.FStatus })
             .ToListAsync();

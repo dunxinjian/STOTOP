@@ -13,12 +13,55 @@ public class PositionService : IPositionService
     private readonly STOTOPDbContext _context;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IChangeLogService _changeLogService;
+    private readonly ITenantAdminScopeAccessor _tenantScope;
 
-    public PositionService(STOTOPDbContext context, IHttpContextAccessor httpContextAccessor, IChangeLogService changeLogService)
+    public PositionService(STOTOPDbContext context, IHttpContextAccessor httpContextAccessor, IChangeLogService changeLogService, ITenantAdminScopeAccessor tenantScope)
     {
         _context = context;
         _httpContextAccessor = httpContextAccessor;
         _changeLogService = changeLogService;
+        _tenantScope = tenantScope;
+    }
+
+    // ===== R5·stage4C 租户数据墙助手（SYS岗位 无租户列，经 关联组织/用户 定租户）=====
+
+    /// <summary>指定组织是否在作用域内。</summary>
+    private async Task<bool> AreOrgsInScopeAsync(IReadOnlyCollection<long> orgIds, TenantDataScope scope)
+    {
+        if (scope.IsPlatformAdmin || orgIds.Count == 0) return true;
+        var tids = scope.TenantIds.ToList();
+        if (tids.Count == 0) return false;
+        var distinct = orgIds.Distinct().ToList();
+        var inScope = await _context.Set<SysOrganization>()
+            .CountAsync(o => distinct.Contains(o.FID) && tids.Contains(o.FTenantId));
+        return inScope == distinct.Count;
+    }
+
+    /// <summary>指定用户是否均为作用域内租户的已接受成员。</summary>
+    private async Task<bool> AreUsersInScopeAsync(IReadOnlyCollection<long> userIds, TenantDataScope scope)
+    {
+        if (scope.IsPlatformAdmin || userIds.Count == 0) return true;
+        var tids = scope.TenantIds.ToList();
+        if (tids.Count == 0) return false;
+        var distinct = userIds.Distinct().ToList();
+        var inScope = await _context.Set<SysTenantMember>()
+            .Where(m => distinct.Contains(m.FUserId) && m.FInviteStatus == 2 && tids.Contains(m.FTenantId))
+            .Select(m => m.FUserId).Distinct().CountAsync();
+        return inScope == distinct.Count;
+    }
+
+    /// <summary>岗位是否在作用域内：无部门关联=全局目录(可见)，否则须至少一个部门属作用域租户。</summary>
+    private async Task<bool> IsPositionInScopeAsync(long positionId, TenantDataScope scope)
+    {
+        if (scope.IsPlatformAdmin) return true;
+        var tids = scope.TenantIds.ToList();
+        if (tids.Count == 0) return false;
+        var orgIds = await _context.Set<SysPositionDepartment>()
+            .Where(pd => pd.FPositionId == positionId)
+            .Select(pd => pd.FOrganizationId).ToListAsync();
+        if (orgIds.Count == 0) return true; // 全局目录岗位
+        return await _context.Set<SysOrganization>()
+            .AnyAsync(o => orgIds.Contains(o.FID) && tids.Contains(o.FTenantId));
     }
 
     private (long? UserId, string? UserName) GetCurrentUser()
@@ -33,6 +76,15 @@ public class PositionService : IPositionService
     public async Task<(List<PositionDto> Items, int Total)> GetPagedListAsync(int pageIndex, int pageSize, string? keyword)
     {
         var query = _context.Set<SysPosition>().AsQueryable();
+
+        // R5·stage4C：非平台 admin 只见「无部门关联(全局目录)」或「关联到本租户组织」的岗位。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!scope.IsPlatformAdmin)
+        {
+            var tids = scope.TenantIds.ToList();
+            query = query.Where(p => !p.PositionDepartments.Any()
+                || p.PositionDepartments.Any(pd => tids.Contains(pd.Organization.FTenantId)));
+        }
 
         if (!string.IsNullOrWhiteSpace(keyword))
         {
@@ -78,6 +130,17 @@ public class PositionService : IPositionService
 
         if (position == null) return null;
 
+        // R5·stage4C：非平台 admin 不得读取仅属他租户组织的岗位（无部门关联=全局目录，可见）。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!scope.IsPlatformAdmin)
+        {
+            var linkedTenants = position.PositionDepartments
+                .Where(pd => pd.Organization != null)
+                .Select(pd => pd.Organization!.FTenantId).ToList();
+            if (linkedTenants.Count > 0 && !linkedTenants.Any(t => scope.TenantIds.Contains(t)))
+                return null;
+        }
+
         return new PositionDto
         {
             Id = position.FID,
@@ -111,6 +174,11 @@ public class PositionService : IPositionService
     {
         if (await _context.Set<SysPosition>().AnyAsync(p => p.FCode == request.Code))
             throw new InvalidOperationException("岗位编码已存在");
+
+        // R5·stage4C：非平台 admin 不得把岗位关联到跨租户组织。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!await AreOrgsInScopeAsync(request.OrganizationIds ?? Array.Empty<long>(), scope))
+            throw new UnauthorizedAccessException("无权关联跨租户组织");
 
         var position = new SysPosition
         {
@@ -152,6 +220,11 @@ public class PositionService : IPositionService
             .FirstOrDefaultAsync(p => p.FID == id);
 
         if (position == null)
+            throw new InvalidOperationException("岗位不存在");
+
+        // R5·stage4C：非平台 admin 不得改写仅属他租户的岗位。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!await IsPositionInScopeAsync(id, scope))
             throw new InvalidOperationException("岗位不存在");
 
         if (await _context.Set<SysPosition>().AnyAsync(p => p.FCode == request.Code && p.FID != id))
@@ -199,6 +272,11 @@ public class PositionService : IPositionService
         if (position == null)
             throw new InvalidOperationException("岗位不存在");
 
+        // R5·stage4C：非平台 admin 不得删除仅属他租户的岗位。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!await IsPositionInScopeAsync(id, scope))
+            throw new InvalidOperationException("岗位不存在");
+
         // 删除关联关系
         var deptLinks = await _context.Set<SysPositionDepartment>().Where(pd => pd.FPositionId == id).ToListAsync();
         var userLinks = await _context.Set<SysUserPosition>().Where(up => up.FPositionId == id).ToListAsync();
@@ -219,6 +297,13 @@ public class PositionService : IPositionService
         var position = await _context.Set<SysPosition>().FindAsync(positionId);
         if (position == null)
             throw new InvalidOperationException("岗位不存在");
+
+        // R5·stage4C：非平台 admin 不得给他租户岗位分配，或关联跨租户组织。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!await IsPositionInScopeAsync(positionId, scope))
+            throw new InvalidOperationException("岗位不存在");
+        if (!await AreOrgsInScopeAsync(organizationIds, scope))
+            throw new UnauthorizedAccessException("无权关联跨租户组织");
 
         // 移除现有关联
         var existingLinks = await _context.Set<SysPositionDepartment>()
@@ -249,6 +334,13 @@ public class PositionService : IPositionService
         if (position == null)
             throw new InvalidOperationException("岗位不存在");
 
+        // R5·stage4C：非平台 admin 不得给他租户岗位分配，或分配跨租户用户。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!await IsPositionInScopeAsync(positionId, scope))
+            throw new InvalidOperationException("岗位不存在");
+        if (!await AreUsersInScopeAsync(userIds, scope))
+            throw new UnauthorizedAccessException("无权分配跨租户用户");
+
         // 移除现有关联
         var existingLinks = await _context.Set<SysUserPosition>()
             .Where(up => up.FPositionId == positionId).ToListAsync();
@@ -274,6 +366,11 @@ public class PositionService : IPositionService
 
     public async Task<List<PositionDto>> GetByOrganizationAsync(long orgId)
     {
+        // R5·stage4C：非平台 admin 不得查询他租户组织的岗位。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!await AreOrgsInScopeAsync(new[] { orgId }, scope))
+            return new List<PositionDto>();
+
         return await _context.Set<SysPositionDepartment>()
             .Where(pd => pd.FOrganizationId == orgId)
             .Select(pd => pd.Position)
@@ -298,6 +395,11 @@ public class PositionService : IPositionService
 
     public async Task<List<PositionDto>> GetByUserAsync(long userId)
     {
+        // R5·stage4C：非平台 admin 不得查询他租户用户的岗位。
+        var scope = await _tenantScope.ResolveAsync();
+        if (!await AreUsersInScopeAsync(new[] { userId }, scope))
+            return new List<PositionDto>();
+
         return await _context.Set<SysUserPosition>()
             .Where(up => up.FUserId == userId)
             .Select(up => up.Position)

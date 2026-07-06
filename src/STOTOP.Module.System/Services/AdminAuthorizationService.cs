@@ -21,16 +21,42 @@ public class AdminAuthorizationService : IAdminAuthorizationService
         return user.Claims.Any(c => c.Type == ClaimTypes.Role && c.Value == AdminRoleClaim);
     }
 
-    // 全局判定 admin：SysUserRole 非 IOrgScoped，Set<> 不带组织过滤，与原 raw SQL 同口径。
-    // 用 AnyAsync(→EXISTS) 而非 SqlQueryRaw+First，避免 EF[10103]（First 无 OrderBy）噪音警告；勿改回 raw SQL。
+    // 全局判定 admin：SysUserRole 非 IOrgScoped，Set<> 不带组织过滤。
+    // R5：从"持 FRoleId=1"改为"持 F是否管理员=1 的角色"——含各租户私有 admin 角色（存量 role1 迁移 V15 已置 1）。
+    // 仍用 AnyAsync(→EXISTS) 避免 EF[10103] 噪音；勿改回 raw SQL。
     public async Task<bool> IsAdminByUserIdAsync(STOTOPDbContext db, long userId)
         => await db.Set<SysUserRole>()
-            .AnyAsync(ur => ur.FUserId == userId && ur.FRoleId == AdminRoleId);
+            .Where(ur => ur.FUserId == userId)
+            .Join(db.Set<SysRole>().Where(r => r.FIsAdmin), ur => ur.FRoleId, r => r.FID, (ur, r) => r.FID)
+            .AnyAsync();
 
     public async Task<bool> IsPlatformAdminByUserIdAsync(STOTOPDbContext db, long userId)
     {
         // SYS用户 非 ITenantScoped（无租户过滤器）→ LINQ 直查安全；provider-agnostic 可 InMemory 测。
         return await db.Set<STOTOP.Module.System.Entities.SysUser>()
             .AnyAsync(u => u.FID == userId && u.FIsPlatformAdmin);
+    }
+
+    // R5·stage4C 前置：平台级 vs 租户级 admin 单一真源（AuthService 签 JWT / 权限码裁剪均据此）。
+    // 持任一 F作用域=platform 的管理员角色 → 平台级(全权)；否则持 F作用域=tenant 的 → 租户级(收敛到其租户)。
+    public Task<AdminScope> ResolveAdminScopeAsync(STOTOPDbContext db, long userId)
+        => ResolveAdminScopeCoreAsync(db, userId);
+
+    /// <summary>作用域解析的纯查询实现，供 AuthService 静态权限/菜单方法与本服务实例方法共用（单一真源）。</summary>
+    public static async Task<AdminScope> ResolveAdminScopeCoreAsync(STOTOPDbContext db, long userId)
+    {
+        var adminRoles = await db.Set<SysUserRole>()
+            .Where(ur => ur.FUserId == userId)
+            .Join(db.Set<SysRole>().Where(r => r.FIsAdmin), ur => ur.FRoleId, r => r.FID,
+                (ur, r) => new { r.FScope, r.FTenantId })
+            .ToListAsync();
+
+        if (adminRoles.Count == 0)
+            return new AdminScope(false, false, Array.Empty<long>());
+        if (adminRoles.Any(r => r.FScope == SysRoleScope.Platform))
+            return new AdminScope(true, true, Array.Empty<long>());
+
+        var tenantIds = adminRoles.Select(r => r.FTenantId).Where(t => t != 0).Distinct().ToArray();
+        return new AdminScope(true, false, tenantIds);
     }
 }
