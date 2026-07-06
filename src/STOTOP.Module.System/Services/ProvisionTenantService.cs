@@ -18,6 +18,14 @@ namespace STOTOP.Module.System.Services;
 /// 每行【显式赋 FTenantId=根组织FID】，并用 <see cref="ITenantScopeFactory"/> 收敛读上下文（防非平台作用域下 fail-closed 读空）。
 /// </para>
 /// 不变量：租户ID = 根组织节点 FID = PLT租户.FID（三者一致，与 MDSTO 单客户口径相同，供冻结中间件/成员/切换统一解析）。
+/// <para>
+/// ⚠️ stage4C 阻断项（多租户运行时登录接线前必须先解决）：本服务建的“租户私有 admin 角色”FIsAdmin=true，
+/// 登录会带 OA_ADMIN claim → 短路所有 [RequirePermission] 拿全量权限码；而 SYS用户/SYS角色/SYS组织架构 等管理类表
+/// 非 ITenantScoped、无租户隔离——故租户级 admin 一旦能登录，即可跨租户读写他租户用户/角色（越权）。
+/// 当前不可利用（运行时多租户解析属 stage4C，尚未接线，仅 MDSTO 单客户可登录）。
+/// 解阻方案（见 design/23 §12）：① RequirePermission/JWT 区分 platform vs tenant admin（tenant admin 不发全量短路，走实授权限码）；
+/// ② 给管理类表补租户维度隔离 + UserController/RoleController 租户过滤。切勿在未解此项前接通 stage4C。
+/// </para>
 /// </summary>
 public class ProvisionTenantService : IProvisionTenantService
 {
@@ -42,23 +50,30 @@ public class ProvisionTenantService : IProvisionTenantService
     {
         Validate(request);
         var rootOrgCode = string.IsNullOrWhiteSpace(request.RootOrgCode) ? request.Code : request.RootOrgCode!.Trim();
-
-        // ---- 唯一性前置校验 ----
-        if (await _ctx.Set<PltTenant>().AnyAsync(t => t.FCode == request.Code))
-            throw new InvalidOperationException($"租户编号已存在：{request.Code}");
-        if (await _ctx.Set<SysUser>().AnyAsync(u => u.FAccount == request.AdminAccount))
-            throw new InvalidOperationException($"管理员账号已存在：{request.AdminAccount}");
-        if (await _ctx.Set<SysOrganization>().IgnoreQueryFilters().AnyAsync(o => o.FCode == rootOrgCode))
-            throw new InvalidOperationException($"组织编码已存在：{rootOrgCode}");
-
-        var orgType = await _ctx.Set<SysOrgType>().FirstOrDefaultAsync(t => t.FKind == request.RootOrgKind)
-            ?? throw new InvalidOperationException($"未找到组织类别 {request.RootOrgKind} 对应的组织类型，无法建根节点");
-
         var relational = _ctx.Database.IsRelational();
-        await using var tx = relational ? await _ctx.Database.BeginTransactionAsync() : null;
-        try
+
+        // 初始密码在事务外生成：自开事务经 ExecutionStrategy 执行，失败会以全新事务整体重跑 writes——
+        // tempPassword/hash 须稳定，保证返回值与落库 hash 一致。
+        var tempPassword = GenerateTempPassword();
+        var passwordHash = BCrypt.Net.BCrypt.HashPassword(tempPassword);
+
+        ProvisionTenantResult result = null!;
+
+        // ---- 编排 writes（可重复执行：唯一性预检幂等、纯 DB 写；strategy 重试整体重跑）----
+        async Task WritesAsync()
         {
-            // ---- 1. 建组织根节点（非 IOrgScoped/非 ITenantScoped，直写安全）----
+            // 唯一性前置校验
+            if (await _ctx.Set<PltTenant>().AnyAsync(t => t.FCode == request.Code))
+                throw new InvalidOperationException($"租户编号已存在：{request.Code}");
+            if (await _ctx.Set<SysUser>().AnyAsync(u => u.FAccount == request.AdminAccount))
+                throw new InvalidOperationException($"管理员账号已存在：{request.AdminAccount}");
+            if (await _ctx.Set<SysOrganization>().IgnoreQueryFilters().AnyAsync(o => o.FCode == rootOrgCode))
+                throw new InvalidOperationException($"组织编码已存在：{rootOrgCode}");
+
+            var orgType = await _ctx.Set<SysOrgType>().FirstOrDefaultAsync(t => t.FKind == request.RootOrgKind)
+                ?? throw new InvalidOperationException($"未找到组织类别 {request.RootOrgKind} 对应的组织类型，无法建根节点");
+
+            // 1. 建组织根节点（非 IOrgScoped/非 ITenantScoped，直写安全）
 #pragma warning disable CS0618
             var rootOrg = new SysOrganization
             {
@@ -79,29 +94,29 @@ public class ProvisionTenantService : IProvisionTenantService
             await _ctx.SaveChangesAsync();
             var rootId = rootOrg.FID;
 
-            // ---- 2. 物化派生列(F租户ID=自身)+闭包(自反)+范围根 ----
+            // 2. 物化派生列(F租户ID=自身)+闭包(自反)+范围根
             OrgTreeMaterializer.RebuildAll(_ctx);
 
-            // ---- 3. 建 PLT租户，FID=根组织FID（保不变量；关系库需 IDENTITY_INSERT）----
+            // 3. 建 PLT租户，FID=根组织FID（保不变量；关系库需 IDENTITY_INSERT）
             await InsertPltTenantAsync(request, rootId, relational);
 
-            // ---- 4. 建初始管理员用户（随机密码，BCrypt）----
-            var tempPassword = GenerateTempPassword();
+            // 4. 建初始管理员用户（随机密码，BCrypt）
             var adminUser = new SysUser
             {
                 FUID = Guid.NewGuid().ToString("N"),
                 FName = request.AdminName,
                 FAccount = request.AdminAccount,
-                FPasswordHash = BCrypt.Net.BCrypt.HashPassword(tempPassword),
+                FPasswordHash = passwordHash,
                 FPhone = request.AdminPhone,
                 FStatus = 1,
-                FIsPlatformAdmin = false, // 租户管理员绝非平台超管
+                FIsPlatformAdmin = false, // 租户管理员绝非平台超管（不得打进 /api/platform/*）
             };
             await _ctx.Set<SysUser>().AddAsync(adminUser);
             await _ctx.SaveChangesAsync();
             var userId = adminUser.FID;
 
-            // ---- 5. 建租户私有 admin 角色（FScope=tenant/FTenantId=根组织FID/FIsAdmin=true）----
+            // 5. 建租户私有 admin 角色（FScope=tenant/FTenantId=根组织FID/FIsAdmin=true）
+            //    ⚠️ 见类注释 stage4C 阻断项：FIsAdmin 目前授全量权限码，管理类表未租户隔离 → 接线前须先解。
             var adminRole = new SysRole
             {
                 FName = "租户管理员",
@@ -116,7 +131,7 @@ public class ProvisionTenantService : IProvisionTenantService
             await _ctx.SaveChangesAsync();
             var roleId = adminRole.FID;
 
-            // ---- 6. 授角色 + 建成员(已接受) + 主任职(SYS用户组织) ----
+            // 6. 授角色 + 建成员(已接受) + 主组织(SYS用户组织)
             await _ctx.Set<SysUserRole>().AddAsync(new SysUserRole
             {
                 FUserId = userId,
@@ -144,8 +159,8 @@ public class ProvisionTenantService : IProvisionTenantService
             await _ctx.SaveChangesAsync();
             var memberId = member.FID;
 
-            // ---- 7. 主任职(SYS任职, ITenantScoped) + 重算 R8 派生授权 ----
-            // 收敛读上下文到新租户（非平台作用域下 fail-closed 读须命中）；写行显式 FTenantId。
+            // 7. 主任职(SYS任职, ITenantScoped) + 重算 R8 派生授权
+            //    收敛读上下文到新租户（非平台作用域下 fail-closed 读须命中）；写行显式 FTenantId。
             using (_tenantScope.Enter(rootId, "tenant-provision-r5"))
             {
                 await _ctx.Set<SysAppointment>().AddAsync(new SysAppointment
@@ -163,10 +178,7 @@ public class ProvisionTenantService : IProvisionTenantService
                 await _scopeGrant.RecomputeScopeGrantsAsync(userId, rootId);
             }
 
-            if (tx != null) await tx.CommitAsync();
-
-            _logger.LogInformation("R5 开通租户成功 tenant={TenantId} code={Code} admin={Admin}", rootId, request.Code, request.AdminAccount);
-            return new ProvisionTenantResult
+            result = new ProvisionTenantResult
             {
                 TenantId = rootId,
                 RootOrgId = rootId,
@@ -176,11 +188,39 @@ public class ProvisionTenantService : IProvisionTenantService
                 TempPassword = tempPassword,
             };
         }
-        catch
+
+        await WithTransactionAsync(relational, WritesAsync);
+
+        _logger.LogInformation("R5 开通租户成功 tenant={TenantId} code={Code} admin={Admin}",
+            result.TenantId, request.Code, request.AdminAccount);
+        return result;
+    }
+
+    /// <summary>把开通 writes 包进事务：关系库自开事务【须经 ExecutionStrategy 执行】——DbContext 启用了
+    /// EnableRetryOnFailure，直接 BeginTransaction 会抛 "SqlServerRetryingExecutionStrategy does not support
+    /// user-initiated transactions"。已在外层事务则复用；InMemory 退化为直接执行。（同 VoucherService.WithTransactionAsync）</summary>
+    private async Task WithTransactionAsync(bool relational, Func<Task> writes)
+    {
+        if (!relational || _ctx.Database.CurrentTransaction != null)
         {
-            if (tx != null) await tx.RollbackAsync();
-            throw;
+            await writes();
+            return;
         }
+        var strategy = _ctx.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await _ctx.Database.BeginTransactionAsync();
+            try
+            {
+                await writes();
+                await tx.CommitAsync();
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        });
     }
 
     private async Task InsertPltTenantAsync(ProvisionTenantRequest request, long rootId, bool relational)
