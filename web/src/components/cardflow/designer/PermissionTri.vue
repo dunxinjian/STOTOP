@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * 三态权限胶囊（设计 A6/E3）：可编辑/只读/隐藏。
+ * 权限胶囊（设计 A6/E3）：可编辑/只读/脱敏/隐藏四态（对齐 StageViewProfile access）。
  * 锁定项划线+tooltip 原因+点击无效（设计 C2「禁用永远给原因」）。
- * mock 对应 .tri（mock-shared.css）：胶囊三格、选中格按语义着色。
+ * mock 对应 .tri（mock-shared.css）：胶囊分格、选中格按语义着色。
  */
 import { computed } from 'vue'
 import { buildTriStates, type PermissionValue } from './permissionTriShared'
@@ -11,14 +11,17 @@ const props = withDefaults(defineProps<{
   value: PermissionValue
   lockedStates?: PermissionValue[]
   lockReason?: string
+  /** 可选裁剪展示子集（如矩阵紧凑列） */
+  values?: PermissionValue[]
 }>(), {
   lockedStates: () => [],
   lockReason: '该项被锁定',
+  values: undefined,
 })
 
 const emit = defineEmits<{ 'update:value': [v: PermissionValue] }>()
 
-const states = computed(() => buildTriStates(props.value, props.lockedStates))
+const states = computed(() => buildTriStates(props.value, props.lockedStates, props.values))
 
 function onSelect(v: PermissionValue, locked: boolean) {
   if (locked || v === props.value) return
@@ -81,16 +84,22 @@ function onSelect(v: PermissionValue, locked: boolean) {
       outline-offset: -2px;
     }
 
-    &.is-active-edit {
+    &.is-active-editable {
       font-weight: 600;
       color: $color-primary;
       background: $color-primary-light;
     }
 
-    &.is-active-read {
+    &.is-active-readonly {
       font-weight: 600;
       color: $text-secondary;
       background: $bg-page;
+    }
+
+    &.is-active-masked {
+      font-weight: 600;
+      color: var(--color-warning-text);
+      background: var(--color-warning-light);
     }
 
     &.is-active-hidden {
@@ -104,8 +113,9 @@ function onSelect(v: PermissionValue, locked: boolean) {
       text-decoration: line-through;
       cursor: not-allowed;
 
-      &.is-active-edit,
-      &.is-active-read,
+      &.is-active-editable,
+      &.is-active-readonly,
+      &.is-active-masked,
       &.is-active-hidden {
         text-decoration: none; // 锁定但为当前值：保持可读
       }
