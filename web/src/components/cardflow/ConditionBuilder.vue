@@ -9,7 +9,10 @@ import {
   OPERATOR_LABELS,
   CONDITION_TYPE_LABELS,
   VALUELESS_OPERATORS,
+  SYSTEM_CONDITION_FIELDS,
   getOperatorsForType,
+  getDisabledReason,
+  isTypeConditionable,
   isGroupNode,
 } from './conditionBuilderShared'
 
@@ -102,6 +105,38 @@ const blocks = computed<DisplayBlock[]>(() => {
   return result
 })
 
+// ==================== 字段下拉三组（C8：表单字段 / 系统字段；派生字段暂无来源不渲染） ====================
+// 系统字段键名 initiator.id / initiatorOrg.id 已对 ConditionContextFactory 核实（见 conditionBuilderShared）。
+
+interface FieldChoice extends FieldOption {
+  disabled: boolean
+  disabledReason: string
+}
+
+function toChoice(f: FieldOption): FieldChoice {
+  const ok = isTypeConditionable(f.type)
+  return { ...f, disabled: !ok, disabledReason: ok ? '' : getDisabledReason(f.type) }
+}
+
+const formFieldChoices = computed<FieldChoice[]>(() => props.fields.map(toChoice))
+const systemFieldChoices = computed<FieldChoice[]>(() =>
+  SYSTEM_CONDITION_FIELDS
+    .filter((sf) => !props.fields.some((f) => f.key === sf.key))
+    .map(toChoice),
+)
+
+/** 字段查找合并系统字段，摘要/类型/算子对系统字段同样生效 */
+const allFields = computed<FieldOption[]>(() => [...props.fields, ...systemFieldChoices.value])
+
+function fieldTypeTag(type: string): string {
+  return CONDITION_TYPE_LABELS[type] || type
+}
+
+function filterFieldOption(input: string, option: any): boolean {
+  const text = String(option?.title ?? '')
+  return text.toLowerCase().includes(input.toLowerCase())
+}
+
 // ==================== 辅助方法 ====================
 
 function asItem(node: ConditionItem | ConditionGroup): ConditionItem {
@@ -113,17 +148,17 @@ function asGroup(node: ConditionItem | ConditionGroup): ConditionGroup {
 }
 
 function getFieldType(fieldKey: string): string {
-  const field = props.fields.find((f) => f.key === fieldKey)
+  const field = allFields.value.find((f) => f.key === fieldKey)
   return field?.type || 'text'
 }
 
 function getFieldLabel(fieldKey: string): string {
-  const field = props.fields.find((f) => f.key === fieldKey)
+  const field = allFields.value.find((f) => f.key === fieldKey)
   return field?.label || fieldKey
 }
 
 function getFieldEnumOptions(fieldKey: string) {
-  const field = props.fields.find((f) => f.key === fieldKey)
+  const field = allFields.value.find((f) => f.key === fieldKey)
   return normalizeOptionList(field?.options).map((opt) => ({ value: opt.value, label: opt.label }))
 }
 
@@ -354,17 +389,44 @@ defineExpose({ conditionSummary })
 
             <!-- 条件行：字段 / 算子 / 值 三段 -->
             <div v-else class="cb-rule">
-              <!-- 字段选择 -->
+              <!-- 字段选择（C8：表单/系统分组 + 类型徽标 + 禁用说明 + 搜索） -->
               <a-select
                 :value="asItem(row.node).field || undefined"
                 placeholder="选择字段"
                 class="cb-field-select"
+                show-search
+                :filter-option="filterFieldOption"
                 :disabled="disabled"
                 @change="(val: any) => updateRowField(block, ri, val)"
               >
-                <a-select-option v-for="f in fields" :key="f.key" :value="f.key">
-                  {{ f.label }}
-                </a-select-option>
+                <a-select-opt-group label="表单字段">
+                  <a-select-option
+                    v-for="f in formFieldChoices"
+                    :key="f.key"
+                    :value="f.key"
+                    :title="f.label"
+                    :disabled="f.disabled"
+                  >
+                    <span class="cb-field-opt">
+                      <span class="cb-field-opt__label">{{ f.label }}</span>
+                      <span v-if="f.disabled" class="cb-field-opt__reason">{{ f.disabledReason }}</span>
+                      <span v-else class="cb-field-opt__type">{{ fieldTypeTag(f.type) }}</span>
+                    </span>
+                  </a-select-option>
+                </a-select-opt-group>
+                <a-select-opt-group v-if="systemFieldChoices.length" label="系统字段">
+                  <a-select-option
+                    v-for="f in systemFieldChoices"
+                    :key="f.key"
+                    :value="f.key"
+                    :title="f.label"
+                  >
+                    <span class="cb-field-opt">
+                      <span class="cb-field-opt__label">{{ f.label }}</span>
+                      <span class="cb-field-opt__type">{{ fieldTypeTag(f.type) }}</span>
+                    </span>
+                  </a-select-option>
+                </a-select-opt-group>
               </a-select>
 
               <!-- 运算符选择 -->
@@ -617,6 +679,36 @@ defineExpose({ conditionSummary })
 .cb-field-select {
   flex: 1.2;
   min-width: 0;
+}
+
+.cb-field-opt {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+
+  .cb-field-opt__label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cb-field-opt__type {
+    flex: none;
+    padding: 0 6px;
+    color: var(--text-3);
+    font-size: 10px;
+    line-height: 16px;
+    background: var(--bg-muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+
+  .cb-field-opt__reason {
+    flex: none;
+    color: var(--text-disabled);
+    font-size: 10px;
+  }
 }
 
 .cb-op-select {
