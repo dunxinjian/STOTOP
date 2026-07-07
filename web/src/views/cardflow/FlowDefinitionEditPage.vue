@@ -1304,6 +1304,7 @@ function hasAdvancedStageConfig(stage: StageDefinition) {
     || stage.viewProfile?.componentAccess && Object.keys(stage.viewProfile.componentAccess).length > 0
     || stage.viewProfile?.summary?.fields?.length
     || stage.actionPolicy?.allowedActions?.length
+    || stage.actionPolicy?.opinionRequiredActions?.length
     || (stage.autoDecision && stage.autoDecision.mode !== 'none')
   )
 }

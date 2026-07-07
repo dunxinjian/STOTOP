@@ -539,6 +539,7 @@ public class FlowEngineService : IFlowEngineService
 
     public async Task<CardOperationResult> ApproveAsync(long cardId, long operatorId, ApproveRequest request)
     {
+        await EnsureOpinionProvidedAsync(cardId, "approve", request.Opinion);
         var strategy = _dbContext.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
         {
@@ -705,6 +706,10 @@ public class FlowEngineService : IFlowEngineService
 
     public async Task<CardOperationResult> RejectAsync(long cardId, long operatorId, RejectRequest request)
     {
+        await EnsureOpinionProvidedAsync(
+            cardId,
+            IsReturnToStageMode(request.ReturnMode) ? "returnToStage" : "reject",
+            request.Opinion);
         var strategy = _dbContext.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
         {
@@ -1340,6 +1345,7 @@ public class FlowEngineService : IFlowEngineService
 
     public async Task<CardOperationResult> TransferAsync(long cardId, long operatorId, TransferRequest request)
     {
+        await EnsureOpinionProvidedAsync(cardId, "transfer", request.Opinion);
         var strategy = _dbContext.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
         {
@@ -2503,6 +2509,29 @@ public class FlowEngineService : IFlowEngineService
         string action)
     {
         return _stageActionPolicy.ValidateAction(normalizedConfig, action);
+    }
+
+    /// <summary>
+    /// M2-6 意见必填校验：动作入口（事务之前）执行。信封 actionPolicy.opinionRequiredActions
+    /// 含当前动作且意见空白 → 抛 InvalidOperationException（透传 400），不进入事务。
+    /// </summary>
+    private async Task EnsureOpinionProvidedAsync(long cardId, string action, string? opinion)
+    {
+        if (!string.IsNullOrWhiteSpace(opinion)) return;
+
+        var stageDefinitionId = await (
+            from card in _dbContext.Set<CfCard>()
+            join stage in _dbContext.Set<CfStageInstance>() on card.FCurrentStageInstanceId equals stage.FID
+            where card.FID == cardId
+            select stage.FStageDefinitionId).FirstOrDefaultAsync();
+        if (stageDefinitionId == null) return;
+
+        var envelope = await LoadStageConfigAsync(stageDefinitionId);
+        if (envelope.ActionPolicy?.OpinionRequiredActions is { Count: > 0 } requiredActions
+            && requiredActions.Contains(action, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("该操作需要填写处理意见");
+        }
     }
 
     private static bool IsReturnToStageMode(string? returnMode)

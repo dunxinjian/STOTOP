@@ -54,6 +54,8 @@ public sealed class StageDetailAccessRule
 public sealed class StageActionPolicy
 {
     public List<string> AllowedActions { get; set; } = new();
+    /// <summary>需填写处理意见的动作（approve/reject/returnToStage/transfer），空=不强制。</summary>
+    public List<string> OpinionRequiredActions { get; set; } = new();
 }
 
 public sealed class StageSummaryProfile
