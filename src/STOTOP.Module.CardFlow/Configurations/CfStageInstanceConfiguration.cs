@@ -28,6 +28,7 @@ public class CfStageInstanceConfiguration : IEntityTypeConfiguration<CfStageInst
         builder.Property(e => e.FInsertSourceStageId).HasColumnName("F插入来源节点ID");
         builder.Property(e => e.FInsertContextJson).HasColumnName("F插入上下文JSON");
         builder.Property(e => e.FIsTimeout).HasColumnName("F是否超时");
+        builder.Property(e => e.FTimeoutRemindedAt).HasColumnName("F超时提醒时间");
         builder.Property(e => e.FRowVersion).HasColumnName("F乐观锁").IsRowVersion();
 
         builder.HasIndex(e => e.FCardId).HasDatabaseName("IX_CF节点执行实例_卡片");

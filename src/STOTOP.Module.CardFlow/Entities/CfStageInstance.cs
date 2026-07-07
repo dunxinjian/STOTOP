@@ -21,5 +21,7 @@ public class CfStageInstance : BaseEntity
     public long? FInsertSourceStageId { get; set; }
     public string? FInsertContextJson { get; set; }
     public bool FIsTimeout { get; set; }
+    /// <summary>一级超时提醒时间（StageTimeoutReminderJob 幂等标记，null=未提醒）</summary>
+    public DateTime? FTimeoutRemindedAt { get; set; }
     public byte[] FRowVersion { get; set; } = Array.Empty<byte>();
 }

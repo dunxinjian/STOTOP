@@ -734,6 +734,13 @@ RecurringJob.AddOrUpdate<STOTOP.Module.CardFlow.Jobs.CardFlowTimeoutJob>(
     "0 * * * *");
 app.Logger.LogInformation("已注册CardFlow节点超时检查定时任务");
 
+// CardFlow 节点超时提醒（一级）- 每30分钟（作业内部幂等靠 F超时提醒时间）
+RecurringJob.AddOrUpdate<STOTOP.Module.CardFlow.Jobs.StageTimeoutReminderJob>(
+    "cardflow-stage-timeout-reminder",
+    job => job.ExecuteAsync(),
+    "*/30 * * * *");
+app.Logger.LogInformation("已注册CardFlow节点超时提醒定时任务");
+
 // CardFlow 推送失败重试 - 每5分钟
 RecurringJob.AddOrUpdate<STOTOP.Module.CardFlow.Jobs.PushRetryJob>(
     "cardflow-push-retry",

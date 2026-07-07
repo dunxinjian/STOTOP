@@ -89,6 +89,7 @@ public static class CardFlowSeeder
             new(65, "韵达总部交易明细导入: 建 STG韵达总部交易明细(列对齐真实22列+派生收支列+F租户ID) + 导入规则3150(excelInput,符号→收支拆分+网点→经营单元 transformRules) + 自动凭证规则3151(77组品牌版映射,凭证节点未接线待财务确认) + 流程2350/版本2351/首节点5150(仅接导入) + 租户戳 (2026-07-04)", MigrateV65),
             new(66, "申通经营单元补齐(修缺陷1): STG申通总部交易明细 加 F归属网点编号列+网点编号→经营单元回填; 导入规则3130 加 网点→经营单元 transformRules; 自动凭证规则3131 164损益行加 business_unit(matchBy contains) — 与极兔/韵达口径统一 (2026-07-04)", MigrateV66),
             new(67, "极兔收支双列对齐(照韵达V65): STG极兔总部交易明细 加 F发生额收入/F发生额支出(money) + 导入规则3140 收支派生(columnMapping多映+decimalFields+transformRules符号拆分:加款正=收入/扣款负=支出取绝对值) + 回填存量 (2026-07-04)", MigrateV67),
+            new(68, "M2-7 节点超时提醒: CF节点执行实例 加 F超时提醒时间(datetime2 null, StageTimeoutReminderJob 一级提醒幂等标记) (2026-07-08)", MigrateV68),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -243,6 +244,17 @@ public static class CardFlowSeeder
         SET [F发生额收入] = CASE WHEN [F发生金额] > 0 THEN [F发生金额] ELSE 0 END,
             [F发生额支出] = CASE WHEN [F发生金额] < 0 THEN -[F发生金额] ELSE 0 END
         WHERE [F发生额收入] IS NULL OR [F发生额支出] IS NULL;");
+    }
+
+    /// <summary>
+    /// M2-7 节点超时提醒（V68）：CF节点执行实例 加 F超时提醒时间（datetime2 null）。
+    /// StageTimeoutReminderJob 一级提醒的幂等标记：null=未提醒，提醒后置 now 不再重复。
+    /// </summary>
+    private static void MigrateV68(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        ExecSql(ctx, @"IF COL_LENGTH(N'CF节点执行实例', N'F超时提醒时间') IS NULL ALTER TABLE [CF节点执行实例] ADD [F超时提醒时间] DATETIME2 NULL;");
     }
 
     // ══════════════════════════════════════════════════════════════════════

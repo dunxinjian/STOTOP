@@ -61,6 +61,7 @@ public static class CardFlowModuleExtensions
 
         // 定时任务
         services.AddScoped<CardFlowTimeoutJob>();
+        services.AddScoped<StageTimeoutReminderJob>();
         services.AddScoped<PushRetryJob>();
 
         // CRUD 服务
