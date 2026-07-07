@@ -59,6 +59,15 @@ $border-radius-lg: var(--radius-lg, 8px);
 $shadow-sm: var(--shadow-sm, 0 1px 2px rgba(18,31,53,0.05));
 $shadow-md: var(--shadow-md, 0 4px 12px rgba(18,31,53,0.08));
 $shadow-lg: var(--shadow-lg, 0 8px 24px rgba(18,31,53,0.10));
+$shadow-lift: var(--shadow-lift, 0 10px 26px rgba(18,31,53,0.16)); // 拖拽抬升（流程设计器）
+
+// ===== 流程设计器语义色（桥接 theme.ts 注入的 --color-flow-* 令牌）=====
+$color-flow-auto: var(--color-flow-auto, #7C3AED);              // 自动处理节点
+$color-flow-auto-light: var(--color-flow-auto-light, #F3EEFB);
+$color-flow-auto-border: var(--color-flow-auto-border, rgba(124,58,237,0.35));
+$color-flow-cc: var(--color-flow-cc, #C9740F);                  // 抄送节点
+$color-flow-cc-light: var(--color-flow-cc-light, #FAF0E1);
+$color-flow-cc-border: var(--color-flow-cc-border, rgba(201,116,15,0.35));
 
 // 语义阴影
 $shadow-card: 0 2px 8px rgba(0,0,0,0.06);

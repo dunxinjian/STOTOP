@@ -87,6 +87,19 @@
 | `--cf-field-auxiliary` | `#4F46E5` | 辅助核算 | | `--cf-field-bankAccount` | `#0369A1` | 银行账户 |
 | `--cf-field-voucherRef` | `#9333EA` | 凭证引用 | | | | |
 
+## 流程设计器语义色（静态常量，`applyDesignTokensCSS()` 注入，有 `variables.scss` `$` 桥接）
+
+> 竖向流程图节点/徽标着色。色相对齐 `--cf-node-*` 族（auto 复用 `#7C3AED` 保持"自动"语义一致）；抄送橙经降饱和对齐项目暖色风格（非 AntD 原橙 #fa8c16）。深色模式待深色主题立项时补值。
+
+| 令牌 | 值 | 用途 | SCSS |
+|---|---|---|---|
+| `--color-flow-auto` | `#7C3AED` | 自动处理节点主色 | `$color-flow-auto` |
+| `--color-flow-auto-light` | `#F3EEFB` | 自动节点浅底 | `$color-flow-auto-light` |
+| `--color-flow-auto-border` | `rgba(124,58,237,0.35)` | 自动节点虚线边框 | `$color-flow-auto-border` |
+| `--color-flow-cc` | `#C9740F` | 抄送节点主色 | `$color-flow-cc` |
+| `--color-flow-cc-light` | `#FAF0E1` | 抄送节点浅底 | `$color-flow-cc-light` |
+| `--color-flow-cc-border` | `rgba(201,116,15,0.35)` | 抄送节点徽标描边 | `$color-flow-cc-border` |
+
 ## 圆角
 
 | 令牌 | 值 |
@@ -104,6 +117,7 @@
 | `--shadow-sm` | `0 1px 2px rgba(18,31,53,0.05)` |
 | `--shadow-md` | `0 4px 12px rgba(18,31,53,0.08)` |
 | `--shadow-lg` | `0 8px 24px rgba(18,31,53,0.10)` |
+| `--shadow-lift` | `0 10px 26px rgba(18,31,53,0.16)`（拖拽抬升，SCSS `$shadow-lift`） |
 
 ## 字号刻度
 

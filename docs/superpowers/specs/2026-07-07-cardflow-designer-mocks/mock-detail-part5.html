@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CardFlow 设计器细化方案 · 审查修订篇（矛盾消解 / 缺陷补齐）</title>
+<link rel="stylesheet" href="mock-shared.css">
+<style>
+  kbd{display:inline-block;background:#f5f7fa;border:1px solid var(--line2);border-bottom-width:2px;border-radius:5px;padding:1px 7px;font-size:11.5px;font-family:Consolas,monospace;color:var(--sub)}
+  code{font-family:Consolas,monospace;font-size:12px;background:#f5f7fa;border-radius:4px;padding:0 5px}
+  .audit{width:100%;border-collapse:collapse;font-size:12.5px}
+  .audit th,.audit td{border:1px solid var(--line2);padding:8px 11px;text-align:left;vertical-align:top}
+  .audit th{background:#fafafa;color:var(--sub);font-weight:600;white-space:nowrap}
+  .audit .sev-c{color:#cf1322;font-weight:700}
+  .audit .sev-d{color:#d46b08;font-weight:700}
+  .audit .sev-p{color:#1677ff;font-weight:700}
+  .fixed{background:var(--green-1);color:#389e0d;border:1px solid var(--green-b);border-radius:4px;padding:0 7px;font-size:11px;white-space:nowrap}
+  .newscr{background:var(--blue-1);color:var(--blue);border:1px solid var(--blue-2);border-radius:4px;padding:0 7px;font-size:11px;white-space:nowrap}
+  .timeline2{display:flex;flex-direction:column;gap:0;font-size:12.5px}
+  .tl{display:flex;gap:12px}
+  .tl .tlt{width:110px;color:var(--mute);text-align:right;flex:none;font-size:11.5px;padding-top:2px}
+  .tl .tlb{border-left:2px solid var(--blue-2);padding:0 0 16px 14px;position:relative;flex:1}
+  .tl .tlb::before{content:"";position:absolute;left:-6px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--blue)}
+  .tl:last-child .tlb{border-left-color:transparent;padding-bottom:0}
+  .tl .tlb.warn::before{background:var(--gold)}
+  .tl .tlb.err::before{background:var(--red)}
+  .tl .tlb.ok::before{background:var(--green)}
+  .mininode{width:150px;background:#fff;border:1px solid var(--line2);border-radius:7px;padding:6px 9px;font-size:11.5px;display:flex;gap:6px;align-items:center;box-shadow:var(--shadow)}
+  .mininode .mi3{width:17px;height:17px;border-radius:4px;background:var(--blue);color:#fff;font-size:9.5px;display:flex;align-items:center;justify-content:center;flex:none;font-weight:700}
+  .vline{width:2px;height:12px;background:var(--line2)}
+  .flowmini{display:flex;flex-direction:column;align-items:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="doc-hd">
+    <h1>CardFlow 设计器细化方案 · 审查修订篇</h1>
+    <p>对四层 46 屏做对抗性交叉审查的结果：<b style="color:#fff">3 处逻辑矛盾（已在原文件就地修订）、7 处缺陷（本篇 E1-E7 逐个补设计）</b>。E0 是完整审查清单——含已修项与"审过无碍"的存疑项结论，供后续实施时复核。</p>
+    <div class="tags">
+      <span>E0 审查清单</span><span>E1 退回×重提×条件变化</span><span>E2 干跑边界与失败态</span><span>E3 矩阵×抽屉×分支的权限归属</span>
+      <span>E4 导入触发型差异</span><span>E5 模板/复制的引用重绑</span><span>E6 命中率试算冷启动</span><span>E7 接管竞态与锁细则</span>
+    </div>
+  </div>
+
+  <!-- ============ E0 AUDIT TABLE ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">E0</div>
+      <div><h2>审查清单总表</h2>
+        <p>矛盾（C）= 两处规格互相冲突；缺陷（D）= 场景没接住；打磨（P）= 可再细化。右列=处置。</p></div>
+    </div>
+    <div class="panel">
+      <div class="panel-bd" style="padding:0;overflow:auto">
+        <table class="audit">
+          <tr><th style="width:52px">编号</th><th style="width:270px">问题</th><th>分析</th><th style="width:150px">处置</th></tr>
+          <tr><td class="sev-c">C-M1</td><td>撤销 vs 自动保存矛盾：C5 说"自动保存防抖 2s 落库"，C6 说"历史仅存内存"——已落库的操作能否 Ctrl+Z？未定义，两种读法都通</td><td>必须显式定义：撤销栈与保存流水<b>解耦</b>，撤销已保存操作 = 草稿回退到更早态并再次自动保存。否则用户心智是"保存了就撤不了"，撤销功能价值减半</td><td><span class="fixed">✓ 已修 C6 原文</span></td></tr>
+          <tr><td class="sev-c">C-M2</td><td>选项删除强度矛盾：A2① 说选项删除"提示确认并同步"，但字段级路由依赖（屏2）是"删除被拦截"。被引用的选项删掉后条件引用空集=分支永不命中，比删字段更隐蔽</td><td>统一为同一强度：<b>被条件引用的选项删除=拦截</b>，先去分支解除引用；改名=自动同步。"确认后删"会造出诊断都难发现的死分支</td><td><span class="fixed">✓ 已修 A2 原文</span></td></tr>
+          <tr><td class="sev-c">C-M3</td><td>"带错可关闭"范围过宽：C4 说"抽屉带错可关闭"，但条件编辑器/发布确认是模态——模态带错关闭后错误挂到哪？没有宿主节点角标可挂（条件编辑器错误属于"分支"，分支头无角标定义）</td><td>收窄规则：<b>抽屉（非模态、有宿主实体）带错可关；模态（短事务）就地解决或取消</b>。同时给分支头补错误角标（E3 一并定义）</td><td><span class="fixed">✓ 已修 C4 原文</span></td></tr>
+          <tr><td class="sev-d">D-1</td><td>退回×重提×路由条件变化：B1 重提二选一 + A7 退回目标，但都没接住"重提时改了金额跨档"的场景——回到退回节点会跳过本应改变的分支判定</td><td>核心业务漏洞：中额单退回改成大额金额，「回到退回节点」将绕过总监审批。同时 A7/B1 两处配置语义重叠（A7 的"退回修改后直接返回本节点"就是重提走向），违反单一真源</td><td><span class="newscr">E1 补设计</span>＋<span class="fixed">已删 A7 重复项</span></td></tr>
+          <tr><td class="sev-d">D-2</td><td>干跑只画了理想态：屏 7 的输入是手填样例值，但明细表怎么填？必填 20 个字段全要填吗？干跑遇到"处理人解析失败/分支无命中"显示什么？</td><td>干跑是本方案最大卖点，边界态不定义=演示功能。需要：样例值快捷来源（历史卡片一键代入）、必填豁免、失败态三例</td><td><span class="newscr">E2 补设计</span></td></tr>
+          <tr><td class="sev-d">D-3</td><td>三处权限入口的写入归属未闭环：抽屉 Tab③、全局矩阵、分支内节点——矩阵列怎么排分支里的节点？兜底分支未展开时矩阵显示什么？</td><td>矩阵列序=流程深度优先序，分支节点列头挂分支名徽标；另定义分支头错误角标（承接 C-M3）</td><td><span class="newscr">E3 补设计</span></td></tr>
+          <tr><td class="sev-d">D-4</td><td>导入触发型流程整套设计没差异化：基础信息选了"导入触发"后，卡片设计（无人填表）、发起节点（无发起人）、干跑（无样例可填）都应变化，46 屏全按人工发起画</td><td>导入型是 CardFlow 主力场景（总部交易明细等 12 个流程）。需要：步骤 2 改"数据结构"语义、发起节点替换为"导入源"节点、干跑改"取样例行"</td><td><span class="newscr">E4 补设计</span></td></tr>
+          <tr><td class="sev-d">D-5</td><td>模板创建/复制流程后，引用类配置（处理人指定成员、通知对象、凭证规则组）在新环境可能悬空：A1 只画了入口没画落地后的引用校验</td><td>复制/模板落地时跑一次"引用重绑检查"，悬空项集中列出逐个补（类似 IDE 的 import 修复）</td><td><span class="newscr">E5 补设计</span></td></tr>
+          <tr><td class="sev-d">D-6</td><td>命中率试算（B4）冷启动没定义：新流程没有 30 天历史；条件引用新字段时历史卡片无此字段值</td><td>三态降级：有历史→百分比；字段缺值→标注"按 N/412 张有值卡片"；零历史→隐藏试算区显示"发布后累积"</td><td><span class="newscr">E6 补设计</span></td></tr>
+          <tr><td class="sev-d">D-7</td><td>接管竞态：C5 说"60 秒未响应或同意则移交"——对方正在输入中被移交，其防抖未落库的 2 秒内容丢不丢？双方同时点"申请接管"怎么办？</td><td>移交协议补三条：移交前强制 flush 对方未保存态；接管请求全局唯一（后到者看到"已有接管请求排队中"）；移交瞬间对方界面转只读+toast</td><td><span class="newscr">E7 补设计</span></td></tr>
+          <tr><td class="sev-p">P-1</td><td>矩阵「批量列操作」缺失：D4-② 给了行分组，但"把'抄送归档'列整列设为隐藏"没有入口</td><td>矩阵列头加下拉：整列可编辑/只读/隐藏 + 按上一列复制</td><td><span class="newscr">并入 E3</span></td></tr>
+          <tr><td class="sev-p">P-2</td><td>发布确认的变更清单（B6）没定义"分支内条件变化"怎么描述——结构 diff 对条件表达式这类值 diff 需要专门渲染</td><td>条件 diff 用"旧 → 新"内联式：<code>金额 ≥ 5000 → 金额 ≥ 10000</code>，比结构树省认知</td><td><span class="newscr">并入 E1 示例</span></td></tr>
+          <tr><td class="sev-p">P-3</td><td>审过无碍但需实施注意（结论存档）：① D2"切换节点不弹窗"与 C5"保存失败态"组合——切换时保存失败不阻塞切换，失败横幅全局出现即可；② A8 超时链 12/24/48h 三档独立开关的时序约束（后档须 ≥ 前档）由输入校验兜住；③ C1 选择器"依次审批顺序=已选顺序"与 A5 类型参数（如多级主管自然有序）不冲突——动态类型顺序由解析器决定，选择器顺序仅作用于静态成员</td><td>无需改设计，实施时按此结论落</td><td><span class="fixed">结论存档</span></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ E1 RETURN x RESUBMIT ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">E1</div>
+      <div><h2>退回 × 重提 × 路由条件变化（补 D-1）</h2>
+        <p>单一真源：重提走向只在发起节点配置。核心新规则：重提修改了路由条件字段 → 强制重走分支判定。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1.15fr 1fr;gap:14px">
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">场景时间线：中额单被退回后改成大额</div>
+        <div class="panel-bd">
+          <div class="timeline2">
+            <div class="tl"><div class="tlt">发起</div><div class="tlb">张伟提交 ¥8,000 → 命中「中额」分支 → 财务经理李强审批</div></div>
+            <div class="tl"><div class="tlt">退回</div><div class="tlb warn">李强退回发起人：「发票金额与明细不符，请更正」</div></div>
+            <div class="tl"><div class="tlt">重提·改值</div><div class="tlb err">张伟更正为 <b>¥12,000</b>（触碰路由条件字段「报销金额」，且跨档 中额→大额）</div></div>
+            <div class="tl"><div class="tlt">系统裁决</div><div class="tlb ok"><b>忽略「回到退回节点」配置，强制重走分支判定</b> → 命中「大额」→ 财务总监会签。时间线插入系统事件：<span class="tag b">因条件字段变化重新路由：金额 8,000→12,000（中额→大额）</span></div></div>
+            <div class="tl"><div class="tlt">对照</div><div class="tlb">若重提只改了「报销事由」（非路由字段）→ 按配置「回到退回节点」直接回李强，不重走</div></div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="panel">
+          <div class="panel-hd" style="font-size:13px">规则矩阵（重提走向裁决）</div>
+          <div class="panel-bd" style="padding:0">
+            <table class="audit">
+              <tr><th>配置</th><th>未改路由字段</th><th>改了路由字段</th></tr>
+              <tr><td>回到退回节点</td><td>回退回节点</td><td class="sev-c">强制重走分支判定</td></tr>
+              <tr><td>重走全程</td><td>重走全程</td><td>重走全程</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-hd" style="font-size:13px">条件 diff 渲染（并入 P-2 · 用于发布变更清单）</div>
+          <div class="panel-bd" style="font-size:12.5px">
+            <div class="fplist">
+              <div class="fprow"><span class="tag y" style="margin-right:8px">改</span><span class="fn" style="font-family:Consolas,monospace;font-size:12px">大额：金额 ≥ <s style="color:#cf1322">5000</s> → <b style="color:#389e0d">10000</b></span></div>
+              <div class="fprow"><span class="tag g" style="margin-right:8px">增</span><span class="fn" style="font-family:Consolas,monospace;font-size:12px">大额：+ 且 费用类型 属于 [差旅]</span></div>
+            </div>
+            <div class="muted" style="font-size:11.5px;margin-top:8px">值级 diff 内联渲染（旧删除线→新加粗），不展结构树。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes win">
+      <h4>设计裁决</h4>
+      <ul>
+        <li><b>业务正确性 > 用户配置</b>：跨档不重审是真实资损漏洞，系统裁决优先，且在时间线留系统事件保审计。</li>
+        <li><b>判定粒度=是否跨分支</b>：改了金额但仍在中额档（8000→9000）→ 不算跨档，仍回退回节点（避免小改动被强制重走的打扰）。</li>
+        <li>A7 动作 Tab 的重复配置项已删除，改为指向发起节点的说明文字——单一真源。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ E2 DRYRUN EDGE ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">E2</div>
+      <div><h2>干跑边界与失败态（补 D-2）</h2>
+        <p>样例值三来源；必填豁免原则；三类失败态的画布呈现。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:14px">
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">① 样例值来源（输入区顶部）</div>
+        <div class="panel-bd">
+          <div class="seg" style="margin-bottom:12px"><span class="on">手动填写</span><span>取历史卡片</span><span>随机生成</span></div>
+          <div class="optlist" style="margin-bottom:10px">
+            <div class="opt"><div><div class="ot" style="font-size:12.5px">取历史卡片：搜索单号/发起人 → 一键代入全部字段值</div><div class="od">最常用：用"上周那张出问题的单子"复现路径；跨版本字段缺失项标黄手补</div></div></div>
+            <div class="opt"><div><div class="ot" style="font-size:12.5px">随机生成：按字段类型生成合法随机值</div><div class="od">连点 5 次≈粗糙的路径覆盖测试；每次生成后命中分支名闪现在按钮旁</div></div></div>
+          </div>
+          <div style="font-size:12.5px;color:var(--sub);line-height:1.8">
+            <b>必填豁免</b>：干跑只要求填<b>路由条件引用的字段</b>（标 🔗，缺失则阻断干跑并高亮）；其他必填字段留空按空值参与——脱敏/呈现预览不受影响，卡片预览中空值显示 <b>—</b>。<br>
+            <b>明细表</b>：默认代入 2 行示意数据（汇总字段据此计算），可展开编辑行。
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">② 三类失败态（画布呈现）</div>
+        <div class="panel-bd" style="background:var(--bg)">
+          <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap">
+            <div class="flowmini">
+              <div class="mininode" style="border-color:var(--red)"><span class="mi3">审</span>部门审批<span style="margin-left:auto;color:#cf1322;font-size:13px">⚠</span></div>
+              <div style="font-size:10.5px;color:#cf1322;background:var(--red-1);border:1px solid var(--red-b);border-radius:5px;padding:3px 8px;margin-top:6px;width:150px">解析失败：李娜的部门未设主管 → 触发兜底：转王芳<br><span style="color:var(--blue)">去配置兜底 →</span></div>
+              <div class="muted" style="font-size:10px;margin-top:4px">a. 处理人解析失败</div>
+            </div>
+            <div class="flowmini">
+              <div style="width:150px;border:1.5px dashed var(--red);border-radius:8px;padding:7px 9px;background:var(--red-1);font-size:10.5px;color:#cf1322">分支无命中：金额 -50 不满足任何条件 → 走「其他情况」<br><span class="muted" style="color:#a8071a">若无兜底=发布门禁已拦</span></div>
+              <div class="muted" style="font-size:10px;margin-top:4px">b. 全分支未命中（兜底接住）</div>
+            </div>
+            <div class="flowmini">
+              <div class="mininode" style="border-color:var(--purple);border-style:dashed"><span class="mi3" style="background:var(--purple)">自</span>自动凭证<span style="margin-left:auto;color:#d48806;font-size:12px">⚠</span></div>
+              <div style="font-size:10.5px;color:#d48806;background:var(--gold-1);border:1px solid var(--gold-b);border-radius:5px;padding:3px 8px;margin-top:6px;width:150px">试算失败：规则组无匹配规则（费用类型=其他）→ 按失败策略：转人工王芳<br><span style="color:var(--blue)">查看规则组 →</span></div>
+              <div class="muted" style="font-size:10px;margin-top:4px">c. 自动节点试算失败</div>
+            </div>
+          </div>
+          <div class="muted" style="font-size:11.5px;text-align:center;margin-top:12px">失败不终止干跑：标注该节点后<b>按兜底/失败策略推演继续</b>走完全程——这正是验证兜底配置的方式；每个失败标注附「去配置 →」直达修复点。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ E3 PERMISSION OWNERSHIP ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">E3</div>
+      <div><h2>权限矩阵 × 分支 × 抽屉的归属闭环（补 D-3 / C-M3 / P-1）</h2>
+        <p>矩阵列序规则、分支节点列头、列批量操作、分支头错误角标。</p></div>
+    </div>
+    <div class="panel">
+      <div class="panel-hd" style="font-size:13px">矩阵含分支时的列结构 + 列头批量下拉</div>
+      <div class="panel-bd" style="padding:0;overflow:auto">
+        <table class="mtx" style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr>
+              <th rowspan="2" style="text-align:left;padding:8px 12px;background:#fafafa;border:1px solid var(--line2)">字段 ＼ 节点</th>
+              <th style="padding:5px 8px;background:#fafafa;border:1px solid var(--line2)">发起人</th>
+              <th style="padding:5px 8px;background:#fafafa;border:1px solid var(--line2)">部门审批</th>
+              <th colspan="2" style="padding:5px 8px;background:var(--blue-1);border:1px solid var(--blue-2);color:var(--blue)">分支：大额</th>
+              <th style="padding:5px 8px;background:#f9f0ff;border:1px solid var(--purple-b);color:#531dab">分支：其他情况</th>
+              <th style="padding:5px 8px;background:#fafafa;border:1px solid var(--line2)">抄送归档</th>
+            </tr>
+            <tr>
+              <th style="padding:5px 8px;background:#fff;border:1px solid var(--line2);font-weight:500">发起人 <span style="color:var(--faint)">▾</span></th>
+              <th style="padding:5px 8px;background:#fff;border:1px solid var(--line2);font-weight:500">部门审批 <span style="color:var(--faint)">▾</span></th>
+              <th style="padding:5px 8px;background:#fff;border:1px solid var(--blue-2);font-weight:500">总监会签 <span style="color:var(--blue)">▾</span></th>
+              <th style="padding:5px 8px;background:#fff;border:1px solid var(--blue-2);font-weight:500">自动凭证 <span style="color:var(--faint)">▾</span></th>
+              <th style="padding:5px 8px;background:#fff;border:1px solid var(--purple-b);font-weight:500">自动通过 <span style="color:var(--faint)">▾</span></th>
+              <th style="padding:5px 8px;background:#fff;border:1px solid var(--line2);font-weight:500">抄送归档 <span style="color:var(--faint)">▾</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th style="text-align:left;padding:7px 12px;border:1px solid var(--line2);font-weight:500">报销金额 🔗</th>
+              <td style="border:1px solid var(--line2)"><div class="cell cE" style="padding:6px">编</div></td>
+              <td style="border:1px solid var(--line2)"><div class="cell cR" style="padding:6px">读</div></td>
+              <td style="border:1px solid var(--blue-2)"><div class="cell cR" style="padding:6px">读</div></td>
+              <td style="border:1px solid var(--blue-2)"><div class="cell cR" style="padding:6px">读</div></td>
+              <td style="border:1px solid var(--purple-b)"><div class="cell cR" style="padding:6px">读</div></td>
+              <td style="border:1px solid var(--line2)"><div class="cell cR" style="padding:6px">读</div></td>
+            </tr>
+            <tr>
+              <th style="text-align:left;padding:7px 12px;border:1px solid var(--line2);font-weight:500;color:#cf1322">银行卡号 🔒</th>
+              <td style="border:1px solid var(--line2)"><div class="cell cE" style="padding:6px">编</div></td>
+              <td style="border:1px solid var(--line2)"><div class="cell cH" style="padding:6px">隐</div></td>
+              <td style="border:1px solid var(--blue-2)"><div class="cell cH" style="padding:6px">隐</div></td>
+              <td style="border:1px solid var(--blue-2)"><div class="cell cR" style="padding:6px">读</div></td>
+              <td style="border:1px solid var(--purple-b)"><div class="cell cH" style="padding:6px">隐</div></td>
+              <td style="border:1px solid var(--line2)"><div class="cell warncell cR" style="padding:6px">读</div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px">
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">列头下拉（P-1 批量列操作）</div>
+        <div class="panel-bd" style="display:flex;gap:14px">
+          <div class="ctxmenu" style="width:190px;background:#fff;border:1px solid var(--line2);border-radius:9px;box-shadow:var(--shadow-lg);padding:5px;font-size:12.5px">
+            <div style="padding:7px 11px">整列 → 全部只读</div>
+            <div style="padding:7px 11px">整列 → 全部隐藏</div>
+            <div style="padding:7px 11px">复制左侧列的设置</div>
+            <div style="padding:7px 11px;color:var(--blue)">打开该节点抽屉 Tab③</div>
+          </div>
+          <div style="font-size:12px;color:var(--sub);line-height:1.8;flex:1">🔒/🔗 锁定单元格不受批量操作影响（批量后 toast 说明「2 个锁定字段未变更」）。</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">归属规则（写入唯一真源）+ 分支头角标</div>
+        <div class="panel-bd" style="font-size:12.5px;color:var(--sub);line-height:1.9">
+          · 权限数据<b>只存在节点上</b>；矩阵/抽屉/列批量都是同一数据的视图，无副本无同步问题<br>
+          · 列序=流程<b>深度优先</b>序；分支节点列头挂分支色带+分支名组头；兜底分支恒排分支组最后<br>
+          · <b>分支头错误角标</b>（承接 C-M3）：条件编辑器产生的错误挂到分支头（红点+计数），点击重开条件编辑器——分支错误从此有宿主
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ E4 IMPORT-TRIGGERED ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">E4</div>
+      <div><h2>导入触发型流程的差异化（补 D-4）</h2>
+        <p>基础信息选「导入触发」后，四步向导各步的语义切换。CardFlow 12 个导入流程是主力场景。</p></div>
+    </div>
+    <div class="panel">
+      <div class="panel-bd" style="padding:0;overflow:auto">
+        <table class="audit">
+          <tr><th style="width:110px">向导步骤</th><th style="width:300px">人工发起型（已画）</th><th>导入触发型（差异）</th></tr>
+          <tr><td>① 基础信息</td><td>触发方式=人工发起</td><td>+<b>导入源配置</b>：文件模板（Excel 列映射）/ 暂存表（STG）选择、触达方式（手动上传/定时拉取）、批次去重键（≥3 字段，对应既有跨批次去重机制）</td></tr>
+          <tr><td>② 卡片设计</td><td>控件库拖拽（人填）</td><td>语义转为<b>「数据结构」</b>：字段从导入列映射自动生成（只读来源标记 <span class="tag p" style="font-size:10px">导入列 C</span>），仍可增补人工字段（如"处理备注"）；无"必填"概念、代之以<b>「缺值行为」</b>：跳过行/默认值/进异常池</td></tr>
+          <tr><td>③ 流程设计</td><td>发起人节点起点</td><td>起点节点=<b>「导入源」</b>（图标▣ 灰紫色）：点开配置批次策略——按行建卡/按批次建卡（汇总卡+明细行）；分支条件可引用<b>批次级变量</b>（行数、合计金额、错误率）；人工节点通常只剩"异常处理"与"财务确认"两类</td></tr>
+          <tr><td>④ 发布设置</td><td>去重/撤回/超时</td><td>撤回不适用（隐藏）；+<b>批次失败策略</b>：整批回滚/跳过错误行继续（错误行进异常池生成待办）——对应既有批次恢复机制的语义（执行记录状态 10-14）</td></tr>
+          <tr><td>干跑预览</td><td>手填样例值</td><td>样例来源固定为<b>「粘贴样例行 / 上传样例文件前 10 行」</b>；路径推演按行分别展示（第 1 行→质检通过→凭证；第 3 行→质检阻断→异常池）；批次级条件用行集合计</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="notes win">
+      <h4>设计裁决</h4>
+      <ul>
+        <li><b>同一设计器双模，不做两个设计器</b>：差异集中在起点节点与字段来源语义，四步骨架/抽屉/矩阵/诊断全部复用；模式在基础信息锁定后步骤 2/3 按模式渲染（切换触发确认：已配置的发起范围/导入映射将失效）。</li>
+        <li><b>「缺值行为」替代「必填」</b>是导入型的关键心智：没有人能被"要求填写"，只能定义系统如何处置缺值。</li>
+        <li>定时触发型=导入型的子集（触达方式=定时拉取），不单列第三模式。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ E5 REBIND ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">E5</div>
+      <div><h2>模板/复制落地的引用重绑检查（补 D-5）</h2>
+        <p>创建副本后立即跑引用扫描，悬空项集中修复——类似 IDE 的 import 修复流。</p></div>
+    </div>
+    <div style="display:flex;justify-content:center">
+      <div style="width:560px;background:#fff;border-radius:14px;box-shadow:var(--shadow-lg);overflow:hidden">
+        <div style="padding:15px 22px;border-bottom:1px solid var(--line)"><b style="font-size:14.5px">副本已创建 · 需要重新绑定 4 处引用</b>
+          <div class="muted" style="font-size:12px;margin-top:3px">从「费用报销单」复制到组织「宁晋公司」——以下配置在目标环境不存在或不可见</div></div>
+        <div style="padding:10px 22px">
+          <div class="fplist">
+            <div class="fprow"><span class="tag r" style="margin-right:8px">悬空</span><span class="fn">节点「财务总监会签」处理人：<s>王芳</s>（不在宁晋公司可见范围）</span><span class="inp sm ph" style="width:130px">选择处理人 ▾</span></div>
+            <div class="fprow"><span class="tag r" style="margin-right:8px">悬空</span><span class="fn">自动凭证规则组：<s>差旅报销规则组</s>（属主体账套）</span><span class="inp sm ph" style="width:130px">选择规则组 ▾</span></div>
+            <div class="fprow"><span class="tag y" style="margin-right:8px">降级</span><span class="fn">抄送对象「财务共享中心」→ 已自动映射到宁晋「财务部」（同名匹配，请确认）</span><span class="cbx on" style="margin-left:8px"></span></div>
+            <div class="fprow"><span class="tag g" style="margin-right:8px">保留</span><span class="fn">动态引用（发起人部门主管 / 表单字段）无需重绑——解析时才取值</span></div>
+          </div>
+        </div>
+        <div style="padding:13px 22px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;background:#fafafa">
+          <span class="muted" style="font-size:12px">未处理的悬空项转为错误级诊断（不阻塞进入编辑器，阻塞发布）</span>
+          <button class="btn pri sm">完成重绑，进入设计器</button>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h4>规则</h4>
+      <ul>
+        <li><b>扫描范围</b>：静态成员引用（处理人/抄送/兜底/通知对象）、凭证规则组、账套、暂存表、群 bot——所有跨环境实体。动态引用（部门主管/角色/字段）天然可迁移，标绿说明。</li>
+        <li><b>同名自动映射标黄</b>需人工确认——"财务部"同名不同义是复制场景高频错。</li>
+        <li>同组织复制跳过此弹窗（引用全部有效）；导出为模板时反向剥离静态引用为占位符。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ E6 + E7 ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">E6/7</div>
+      <div><h2>命中率冷启动（补 D-6）＋ 接管协议细则（补 D-7）</h2></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1.15fr;gap:14px">
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">E6 命中率试算三态降级</div>
+        <div class="panel-bd" style="display:flex;flex-direction:column;gap:10px">
+          <div style="background:var(--cyan-1);border:1px solid #87e8de;border-radius:8px;padding:9px 13px;font-size:12px;color:#08979c">📊 按近 30 天 412 张卡片试算：<b>18%</b> 命中本分支</div>
+          <div style="background:var(--gold-1);border:1px solid var(--gold-b);border-radius:8px;padding:9px 13px;font-size:12px;color:#d48806">📊 按 <b>89/412</b> 张有「费用类型」值的卡片试算：31% 命中 <span class="muted" style="color:#ad6800">（新字段，历史覆盖不全，仅供参考）</span></div>
+          <div style="background:#fafafa;border:1px solid var(--line2);border-radius:8px;padding:9px 13px;font-size:12px;color:var(--mute)">📊 暂无历史数据 · 发布后累积 30 天流量即可显示命中率</div>
+          <div style="font-size:12px;color:var(--sub);line-height:1.8">追加规则：试算是<b>惰性计算</b>（打开条件编辑器时后台跑，结果缓存至条件变化）；<b>0% / 100% 命中额外标红提示</b>「本分支可能永不/总是命中，请检查条件」——这两个极值恰是配错高发。</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">E7 接管协议时序（消除竞态）</div>
+        <div class="panel-bd">
+          <div class="timeline2">
+            <div class="tl"><div class="tlt">T0 李强点<br>「申请接管」</div><div class="tlb">服务端登记<b>全局唯一接管请求</b>（第二人再点看到「王芳已有接管请求处理中，稍后重试」，无排队队列——排队制造更多竞态）</div></div>
+            <div class="tl"><div class="tlt">T0+0s</div><div class="tlb">王芳端弹窗（应用内+钉钉）：「李强请求接管编辑」[允许] [拒绝，我在编辑]；同时其编辑器<b>立即触发一次强制 flush</b>（清防抖，未保存态落草稿）——从此刻起丢失窗口=0</div></div>
+            <div class="tl"><div class="tlt">王芳允许<br>或 60s 超时</div><div class="tlb ok">移交执行：王芳界面<b>瞬时转只读</b>+横幅「已移交给李强 · 你的修改已保存至草稿」；李强端加载<b>最新草稿</b>进入编辑（含王芳最后 flush 的内容）；李强撤销栈从零开始（见 C6 修订）</div></div>
+            <div class="tl"><div class="tlt">王芳拒绝</div><div class="tlb warn">李强收到 toast「王芳拒绝了接管请求」；30 分钟内不可再次向同一人发起（防骚扰）</div></div>
+            <div class="tl"><div class="tlt">异常</div><div class="tlb err">移交执行中王芳恰好断线 → 服务端以「已 flush 的草稿」为准直接移交（心跳超时兜底路径相同）；<b>任何路径下草稿都只有唯一写者</b></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes win">
+      <h4>协议不变量</h4>
+      <ul>
+        <li><b>唯一写者不变量</b>：任意时刻至多一人持写锁；移交=「flush→锁转移→旧端只读」原子序列，任何分支都不产生双写窗口。</li>
+        <li><b>强制 flush 在弹窗时而非同意时</b>：60s 超时移交路径下对方可能已离开电脑，等"同意时"再 flush 就晚了。</li>
+        <li>命中率 0%/100% 标红是把「统计功能」反转为「纠错功能」的关键一笔——极值即异味。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="foot">CardFlow 设计器细化方案 · 审查修订篇（E0-E7）· 五篇合计：骨架 9 + 面板 16 + 微交互 11 + 规格 10 + 修订 8 = 54 屏 · 3 矛盾已消解 / 7 缺陷已补齐 / 3 存疑项结论存档</div>
+</div>
+</body>
+</html>

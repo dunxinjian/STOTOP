@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CardFlow 设计器细化方案 · 下篇（其他节点 / 条件编辑器 / 分支操作 / 发布版本）</title>
+<link rel="stylesheet" href="mock-shared.css">
+</head>
+<body>
+<div class="wrap">
+
+  <div class="doc-hd">
+    <h1>CardFlow 设计器细化方案 · 下篇</h1>
+    <p>承接上篇（入口/控件/审批节点抽屉五 Tab）。本篇覆盖：<b style="color:#fff">发起节点与抄送节点属性、自动处理节点四子类、条件编辑器全交互、分支的拖拽/删除/嵌套操作、发布确认与版本管理</b>。</p>
+    <div class="tags">
+      <span>B1 发起节点</span><span>B2 抄送节点</span><span>B3 自动处理 ×4 子类</span>
+      <span>B4 条件编辑器</span><span>B5 分支操作</span><span>B6 发布确认</span><span>B7 版本历史与回滚</span><span>B8 全局对照总表</span>
+    </div>
+  </div>
+
+  <!-- ============ B1: START NODE ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">B1</div>
+      <div><h2>发起节点属性（谁能发起 · 代提交 · 撤回）</h2>
+        <p>发起节点也可点开配置：发起范围、代他人提交、撤回规则、重新提交策略。</p></div>
+    </div>
+    <div class="drawer-demo">
+      <div class="drawer-canvas">
+        <div class="flowcol">
+          <div class="fnode n-start sel"><div class="nh"><span class="ni">起</span><span class="nt">发起人</span><span class="tag grey">起点</span></div>
+            <div class="nb"><div class="kv"><span class="kk">发起范围</span><span>全员（除试用期）</span></div>
+              <div class="kv"><span class="kk">代提交</span><span>允许 · 部门助理</span></div></div></div>
+          <div class="connector"></div><div class="plus">+</div><div class="connector"></div>
+          <div class="fnode n-appr" style="opacity:.5"><div class="nh"><span class="ni">审</span><span class="nt">部门负责人审批</span></div></div>
+        </div>
+      </div>
+      <div class="drawer">
+        <div class="dhd"><span class="nico" style="background:#8c8c8c">起</span><b style="font-size:14px">发起人</b><span class="close">✕</span></div>
+        <div class="dtabs"><span class="on">发起范围</span><span>撤回与重提</span><span>字段权限</span></div>
+        <div class="dbd">
+          <div class="fld"><label>谁可以发起 <span class="req">*</span></label>
+            <div class="optlist">
+              <div class="opt"><span class="radio"></span><div><div class="ot">全员</div></div></div>
+              <div class="opt on"><span class="radio on"></span><div><div class="ot">指定范围</div>
+                <div class="od" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+                  <span class="chip">部门：财务共享中心 <i class="x">✕</i></span>
+                  <span class="chip">角色：报销专员 <i class="x">✕</i></span>
+                  <button class="btn sm">+ 添加</button></div></div></div>
+            </div>
+          </div>
+          <div class="setrow"><div class="toggle sm"></div><div class="st"><div class="t">允许代他人提交</div><div class="d">代提交时卡片显示"张伟（王助理 代）"，通知发给双方</div></div></div>
+          <div class="fld" style="margin:10px 0 0"><label>可代提交的人</label>
+            <div class="inp"><span class="chip">角色：部门助理 <i class="x">✕</i></span><button class="btn sm">+ 添加</button></div></div>
+          <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">
+            <div class="setrow"><div class="toggle sm"></div><div class="st"><div class="t">进行中允许撤回</div><div class="d">首个审批节点通过后不可撤回</div></div></div>
+            <div class="setrow"><div class="st"><div class="t">被退回后重新提交</div><div class="d">重新提交时从哪里继续（全流程唯一配置点，动作 Tab 不重复出现）</div></div>
+              <div class="seg sm"><span class="on">回到退回节点</span><span>重走全程</span></div></div>
+            <div style="background:var(--gold-1);border:1px solid var(--gold-b);border-radius:7px;padding:7px 10px;font-size:11.5px;color:#d48806;margin-top:8px">⚠ 「回到退回节点」时，若重提修改了<b>路由条件字段</b>（如金额跨档），系统自动改为重走分支判定并在时间线标注「因条件变化重新路由」——否则会出现"金额已到大额档却仍走中额链"的漏洞（修订 E1）。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes src">
+      <h4>吸收来源对照</h4>
+      <ul>
+        <li><b>企微</b>：模板可见范围（哪些部门可见可发起）→ 吸收为"发起范围"，支持部门+角色+成员混合圈定。</li>
+        <li><b>钉钉</b>：代他人提交 → 吸收并补"代提交人范围"限定与双方通知；撤回规则从全局挪到发起节点（语义归属更对）。</li>
+        <li><b>CardFlow 特有</b>：<b>被退回后重提策略</b>显式二选一（回到退回节点 / 重走全程）——对应引擎 returned 重提语义，两家都未显式暴露。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ B2: CC NODE ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">B2</div>
+      <div><h2>抄送节点属性（对象 · 时机 · 渠道）</h2>
+        <p>抄送对象复用处理人选择器；抄送时机三选；推送渠道多选（应用内/钉钉/企微 bot）。</p></div>
+    </div>
+    <div class="drawer-demo">
+      <div class="drawer-canvas">
+        <div class="flowcol">
+          <div class="fnode n-appr" style="opacity:.5"><div class="nh"><span class="ni">审</span><span class="nt">财务总监会签</span></div></div>
+          <div class="connector"></div>
+          <div class="fnode n-cc sel"><div class="nh"><span class="ni">抄</span><span class="nt">抄送财务归档</span><span class="tag o">通过后</span></div>
+            <div class="nb"><div class="kv"><span class="kk">抄送给</span><span>财务共享中心 + 发起人主管</span></div>
+              <div class="kv"><span class="kk">渠道</span><span>应用内 + 钉钉</span></div></div></div>
+        </div>
+      </div>
+      <div class="drawer">
+        <div class="dhd"><span class="nico" style="background:var(--orange)">抄</span><b style="font-size:14px">抄送财务归档</b><span class="close">✕</span></div>
+        <div class="dtabs"><span class="on">抄送设置</span><span>字段权限</span></div>
+        <div class="dbd">
+          <div class="fld"><label>抄送给 <span class="req">*</span></label>
+            <div class="inp" style="margin-bottom:6px">
+              <span class="mem"><span class="av g">财</span>部门：财务共享中心</span>
+              <span class="mem"><span class="av p">主</span>发起人部门主管</span>
+              <button class="btn sm">+ 添加</button></div>
+            <div class="muted" style="font-size:11.5px">与处理人同一选择器：成员 / 部门 / 角色 / 主管 / 表单人员字段</div></div>
+          <div class="fld"><label>抄送时机</label>
+            <div class="optlist">
+              <div class="opt"><span class="radio"></span><div><div class="ot">流程到达本节点时</div><div class="od">审批中即抄送（用于提前知会）</div></div></div>
+              <div class="opt on"><span class="radio on"></span><div><div class="ot">整个流程通过后</div><div class="od">最常用：结果确定后归档知会</div></div></div>
+              <div class="opt"><span class="radio"></span><div><div class="ot">流程被拒绝/终止时</div><div class="od">用于风控与异常知会</div></div></div>
+            </div>
+          </div>
+          <div class="fld"><label>推送渠道</label>
+            <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+              <span><span class="cbx on"></span> 应用内待阅（工作台「抄送我」列表）</span>
+              <span><span class="cbx on"></span> 钉钉工作通知</span>
+              <span><span class="cbx"></span> 企业微信应用消息</span>
+              <span><span class="cbx"></span> 群机器人播报 <span class="inp sm ph" style="display:inline-flex;width:150px;margin-left:6px">选择群 bot ▾</span></span>
+            </div>
+          </div>
+          <div class="setrow" style="border-top:1px solid var(--line);padding-top:13px"><div class="toggle sm off"></div>
+            <div class="st"><div class="t">需要确认已阅</div><div class="d">抄送人须点"已阅"，未读可追踪</div></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes src">
+      <h4>吸收来源对照</h4>
+      <ul>
+        <li><b>企微</b>：抄送时机（审批中/通过后）→ 吸收并补第三态"<b>被拒绝/终止时</b>"（风控知会，两家都没有显式暴露）。</li>
+        <li><b>CardFlow 特有</b>：<b>推送渠道多选</b>直接接现有钉钉 per-tenant 配置与群 bot 分发能力；抄送节点也有字段权限 Tab（抄送人看到的卡片同样受脱敏控制，接屏 A6 的敏感字段告警）。</li>
+        <li>"需要确认已阅"：制度类流程（如新规发布）需要回执，吸收自钉钉待阅确认。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ B3: AUTO NODES ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">B3</div>
+      <div><h2>自动处理节点 · 四个子类的属性面板</h2>
+        <p>CardFlow 独有的一类节点。插入时先选子类，抽屉按子类呈现不同配置；共同项是失败策略。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="panel">
+        <div class="panel-hd"><span class="nico" style="background:var(--purple);width:22px;height:22px;font-size:11px">凭</span>① 自动生成凭证</div>
+        <div class="panel-bd">
+          <div class="fld"><label>凭证规则组 <span class="req">*</span></label><div class="inp sm">差旅报销规则组 ▾ <span class="tag g" style="margin-left:auto">12 条规则</span></div></div>
+          <div class="fld"><label>记账账套</label><div class="inp sm">跟随卡片账套（默认） ▾</div></div>
+          <div class="fld"><label>金额来源</label><div class="inp sm">明细表「费用明细」汇总 ▾</div></div>
+          <div class="setrow"><div class="toggle sm"></div><div class="st"><div class="t" style="font-size:12.5px">凭证生成后回填凭证号到卡片</div></div></div>
+          <div style="background:var(--purple-1);border:1px solid var(--purple-b);border-radius:7px;padding:8px 10px;font-size:12px;color:#531dab;margin-top:8px">🧪 试算：用当前样例值干跑规则组 → 命中「差旅-住宿」，借:管理费用-差旅 ¥12,000 / 贷:其他应付款。</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd"><span class="nico" style="background:var(--purple);width:22px;height:22px;font-size:11px">检</span>② 数据质检</div>
+        <div class="panel-bd">
+          <div class="fld"><label>质检规则 <span class="muted">（全部通过才放行）</span></label>
+            <div class="fplist">
+              <div class="fprow"><span class="fn">发票号不得与历史重复</span><span class="tag r">阻断</span></div>
+              <div class="fprow"><span class="fn">明细金额合计 = 报销金额</span><span class="tag r">阻断</span></div>
+              <div class="fprow"><span class="fn">单笔招待费 &gt; 500 需说明</span><span class="tag y">警告</span></div>
+            </div>
+          </div>
+          <button class="btn sm" style="margin-bottom:10px">+ 添加规则</button>
+          <div class="setrow"><div class="st"><div class="t" style="font-size:12.5px">阻断时</div></div>
+            <div class="seg sm"><span class="on">退回发起人</span><span>转人工</span></div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd"><span class="nico" style="background:var(--purple);width:22px;height:22px;font-size:11px">知</span>③ 发送通知</div>
+        <div class="panel-bd">
+          <div class="fld"><label>通知对象</label><div class="inp sm"><span class="chip">发起人</span><span class="chip">财务共享中心</span></div></div>
+          <div class="fld"><label>通知内容模板</label>
+            <div class="inp sm" style="min-height:56px;align-items:flex-start;padding-top:7px;font-family:Consolas,monospace;font-size:12px">您的报销单 {单号} 已通过审批，金额 {报销金额}，凭证号 {凭证号}。</div>
+            <div class="muted" style="font-size:11.5px;margin-top:5px">支持 {字段名} 插值 · 敏感字段不可插值（选择器中不出现）</div></div>
+          <div class="fld" style="margin-bottom:0"><label>渠道</label>
+            <div style="display:flex;gap:12px;font-size:12.5px"><span><span class="cbx on"></span> 应用内</span><span><span class="cbx on"></span> 钉钉</span><span><span class="cbx"></span> 企微</span><span><span class="cbx"></span> 群 bot</span></div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd"><span class="nico" style="background:var(--purple);width:22px;height:22px;font-size:11px">导</span>④ 数据导入/写入</div>
+        <div class="panel-bd">
+          <div class="fld"><label>写入目标</label><div class="inp sm">STG申通派件日明细（暂存表） ▾</div></div>
+          <div class="fld"><label>字段映射</label>
+            <div class="fplist">
+              <div class="fprow"><span class="fn">卡片.运单号 → 目标.运单号</span><span class="tag g">已映射</span></div>
+              <div class="fprow"><span class="fn">卡片.金额 → 目标.派费金额</span><span class="tag g">已映射</span></div>
+              <div class="fprow"><span class="fn">目标.批次ID ← 自动生成</span><span class="tag grey">系统</span></div>
+            </div>
+          </div>
+          <div class="setrow"><div class="st"><div class="t" style="font-size:12.5px">重复数据</div></div>
+            <div class="seg sm"><span class="on">跳过</span><span>覆盖</span><span>报错</span></div></div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:14px" class="panel">
+      <div class="panel-hd">四子类共同项 · 失败策略（每个自动节点必配）</div>
+      <div class="panel-bd" style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:13px;color:var(--sub)">执行失败时：</span>
+        <div class="seg"><span class="on">转人工处理（生成待办给指定人）</span><span>自动重试 3 次后转人工</span><span>终止流程并通知</span></div>
+        <span class="mem"><span class="av o">王</span>王芳（财务经理）</span>
+        <span class="tag y">⚠ 未配置时继承全局默认（第四步）</span>
+      </div>
+    </div>
+    <div class="notes win">
+      <h4>CardFlow 特有设计（两家均无此类节点）</h4>
+      <ul>
+        <li><b>插入时先选子类</b>：点"+"选"自动处理"后二级菜单选凭证/质检/通知/写入，抽屉按子类渲染专属面板。</li>
+        <li><b>凭证节点带试算</b>：复用干跑管线，用样例值现场跑规则组并展示借贷分录——发布前验证凭证规则配错（对应自动凭证引擎的 rulesBased v2 三层匹配）。</li>
+        <li><b>通知模板插值排除敏感字段</b>：{字段} 选择器中敏感字段不出现，与摘要字段同一条防泄漏红线。</li>
+        <li><b>失败策略必配</b>：底部公共区，未配置显式黄标"继承全局默认"，诊断面板会给警告（对应屏 9 诊断第三条）。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ B4: CONDITION EDITOR ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">B4</div>
+      <div><h2>条件编辑器全交互（分支条件弹层）</h2>
+        <p>点分支头「添加条件」弹出：条件组内为"且"、组间为"或"；算子随字段类型变化；右下实时显示"当前在途卡片命中率"。</p></div>
+    </div>
+    <div class="panel" style="max-width:760px;margin:0 auto">
+      <div class="panel-hd">分支条件 · 大额-总监审批<span style="margin-left:auto" class="tag b">优先级 1</span></div>
+      <div class="panel-bd">
+        <div class="cgroup">
+          <div class="ghd"><b style="color:var(--blue)">条件组 1</b><span class="muted">组内条件同时满足（且）</span><span style="margin-left:auto;color:var(--faint)">✕</span></div>
+          <div class="crow">
+            <div class="inp">💰 报销金额 ▾</div>
+            <div class="inp" style="width:110px;flex:none">大于等于 ▾</div>
+            <div class="inp" style="width:130px;flex:none">10000</div>
+            <span class="del">✕</span>
+          </div>
+          <div class="crow">
+            <div class="inp">◉ 费用类型 ▾</div>
+            <div class="inp" style="width:110px;flex:none">属于 ▾</div>
+            <div class="inp" style="flex:1"><span class="chip">差旅 <i class="x">✕</i></span><span class="chip">业务招待 <i class="x">✕</i></span></div>
+            <span class="del">✕</span>
+          </div>
+          <button class="btn sm" style="margin-top:4px">+ 且，添加条件</button>
+        </div>
+        <div class="orsep"><span class="orbadge">或</span></div>
+        <div class="cgroup" style="border-color:var(--line2);background:#fafafa">
+          <div class="ghd"><b style="color:var(--sub)">条件组 2</b><span class="muted">任一组满足即命中本分支</span><span style="margin-left:auto;color:var(--faint)">✕</span></div>
+          <div class="crow">
+            <div class="inp">👤 发起人 ▾</div>
+            <div class="inp" style="width:110px;flex:none">属于部门 ▾</div>
+            <div class="inp" style="flex:1"><span class="chip">🏢 大客户部（含子部门）<i class="x">✕</i></span></div>
+            <span class="del">✕</span>
+          </div>
+        </div>
+        <button class="btn sm" style="margin-top:10px">+ 或，添加条件组</button>
+        <div style="display:flex;gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);align-items:center">
+          <div style="flex:1;font-size:12.5px;color:var(--sub)">
+            <div style="margin-bottom:4px"><b>算子随字段类型变化：</b></div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <span class="tag grey">金额/数字：= ≠ &gt; ≥ &lt; ≤ 介于</span>
+              <span class="tag grey">单选：属于 / 不属于（多值）</span>
+              <span class="tag grey">人员：是 / 属于部门 / 属于角色</span>
+              <span class="tag grey">组织：等于 / 在子树内</span>
+            </div>
+          </div>
+          <div style="background:var(--cyan-1);border:1px solid #87e8de;border-radius:8px;padding:9px 13px;font-size:12px;color:#08979c;flex:none">
+            📊 按近 30 天 412 张卡片试算：<b>18%</b> 命中本分支
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes src">
+      <h4>吸收来源对照</h4>
+      <ul>
+        <li><b>钉钉</b>：条件组"组内且、组间或" → 原样吸收，但把"且/或"从文案升级为<b>视觉结构</b>：组=带边框的容器，组间大"或"徽标分隔，不再靠用户脑补。</li>
+        <li><b>钉钉</b>：条件字段限必填的单选/数字/金额 → 放宽为 CardFlow 类型集（+人员/组织/派生时长），算子随类型切换（人员给"属于部门/角色"，组织给"在子树内"——组织树是本系统核心维度）。</li>
+        <li><b>CardFlow 特有</b>：<b>历史命中率试算</b>（右下青色块）——用近 30 天真实卡片流量试算本分支命中占比，配错条件（如 0% 或 100%）当场暴露，比等运行后发现强得多。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ B5: BRANCH OPERATIONS ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">B5</div>
+      <div><h2>分支操作：拖拽调序 · 删除确认 · 整支复制</h2>
+        <p>分支头可整列拖拽换优先级（拖动中显示插入位置）；删除有确认弹窗说明支内节点去向；支持整支复制。</p></div>
+    </div>
+    <div class="frame">
+      <div style="padding:24px;background:var(--bg)">
+        <div style="display:flex;gap:18px;justify-content:center;align-items:flex-start">
+          <!-- col 1 being dragged -->
+          <div style="width:230px;transform:rotate(-1.5deg);box-shadow:0 12px 30px rgba(0,0,0,.18);border-radius:9px;opacity:.92">
+            <div class="bhead" style="border:1px solid var(--blue);border-top:3px solid var(--blue);border-radius:9px;background:#fff;padding:10px 12px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span style="font-weight:600;font-size:13px">⠿ 中额 · 经理审批</span><span class="prio">拖动中…</span></div>
+              <div style="font-size:12px;color:var(--sub);background:var(--bg);border-radius:6px;padding:6px 9px;font-family:Consolas,monospace">报销金额 ≥ 3000</div>
+            </div>
+          </div>
+          <!-- insert indicator -->
+          <div style="width:3px;background:var(--blue);border-radius:2px;align-self:stretch;min-height:120px;position:relative">
+            <span style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);background:var(--blue);color:#fff;font-size:11px;border-radius:4px;padding:1px 8px;white-space:nowrap">插入为优先级 1</span>
+          </div>
+          <!-- col 2 -->
+          <div style="width:230px">
+            <div class="bhead" style="border:1px solid var(--blue-2);border-top:3px solid var(--blue);border-radius:9px;background:#fff;padding:10px 12px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span style="font-weight:600;font-size:13px">大额 · 总监审批</span>
+                <span style="display:flex;gap:6px;align-items:center"><span class="prio">1→2</span><span style="color:var(--faint);font-size:12px">⧉</span><span style="color:var(--faint);font-size:12px">✕</span></span></div>
+              <div style="font-size:12px;color:var(--sub);background:var(--bg);border-radius:6px;padding:6px 9px;font-family:Consolas,monospace">报销金额 ≥ 10000 且 差旅</div>
+            </div>
+          </div>
+          <!-- delete modal -->
+          <div style="width:330px;background:#fff;border-radius:12px;box-shadow:var(--shadow-lg);padding:18px 20px;flex:none">
+            <div style="font-weight:600;font-size:14.5px;margin-bottom:8px">删除分支「中额 · 经理审批」？</div>
+            <div style="font-size:12.5px;color:var(--sub);line-height:1.7">
+              该分支包含 <b>2 个节点</b>（财务经理审批、自动凭证）。<br>
+              删除后原本命中此分支的卡片将按优先级落入 <b>「其他情况」兜底分支</b>。
+            </div>
+            <div style="background:var(--gold-1);border:1px solid var(--gold-b);border-radius:7px;padding:8px 10px;font-size:12px;color:#d48806;margin:10px 0">⚠ 当前有 <b>3 张在途卡片</b>停留在该分支节点上，发布新版本后按「在途卡片策略」处理（见发布确认）。</div>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+              <button class="btn sm">取消</button>
+              <button class="btn sm danger">删除分支</button>
+            </div>
+          </div>
+        </div>
+        <div style="text-align:center;margin-top:18px;font-size:12px;color:var(--mute)">拖拽分支头整列换序（左）· 分支头悬停出现 ⧉ 复制 / ✕ 删除 · 删除弹确认（右）· 「其他情况」兜底列无 ✕ 不可删</div>
+      </div>
+    </div>
+    <div class="notes src">
+      <h4>吸收来源对照</h4>
+      <ul>
+        <li><b>企微</b>：分支可拖拽调优先级、右上角 ✕ 删除 → 吸收；拖动中显示<b>蓝色插入指示线 + "插入为优先级 N"气泡</b>，其余分支优先级徽标实时预演（1→2）。</li>
+        <li><b>删除确认三要素</b>（超越两家）：支内节点数量、删除后流量去向（落入兜底）、<b>在途卡片影响</b>——第三条只有 CardFlow 需要且能做到（有运行时数据）。</li>
+        <li><b>整支复制 ⧉</b>：分档场景分支结构高度相似（大额/中额只差阈值），复制后改条件比重搭快。</li>
+        <li>嵌套分支允许但诊断面板对 ≥3 层给"建议拆分为独立流程"提示（可用性红线，非硬禁止）。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ B6: PUBLISH CONFIRM ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">B6</div>
+      <div><h2>发布确认弹窗（变更清单 · 在途卡片策略 · 门禁结果）</h2>
+        <p>点「发布」先跑门禁；通过后弹确认：本次改了什么、在途卡片怎么办、生成版本号。</p></div>
+    </div>
+    <div style="display:flex;justify-content:center">
+      <div style="width:560px;background:#fff;border-radius:14px;box-shadow:var(--shadow-lg);overflow:hidden">
+        <div style="padding:16px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px">
+          <b style="font-size:15px">发布「费用报销单」</b><span class="tag b">v7 → v8</span>
+          <span style="margin-left:auto;color:var(--faint)">✕</span>
+        </div>
+        <div style="padding:18px 22px">
+          <div style="display:flex;align-items:center;gap:8px;background:var(--green-1);border:1px solid var(--green-b);border-radius:8px;padding:9px 12px;font-size:13px;color:#389e0d;margin-bottom:14px">
+            ✓ 发布门禁检查通过（0 错误 · 1 警告已忽略：自动凭证节点未配失败策略，继承全局）
+          </div>
+          <div class="fld"><label>本次变更（自动生成，可补充说明）</label>
+            <div class="fplist">
+              <div class="fprow"><span class="tag g" style="margin-right:8px">新增</span><span class="fn">节点「财务总监会签」（大额分支）</span></div>
+              <div class="fprow"><span class="tag y" style="margin-right:8px">修改</span><span class="fn">分支「金额分档」优先级 1 阈值 5000 → 10000</span></div>
+              <div class="fprow"><span class="tag r" style="margin-right:8px">删除</span><span class="fn">节点「出纳复核」</span></div>
+            </div>
+            <div class="inp ph sm" style="margin-top:8px">发布说明（选填）：按 7 月费用制度调整分档线…</div>
+          </div>
+          <div class="fld" style="margin-bottom:6px"><label>在途卡片处理（当前 23 张进行中） <span class="req">*</span></label>
+            <div class="optlist">
+              <div class="opt on"><span class="radio on"></span><div><div class="ot">按旧版本走完（推荐）</div><div class="od">在途卡片继续 v7 流程；新发起的走 v8</div></div></div>
+              <div class="opt"><span class="radio"></span><div><div class="ot">迁移到新版本</div><div class="od">停留在被删节点「出纳复核」上的 2 张卡片 → 移入下一节点，将逐张记录迁移日志</div></div></div>
+            </div>
+          </div>
+        </div>
+        <div style="padding:14px 22px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px;background:#fafafa">
+          <button class="btn">再检查一下</button>
+          <button class="btn pri">确认发布 v8</button>
+        </div>
+      </div>
+    </div>
+    <div class="notes src">
+      <h4>吸收来源对照</h4>
+      <ul>
+        <li><b>企微/钉钉</b>：都是"点发布即生效"，无变更清单、无在途处理选项 → 两家的最大短板，全部补上。</li>
+        <li><b>变更清单自动生成</b>：对比草稿与已发布版本做结构 diff（新增/修改/删除三色标），发布说明选填存入版本历史。</li>
+        <li><b>在途卡片策略必选</b>：默认"旧版走完"（版本共存，引擎已按版本快照执行）；选"迁移"时明确列出受影响卡片数与去向。</li>
+        <li>门禁结果内嵌弹窗顶部：绿=通过可发布，红=按钮禁用并链接到诊断面板（屏 9 的定位式修复）。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ B7: VERSION HISTORY ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">B7</div>
+      <div><h2>版本历史与回滚</h2>
+        <p>右侧栏或独立页查看历次发布：谁在何时发布了什么、各版本在途卡片数、可查看快照 / 对比 / 回滚。</p></div>
+    </div>
+    <div class="panel" style="max-width:720px;margin:0 auto">
+      <div class="panel-hd">版本历史 · 费用报销单</div>
+      <div class="panel-bd" style="padding:0">
+        <div style="display:flex;padding:13px 18px;border-bottom:1px solid var(--line);gap:14px;align-items:center;background:var(--blue-1)">
+          <span class="tag b" style="font-weight:600">v8 · 当前</span>
+          <div style="flex:1;font-size:13px"><b>按 7 月费用制度调整分档线</b>
+            <div class="muted" style="font-size:12px">2026-07-07 10:32 · 王芳 发布 · 新增1 修改1 删除1</div></div>
+          <span class="tag g">在途 4</span>
+          <span style="font-size:12.5px;color:var(--blue)">查看快照</span>
+        </div>
+        <div style="display:flex;padding:13px 18px;border-bottom:1px solid var(--line);gap:14px;align-items:center">
+          <span class="tag grey">v7</span>
+          <div style="flex:1;font-size:13px">增加自动凭证节点
+            <div class="muted" style="font-size:12px">2026-07-02 16:20 · 王芳 发布</div></div>
+          <span class="tag y">在途 19</span>
+          <span style="font-size:12.5px;color:var(--blue)">对比 v8 · 回滚到此版</span>
+        </div>
+        <div style="display:flex;padding:13px 18px;gap:14px;align-items:center">
+          <span class="tag grey">v6</span>
+          <div style="flex:1;font-size:13px">初版金额分档
+            <div class="muted" style="font-size:12px">2026-06-28 09:11 · admin 发布</div></div>
+          <span class="tag grey">在途 0</span>
+          <span style="font-size:12.5px;color:var(--blue)">对比 v8 · 回滚到此版</span>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:center;margin-top:14px">
+      <div style="width:560px;background:#fff;border:1px solid var(--gold-b);border-radius:12px;padding:14px 18px;font-size:12.5px;color:var(--sub)">
+        <b style="color:#d48806">回滚 = 以 v7 快照创建 v9 草稿</b> —— 不是历史穿越：回滚生成一份可编辑草稿，仍需走门禁+发布确认（含在途策略）。v8 期间发起的 4 张在途卡片继续按 v8 走完。
+      </div>
+    </div>
+    <div class="notes win">
+      <h4>CardFlow 特有（两家均无版本管理界面）</h4>
+      <ul>
+        <li><b>每版本在途卡片数常驻</b>：停用/回滚决策前一眼看到影响面；在途归零的旧版本可安全归档。</li>
+        <li><b>回滚语义 = 快照转草稿再发布</b>：保持"发布是唯一生效入口"的单一心智模型，杜绝绕过门禁的后门。</li>
+        <li><b>对比视图</b>：结构 diff 复用发布确认的变更清单组件（同一套代码两处用）。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ B8: COMPARISON SUMMARY ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">B8</div>
+      <div><h2>吸收对照总表</h2>
+        <p>细化方案全部功能点的来源归类：照抄、深化、补缺三档。</p></div>
+    </div>
+    <div class="cmp">
+      <div class="cc dd">
+        <h5>📘 吸收自钉钉（照抄或微调）</h5>
+        <p>四步向导骨架 · 处理人 10 类型全集 · 依次/或签/会签 · 连续多级主管 · 空缺兜底三选 · 自动通过/拒绝条件节点 · 条件组且/或 · 分支优先级 · 字段级三态权限 · 日期区间自动算时长 · 审批人去重 · 摘要字段 · 代他人提交</p>
+      </div>
+      <div class="cc wx">
+        <h5>📗 吸收自企业微信（照抄或微调）</h5>
+        <p>模板库入口 · 控件库三栏表单设计器 · 金额大写 · 明细表子字段+汇总求和 · 抄送时机（审批中/通过后）· 分支拖拽调序与删除 · 可见范围圈定 · 手机端预览</p>
+      </div>
+      <div class="cc cf">
+        <h5>📙 深化与补缺（本方案新增）</h5>
+        <p><b>深化</b>：兜底分支强制不可删 · 明细列级权限 · 超时三级升级链 · 节点级去重例外 · 会签比例 · 逐动作意见必填 · 删除分支三要素确认<br>
+        <b>CardFlow 特有</b>：自动处理四子类 · 凭证试算 · 历史命中率试算 · 敏感字段三处防泄漏（权限/摘要/插值）· 路由依赖锁定 · 干跑派人预警 · 发布变更清单+在途策略 · 版本历史与回滚 · 在途卡片数常驻</p>
+      </div>
+    </div>
+    <div class="notes">
+      <h4>与上一版总体方案的关系</h4>
+      <ul>
+        <li>总体方案（cardflow-designer-mock.html 九屏）定骨架；本细化方案（上篇 A1-A8 + 下篇 B1-B8）把每个可点开的面板逐一画出。</li>
+        <li>三份文档合计 25 屏，覆盖：入口→表单控件→四类节点属性→条件与分支→发布与版本 的完整闭环。</li>
+        <li>若认可，下一步可按"节点抽屉五 Tab → 条件编辑器 → 发布确认/版本"排实施优先级，与现有 <span class="k">FlowDefinitionEditPage</span> / <span class="k">StageConfigPanel</span> 做差距盘点。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="foot">CardFlow 设计器细化方案 · 下篇（B1-B8）· 上篇见 mock-detail-part1.html · 总体骨架见 cardflow-designer-mock.html</div>
+</div>
+</body>
+</html>

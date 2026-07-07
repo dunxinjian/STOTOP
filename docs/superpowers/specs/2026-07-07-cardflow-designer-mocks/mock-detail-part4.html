@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CardFlow 设计器细化方案 · 规格层（时序 / 状态机 / 边界 / 响应式 / 文案 / 无障碍 / 动效）</title>
+<link rel="stylesheet" href="mock-shared.css">
+<style>
+  kbd{display:inline-block;background:#f5f7fa;border:1px solid var(--line2);border-bottom-width:2px;border-radius:5px;padding:1px 7px;font-size:11.5px;font-family:Consolas,monospace;color:var(--sub)}
+  code{font-family:Consolas,monospace;font-size:12px;background:#f5f7fa;border-radius:4px;padding:0 5px}
+
+  /* filmstrip */
+  .film{display:flex;gap:0;overflow:hidden;border:1px solid var(--line2);border-radius:10px;background:#fff}
+  .fr{flex:1;min-width:0;border-right:1px dashed var(--line2);padding:12px 10px;display:flex;flex-direction:column}
+  .fr:last-child{border-right:0}
+  .fr .ft{font-size:11px;color:var(--mute);font-family:Consolas,monospace;margin-bottom:8px;display:flex;justify-content:space-between}
+  .fr .ft b{color:#d4380d}
+  .fr .stage2{flex:1;background:var(--bg);border-radius:8px;padding:10px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:150px;position:relative}
+  .fr .cap{font-size:11.5px;color:var(--sub);margin-top:8px;line-height:1.5}
+  .np{width:22px;height:22px;border-radius:50%;background:#fff;border:1.5px solid var(--blue);color:var(--blue);display:flex;align-items:center;justify-content:center;font-size:14px}
+  .mininode{width:130px;background:#fff;border:1px solid var(--line2);border-radius:7px;padding:6px 9px;font-size:11px;display:flex;gap:6px;align-items:center;box-shadow:var(--shadow)}
+  .mininode .mi3{width:16px;height:16px;border-radius:4px;background:var(--blue);color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;flex:none}
+  .vline{width:2px;height:12px;background:var(--line2)}
+
+  /* state machine */
+  .sm{position:relative;background:#fff;border:1px solid var(--line2);border-radius:10px;padding:20px}
+  .state{display:inline-block;border:1.5px solid var(--blue-2);background:var(--blue-1);border-radius:20px;padding:6px 16px;font-size:12.5px;color:var(--ink);font-weight:600}
+  .state.terminal{border-color:var(--line2);background:#fafafa;color:var(--sub)}
+  .state.warn2{border-color:var(--gold-b);background:var(--gold-1)}
+  .arrowlbl{font-size:11px;color:var(--mute);font-family:Consolas,monospace}
+  .smrow{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+  .arr2{color:var(--faint);font-size:15px}
+
+  /* boundary table */
+  .btb{width:100%;border-collapse:collapse;font-size:12.5px}
+  .btb th,.btb td{border:1px solid var(--line2);padding:8px 11px;text-align:left;vertical-align:top}
+  .btb th{background:#fafafa;color:var(--sub);font-weight:600;white-space:nowrap}
+  .demo-cell{background:#fff;border:1px solid var(--line2);border-radius:6px;padding:5px 9px;font-size:12px;display:inline-block;max-width:100%}
+  .ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:bottom}
+
+  /* responsive strip */
+  .vp{border:1px solid var(--line2);border-radius:9px;overflow:hidden;background:#fff}
+  .vp .vph{background:#fafafa;border-bottom:1px solid var(--line);padding:5px 10px;font-size:11px;color:var(--sub);font-family:Consolas,monospace;display:flex;justify-content:space-between}
+  .vp .vpb{display:flex;height:110px}
+  .blk{display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--sub);border-right:1px solid var(--line)}
+  .blk:last-child{border-right:0}
+  .blk.sd{background:#0a2038;color:#9db8d4}
+  .blk.cv2{background:var(--bg)}
+  .blk.dr{background:var(--blue-1);color:var(--blue)}
+  .blk.lib2{background:#fbfcfe}
+
+  /* skeleton */
+  .sk{background:linear-gradient(90deg,#f0f2f5 25%,#e8eaee 37%,#f0f2f5 63%);border-radius:6px}
+  .skrow{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+
+  /* a11y focus map */
+  .fmap{position:relative;background:var(--bg);border-radius:10px;padding:16px;border:1px solid var(--line2)}
+  .fnum{position:absolute;width:20px;height:20px;border-radius:50%;background:#d4380d;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px #fff;z-index:5}
+
+  /* motion curves */
+  .curve{background:#fff;border:1px solid var(--line2);border-radius:9px;padding:10px}
+  .curve svg{display:block}
+  .mtb{width:100%;border-collapse:collapse;font-size:12px}
+  .mtb th,.mtb td{border:1px solid var(--line2);padding:6px 10px;text-align:left}
+  .mtb th{background:#fafafa;color:var(--sub);font-weight:600}
+
+  /* dark preview */
+  .darkzone{background:#141414;border-radius:10px;padding:20px;display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+  .dnode{width:230px;background:#1f1f1f;border:1px solid #303030;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.45)}
+  .dnode .nh2{display:flex;align-items:center;gap:9px;padding:9px 12px;border-bottom:1px solid #2a2a2a}
+  .dnode .nt2{font-weight:600;font-size:13px;color:rgba(255,255,255,.85);flex:1}
+  .dnode .nb2{padding:8px 12px;font-size:12px;color:rgba(255,255,255,.45)}
+  .dnode .ni4{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700}
+
+  .copytb{width:100%;border-collapse:collapse;font-size:12.5px}
+  .copytb th,.copytb td{border:1px solid var(--line2);padding:7px 11px;text-align:left;vertical-align:top}
+  .copytb th{background:#fafafa;color:var(--sub);font-weight:600;white-space:nowrap}
+  .no{color:#cf1322;text-decoration:line-through}
+  .yes{color:#389e0d;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="doc-hd">
+    <h1>CardFlow 设计器细化方案 · 规格层</h1>
+    <p>第四层（最底层）：<b style="color:#fff">交互时序逐帧定义、组件状态机、文本与规模边界态、响应式断点、加载骨架、微文案系统、无障碍标注、动效关键帧、深色模式映射</b>。这一层之下就是代码。</p>
+    <div class="tags">
+      <span>D1 插入节点逐帧时序</span><span>D2 抽屉状态机</span><span>D3 文本/数值边界态</span><span>D4 规模边界（20分支/50字段/100节点）</span>
+      <span>D5 响应式断点</span><span>D6 加载骨架</span><span>D7 微文案系统</span><span>D8 无障碍</span><span>D9 动效关键帧</span><span>D10 深色模式</span>
+    </div>
+  </div>
+
+  <!-- ============ D1 FILMSTRIP ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">D1</div>
+      <div><h2>「+ 插入审批节点」逐帧时序（0 → 640ms）</h2>
+        <p>从悬停到抽屉聚焦的完整帧序列。每帧标注触发条件与耗时，动效编排让"节点从哪来"有明确视觉因果。</p></div>
+    </div>
+    <div class="film">
+      <div class="fr">
+        <div class="ft"><span>F1</span><b>0ms</b></div>
+        <div class="stage2"><div class="np" style="transform:scale(1.18);background:var(--blue);color:#fff">+</div></div>
+        <div class="cap"><b>hover</b>：放大 1.18、实心化（120ms ease-out）；tooltip「添加节点」延迟 600ms 出现</div>
+      </div>
+      <div class="fr">
+        <div class="ft"><span>F2</span><b>click +80ms</b></div>
+        <div class="stage2">
+          <div class="np" style="background:var(--blue);color:#fff;transform:rotate(45deg)">+</div>
+          <div style="background:#fff;border:1px solid var(--line2);border-radius:8px;box-shadow:var(--shadow-lg);padding:4px;font-size:10.5px;margin-top:6px;width:110px">
+            <div style="padding:4px 7px;background:var(--blue-1);border-radius:4px">审 审批人</div>
+            <div style="padding:4px 7px">抄 抄送人</div>
+            <div style="padding:4px 7px">分 条件分支</div>
+            <div style="padding:4px 7px">自 自动处理 ▸</div>
+          </div>
+        </div>
+        <div class="cap"><b>菜单展开</b>：+ 旋转 45° 变 ✕；菜单 scale .92→1 + fade（160ms）；首项自动获得键盘焦点</div>
+      </div>
+      <div class="fr">
+        <div class="ft"><span>F3</span><b>select +0ms</b></div>
+        <div class="stage2">
+          <div class="mininode" style="opacity:.4"><span class="mi3">起</span>发起人</div>
+          <div class="vline"></div>
+          <div style="height:8px;width:130px;border-radius:7px;background:var(--blue-1);border:1px dashed var(--blue-2)"></div>
+          <div class="vline"></div>
+          <div class="mininode" style="opacity:.4"><span class="mi3" style="background:var(--green)">终</span>结束</div>
+        </div>
+        <div class="cap"><b>占位挤开</b>：下方节点先向下让位（240ms cubic-bezier(.2,.8,.2,1)），出现 8px 高的占位胶囊</div>
+      </div>
+      <div class="fr">
+        <div class="ft"><span>F4</span><b>+240ms</b></div>
+        <div class="stage2">
+          <div class="mininode" style="opacity:.4"><span class="mi3">起</span>发起人</div>
+          <div class="vline"></div>
+          <div class="mininode" style="border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-1)"><span class="mi3">审</span>新审批节点</div>
+          <div class="vline"></div>
+          <div class="mininode" style="opacity:.4"><span class="mi3" style="background:var(--green)">终</span>结束</div>
+        </div>
+        <div class="cap"><b>节点生长</b>：占位胶囊 height 8→46px + 内容 fade-in（200ms）；新节点即为选中态</div>
+      </div>
+      <div class="fr">
+        <div class="ft"><span>F5</span><b>+400ms</b></div>
+        <div class="stage2">
+          <div style="display:flex;width:100%;height:100%">
+            <div style="flex:1"></div>
+            <div style="width:46%;background:#fff;border-left:1px solid var(--line2);border-radius:6px 0 0 6px;box-shadow:-4px 0 10px rgba(0,0,0,.08);padding:8px;font-size:10px;color:var(--sub)">
+              抽屉滑入<br><span style="color:var(--blue)">▊</span> 名称输入框聚焦
+            </div>
+          </div>
+        </div>
+        <div class="cap"><b>抽屉滑入</b>（240ms，与 F4 重叠 40ms 起步）；焦点落「节点名称」并<b>全选默认文案</b>，直接打字即改名</div>
+      </div>
+      <div class="fr">
+        <div class="ft"><span>F6</span><b>640ms 稳定</b></div>
+        <div class="stage2">
+          <div class="mininode"><span class="mi3">审</span>新审批节点</div>
+          <div style="font-size:10px;color:#d48806;background:var(--gold-1);border:1px solid var(--gold-b);border-radius:5px;padding:2px 7px;margin-top:8px">⚠ 未配置处理人</div>
+        </div>
+        <div class="cap"><b>稳定态</b>：新节点挂"未配置处理人"警告角标（进诊断），画布自动滚动保证新节点+抽屉同时可见</div>
+      </div>
+    </div>
+    <div class="notes">
+      <h4>时序规则</h4>
+      <ul>
+        <li><b>先让位再生长</b>（F3→F4）：避免下方节点瞬移；占位胶囊让用户在动画期就确认插入位置正确。</li>
+        <li><b>抽屉与生长重叠 40ms</b>：总时长压到 640ms 内完成可交互，不做完整串行（那会到 1s+）。</li>
+        <li><b>Esc 链</b>：菜单开→Esc 关菜单；抽屉开→Esc 关抽屉；均不删除已插入节点（删除必须显式）。</li>
+        <li>条件分支的插入时序同构，F4 替换为"横向展开两列 + 兜底列"（280ms，两列 stagger 40ms）。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ D2 DRAWER STATE MACHINE ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">D2</div>
+      <div><h2>节点抽屉状态机（打开 / 脏检查 / 切换 / 关闭）</h2>
+        <p>抽屉全生命周期的状态与迁移条件，重点定义"带着未保存修改切换节点"的分支。</p></div>
+    </div>
+    <div class="sm">
+      <div class="smrow">
+        <span class="state terminal">关闭</span><span class="arr2">→</span>
+        <span class="arrowlbl">点节点 / Enter / 诊断定位</span><span class="arr2">→</span>
+        <span class="state">打开·净</span>
+        <span class="arrowlbl" style="margin-left:auto">240ms 滑入 · 焦点入首字段</span>
+      </div>
+      <div class="smrow">
+        <span class="state">打开·净</span><span class="arr2">→</span>
+        <span class="arrowlbl">任意编辑</span><span class="arr2">→</span>
+        <span class="state warn2">打开·脏</span><span class="arr2">→</span>
+        <span class="arrowlbl">防抖 2s 自动保存成功</span><span class="arr2">→</span>
+        <span class="state">打开·净</span>
+        <span class="arrowlbl" style="margin-left:auto">脏态下顶栏胶囊=「✎ 编辑中…」</span>
+      </div>
+      <div class="smrow">
+        <span class="state warn2">打开·脏</span><span class="arr2">→</span>
+        <span class="arrowlbl">点另一节点</span><span class="arr2">→</span>
+        <div style="border:1px solid var(--line2);border-radius:9px;padding:9px 13px;background:#fff;font-size:12px;box-shadow:var(--shadow)">
+          <b>不弹窗</b>：先同步触发保存（本地状态必成功）→ 抽屉内容<b>就地换血</b>（不关不开，内容 crossfade 160ms）→ Tab 停留在同名 Tab
+        </div>
+      </div>
+      <div class="smrow">
+        <span class="state warn2">打开·脏（含校验错误）</span><span class="arr2">→</span>
+        <span class="arrowlbl">关闭 / 切换</span><span class="arr2">→</span>
+        <div style="border:1px solid var(--gold-b);border-radius:9px;padding:9px 13px;background:var(--gold-1);font-size:12px">
+          <b>允许离开</b>：错误值保留在草稿并转为节点错误角标 + 诊断项；绝不锁死用户在抽屉里
+        </div>
+      </div>
+      <div class="smrow" style="margin-bottom:0">
+        <span class="state">打开·任意</span><span class="arr2">→</span>
+        <span class="arrowlbl">Esc / ✕ / 点画布空白</span><span class="arr2">→</span>
+        <span class="state terminal">关闭</span><span class="arr2">·</span>
+        <span class="arrowlbl">焦点归还到来源节点卡片（无障碍要求，见 D8）</span>
+      </div>
+    </div>
+    <div class="notes">
+      <h4>关键决策</h4>
+      <ul>
+        <li><b>切换节点不弹"是否保存"</b>：本地草稿模型下保存不会失败（写内存+防抖落库），弹窗是伪选择；企微/钉钉在这里都会弹窗打断，是我们明确不学的点。</li>
+        <li><b>就地换血而非关-开</b>：连续检查多个节点（诊断修复流）时抽屉不闪烁；Tab 位置保持（正在逐节点核对"字段权限"时切节点仍停在字段权限 Tab）。</li>
+        <li><b>点画布空白=关闭</b>：与"点节点=打开"对偶；拖拽选择等复杂画布手势不存在（结构化图），无手势冲突。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ D3 TEXT BOUNDARY ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">D3</div>
+      <div><h2>文本与数值边界态渲染规则</h2>
+        <p>每类文本的截断策略、tooltip 补全、空值与极值的统一渲染。规则表 + 实例并排。</p></div>
+    </div>
+    <div class="panel">
+      <div class="panel-bd" style="padding:0;overflow:auto">
+        <table class="btb">
+          <tr><th style="width:130px">内容</th><th style="width:210px">规则</th><th>实例</th></tr>
+          <tr><td>节点名称</td><td>单行尾部省略，上限 20 字；hover 600ms 出 tooltip 全文</td>
+            <td><span class="demo-cell" style="width:190px"><span class="ell" style="max-width:160px"><b>大额差旅费用与业务招待专项审批节</b></span>…</span></td></tr>
+          <tr><td>处理人多人</td><td>展示前 2 人 + 「等 N 人」；点击展开全员浮层（含解析来源）</td>
+            <td><span class="demo-cell">王芳、李强 <span style="color:var(--blue)">等 5 人</span></span></td></tr>
+          <tr><td>组织路径</td><td><b>中段省略</b>保首尾（首=租户上下文，尾=定位）；tooltip 全路径</td>
+            <td><span class="demo-cell">美申集团 / … / 财务共享中心</span></td></tr>
+          <tr><td>条件表达式<br>（节点卡片上）</td><td>最多 2 行；超出折叠为「前 1 条 + 等 N 条条件」，点击进条件编辑器</td>
+            <td><span class="demo-cell" style="font-family:Consolas,monospace;font-size:11.5px">报销金额 ≥ 10000<br><span style="color:var(--blue)">等 3 条条件 ▾</span></span></td></tr>
+          <tr><td>金额</td><td>千分位 + 2 位小数；≥1 亿降级为「1.20 亿」+ tooltip 精确值；负数红色带括号（财务惯例）</td>
+            <td><span class="demo-cell">¥ 12,000.00 · ¥ 1.20 亿 · <span style="color:#cf1322">(¥ 3,500.00)</span></span></td></tr>
+          <tr><td>空值</td><td>统一 <b>—</b>（em dash），禁止空白/"null"/"未设置"混用；可配置项空值+必填 → 显示警告色「未配置」</td>
+            <td><span class="demo-cell">抄送渠道：— · 处理人：<span style="color:#d48806">未配置</span></span></td></tr>
+          <tr><td>时间</td><td>24h 内相对时间（"3 分钟前"），之外绝对时间「07-02 16:20」；tooltip 完整「2026-07-02 16:20:35」</td>
+            <td><span class="demo-cell">3 分钟前 · 07-02 16:20</span></td></tr>
+          <tr><td>数字输入极值</td><td>金额上限 12 位；超长粘贴截断+toast 说明；科学计数法粘贴（1e5）自动展开为 100000</td>
+            <td><span class="demo-cell">粘贴 1e5 → 100,000 <span class="tag grey" style="font-size:10px">已展开</span></span></td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="notes">
+      <h4>统一原则</h4>
+      <ul>
+        <li><b>截断必配 tooltip</b>：任何省略号都能 hover 看全文——无死角。</li>
+        <li><b>组织路径中段省略</b>是唯一的非尾部省略特例：尾部是定位信息不可丢，首部租户名在多租户场景有辨识价值。</li>
+        <li>所有规则封装为 3 个通用组件：<code>EllipsisText</code> / <code>MemberSummary</code> / <code>ConditionSummary</code>，禁止页面各自手写截断。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ D4 SCALE ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">D4</div>
+      <div><h2>规模边界：20 条分支 / 50 个字段 / 100 节点长流程</h2>
+        <p>真实业务会撑到的三个规模极端，各给导航方案。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">① 分支横向溢出（>4 列）</div>
+        <div class="panel-bd">
+          <div style="position:relative;border:1px solid var(--line2);border-radius:9px;overflow:hidden">
+            <div style="display:flex;gap:10px;padding:12px;overflow:hidden">
+              <div style="flex:none;width:120px;border:1px solid var(--blue-2);border-top:3px solid var(--blue);border-radius:8px;padding:8px;font-size:11px"><b>华北区</b><div class="muted" style="font-size:10px">组织 在 华北子树</div></div>
+              <div style="flex:none;width:120px;border:1px solid var(--blue-2);border-top:3px solid var(--blue);border-radius:8px;padding:8px;font-size:11px"><b>华东区</b><div class="muted" style="font-size:10px">组织 在 华东子树</div></div>
+              <div style="flex:none;width:120px;border:1px solid var(--blue-2);border-top:3px solid var(--blue);border-radius:8px;padding:8px;font-size:11px"><b>华南区</b><div class="muted" style="font-size:10px">组织 在 华南子树</div></div>
+              <div style="flex:none;width:70px;border:1px solid var(--line2);border-radius:8px;padding:8px;font-size:11px;opacity:.55"><b>西南区</b></div>
+            </div>
+            <div style="position:absolute;right:0;top:0;bottom:0;width:44px;background:linear-gradient(90deg,transparent,#fff 70%);display:flex;align-items:center;justify-content:flex-end;padding-right:6px">
+              <span style="width:24px;height:24px;border-radius:50%;background:#fff;border:1px solid var(--line2);box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--sub)">▸</span>
+            </div>
+            <div style="border-top:1px solid var(--line);padding:6px 12px;display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--sub)">
+              <span>分支 3-6 / 20</span>
+              <div style="flex:1;height:4px;background:var(--bg);border-radius:2px;position:relative"><span style="position:absolute;left:12%;width:22%;height:100%;background:var(--blue-2);border-radius:2px"></span></div>
+              <span style="color:var(--blue)">列表视图 ≡</span>
+            </div>
+          </div>
+          <div class="muted" style="font-size:11.5px;margin-top:8px">边缘渐隐+箭头分页滚动（<kbd>Shift+滚轮</kbd> 横滚）；底部微缩滚动条可拖；<b>>8 条分支时提供"列表视图"</b>：表格形式列出 条件/优先级/首节点，批量核对条件比横向滚动高效。</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">② 字段权限 50+ 字段（抽屉内）</div>
+        <div class="panel-bd">
+          <div class="inp sm" style="margin-bottom:8px;color:var(--faint)">🔍 筛选字段名 · 按权限过滤 <span class="seg sm" style="margin-left:auto"><span class="on">全部</span><span>仅可编辑</span><span>仅隐藏</span></span></div>
+          <div class="fplist">
+            <div class="fprow" style="background:#f5f8ff;font-weight:600"><span class="fn">▾ 基本信息（8）</span><span class="muted" style="font-size:11px">整组：</span><div class="tri"><span>编</span><span class="r">读</span><span>隐</span></div></div>
+            <div class="fprow"><span class="fn">报销事由</span><div class="tri"><span>编</span><span class="r">读</span><span>隐</span></div></div>
+            <div class="fprow"><span class="fn">报销金额 🔗</span><div class="tri"><span style="color:var(--faint)">编</span><span class="r">读</span><span style="color:var(--faint)">隐</span></div></div>
+            <div class="fprow" style="background:#f5f8ff;font-weight:600"><span class="fn">▸ 费用明细（12）</span><span class="tag grey" style="font-size:10px">折叠</span></div>
+            <div class="fprow" style="background:#f5f8ff;font-weight:600"><span class="fn">▸ 支付信息（6） <span style="color:#cf1322">🔒2</span></span><span class="tag grey" style="font-size:10px">折叠</span></div>
+          </div>
+          <div class="muted" style="font-size:11.5px;margin-top:8px">按卡片设计的<b>分组折叠</b>（组头可整组设权限）；虚拟滚动阈值 30 行；组头常驻敏感计数（🔒2）防折叠遮蔽漏配；搜索时自动展开命中组。</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-hd" style="font-size:13px">③ 100+ 节点长流程 · 右侧导航条（minimap 的结构化替代）</div>
+      <div class="panel-bd" style="display:flex;gap:18px">
+        <div style="flex:1;font-size:12.5px;color:var(--sub);line-height:1.9">
+          结构化竖向图不需要 2D minimap——一维结构用<b>右侧节点导航条</b>更准：每节点一个色点（按类型着色），当前视口区间高亮，错误节点红点放大；点击即滚动定位。<br>
+          顶部工具条加「<b>折叠分支</b>」开关：所有条件分支收拢为单节点摘要（「金额分档 · 3 分支 · 8 节点」），主干一屏尽览；点摘要节点原地展开该分支。<br>
+          <kbd>Ctrl+G</kbd> 唤起「跳转到节点」搜索（按名称/类型过滤），与诊断定位共用滚动+高亮机制。
+        </div>
+        <div style="width:26px;background:#fff;border:1px solid var(--line2);border-radius:12px;padding:8px 0;display:flex;flex-direction:column;align-items:center;gap:5px;flex:none">
+          <span style="width:8px;height:8px;border-radius:50%;background:#8c8c8c"></span>
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--blue)"></span>
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--blue)"></span>
+          <span style="width:12px;height:12px;border-radius:50%;background:var(--red);box-shadow:0 0 0 2px var(--red-1)"></span>
+          <span style="width:20px;border-radius:6px;background:var(--blue-1);height:34px;border:1px solid var(--blue-2)"></span>
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--gold)"></span>
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--purple)"></span>
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--orange)"></span>
+          <span style="width:8px;height:8px;border-radius:50%;background:#52c41a"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ D5 RESPONSIVE ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">D5</div>
+      <div><h2>响应式断点体系（设计器四档）</h2>
+        <p>设计器是 PC 管理端功能，不做移动编辑；四档断点只重排辅助区，画布永远优先。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="vp">
+        <div class="vph"><span>≥1600（宽屏）</span><span>三区常驻</span></div>
+        <div class="vpb">
+          <div class="blk sd" style="width:13%">侧栏</div>
+          <div class="blk cv2" style="flex:1">画布</div>
+          <div class="blk dr" style="width:28%">抽屉 400px 常驻<br>（不遮画布）</div>
+        </div>
+      </div>
+      <div class="vp">
+        <div class="vph"><span>1280–1599（主力档）</span><span>抽屉覆盖式</span></div>
+        <div class="vpb">
+          <div class="blk sd" style="width:13%">侧栏</div>
+          <div class="blk cv2" style="flex:1">画布（打开抽屉时自动平移，保证选中节点可见）</div>
+          <div class="blk dr" style="width:30%;border-left:2px solid var(--blue)">抽屉 360px 覆盖</div>
+        </div>
+      </div>
+      <div class="vp">
+        <div class="vph"><span>1024–1279（小笔记本）</span><span>侧栏收起 + 步骤条压缩</span></div>
+        <div class="vpb">
+          <div class="blk sd" style="width:5%">≡</div>
+          <div class="blk cv2" style="flex:1">画布 · 步骤条只显数字圆点（1✓ 2✓ ③ 4）· 顶栏按钮收进「···」</div>
+          <div class="blk dr" style="width:34%;border-left:2px solid var(--blue)">抽屉 340px</div>
+        </div>
+      </div>
+      <div class="vp">
+        <div class="vph"><span>&lt;1024 / 移动端</span><span>只读模式</span></div>
+        <div class="vpb">
+          <div class="blk cv2" style="flex:1;flex-direction:column;gap:4px">
+            <div>只读浏览流程图 + 查看版本/诊断</div>
+            <div style="font-size:9.5px;color:var(--mute)">顶部横幅：「编辑请使用 ≥1024 宽度的设备」· 干跑预览可用（本就是移动预览场景）</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h4>断点规则</h4>
+      <ul>
+        <li><b>卡片设计三栏</b>的降级独立定义：1024–1279 时左控件库收为图标栏（56px，hover 展开），右属性面板转覆盖式。</li>
+        <li><b>字段权限矩阵</b>横向可滚，首列（字段名）sticky；分支列最小宽 200px 触发 D4-① 的分页滚动。</li>
+        <li>断点用 CSS 容器查询按<b>画布区实际宽度</b>判断（侧栏收起会释放宽度），不按视口宽度。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ D6 SKELETON ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">D6</div>
+      <div><h2>加载骨架与分级加载</h2>
+        <p>三处骨架屏形状 + 加载优先级：先结构后内容，编辑器可交互时间 &lt; 1s。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:14px">
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">画布骨架（流程结构）</div>
+        <div class="panel-bd" style="background:var(--bg);display:flex;flex-direction:column;align-items:center;gap:0">
+          <div class="sk" style="width:170px;height:38px"></div>
+          <div class="vline"></div><div class="sk" style="width:18px;height:18px;border-radius:50%"></div><div class="vline"></div>
+          <div class="sk" style="width:170px;height:52px"></div>
+          <div class="vline"></div><div class="sk" style="width:18px;height:18px;border-radius:50%"></div><div class="vline"></div>
+          <div class="sk" style="width:170px;height:38px"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">抽屉骨架（Tab + 表单）</div>
+        <div class="panel-bd">
+          <div style="display:flex;gap:12px;margin-bottom:14px">
+            <div class="sk" style="width:40px;height:14px"></div><div class="sk" style="width:52px;height:14px"></div><div class="sk" style="width:60px;height:14px"></div>
+          </div>
+          <div class="skrow"><div class="sk" style="width:64px;height:12px"></div></div>
+          <div class="skrow"><div class="sk" style="flex:1;height:32px"></div></div>
+          <div class="skrow"><div class="sk" style="width:80px;height:12px"></div></div>
+          <div class="skrow"><div class="sk" style="flex:1;height:88px"></div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">分级加载顺序（编辑器进入）</div>
+        <div class="panel-bd" style="font-size:12.5px;color:var(--sub);line-height:2">
+          <b style="color:var(--ink)">P0 &lt;300ms</b>：壳（步骤条/顶栏）+ 流程结构（节点树，来自定义 JSON）→ <b>画布可浏览</b><br>
+          <b style="color:var(--ink)">P1 &lt;1s</b>：字段清单 + 权限数据 → <b>可编辑</b>（此前编辑入口禁用带 spinner）<br>
+          <b style="color:var(--ink)">P2 惰性</b>：人员选择器组织树（打开时拉）、历史命中率（进条件编辑器时算）、版本列表（展开时拉）<br>
+          <b style="color:var(--ink)">P3 后台</b>：干跑预热（进流程设计步骤即预热一次干跑上下文，点预览秒出）<br>
+          <span class="muted" style="font-size:11.5px">失败降级：P1 失败 → 画布保持只读 + 顶栏错误横幅「加载字段失败 · 重试」；骨架最短显示 200ms 防闪烁。</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ D7 MICROCOPY ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">D7</div>
+      <div><h2>微文案系统（术语表 / 句式模板 / 按钮规范）</h2>
+        <p>全设计器统一用词与句式。中文消息、英文代码标识，遵循项目异常消息规范。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">术语表（唯一真源，禁止混用）</div>
+        <div class="panel-bd" style="padding:0">
+          <table class="copytb">
+            <tr><th>✓ 统一用</th><th>✗ 禁止混用</th><th>说明</th></tr>
+            <tr><td class="yes">流程</td><td class="no">审批流 / 工作流 / 模板</td><td>「模板」只指模板库里的预设</td></tr>
+            <tr><td class="yes">卡片</td><td class="no">表单 / 单据 / 申请</td><td>CardFlow 领域词；「表单」仅指卡片内的填写区</td></tr>
+            <tr><td class="yes">节点</td><td class="no">环节 / 步骤 / 阶段</td><td>「步骤」保留给向导四步</td></tr>
+            <tr><td class="yes">处理人</td><td class="no">审批人 / 负责人</td><td>覆盖审批+自动+抄送的统一词；仅审批语境细化为"审批人"</td></tr>
+            <tr><td class="yes">发起人</td><td class="no">申请人 / 提交人</td><td></td></tr>
+            <tr><td class="yes">干跑预览</td><td class="no">模拟 / 测试运行</td><td>与后端 preview-presentation 术语对齐</td></tr>
+            <tr><td class="yes">在途卡片</td><td class="no">进行中单据 / 未完成流程</td><td>版本/停用语境的固定搭配</td></tr>
+            <tr><td class="yes">兜底分支</td><td class="no">默认分支 / 其他分支</td><td>UI 列名固定「其他情况」</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">句式模板与按钮规范</div>
+        <div class="panel-bd" style="font-size:12.5px;color:var(--sub);line-height:1.9">
+          <b style="color:var(--ink)">错误消息 = 哪里 + 什么错 + 怎么修：</b><br>
+          <span class="yes">「分支『大额』条件 2：金额需为数字，如 10000」</span><br>
+          <span class="no">「输入无效」「参数错误」</span><br><br>
+          <b style="color:var(--ink)">确认弹窗 = 动词开头问句 + 后果陈述：</b><br>
+          <span class="yes">「删除节点『出纳复核』？将丢失 6 项字段权限配置。」</span><br>
+          <span class="no">「你确定吗？」「警告！！」</span><br><br>
+          <b style="color:var(--ink)">按钮 = 动词或动宾，2-4 字：</b>
+          主按钮说明后果（<span class="yes">确认发布 v8</span> / <span class="no">确定</span>）；
+          危险按钮重复动词（<span class="yes">删除分支</span> / <span class="no">是</span>）；
+          取消永远在左、主操作在右。<br><br>
+          <b style="color:var(--ink)">数量前置：</b>「23 张在途卡片按 v7 走完」而非「在途卡片将按旧版本处理（23）」——扫读时数字是决策信息。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ D8 A11Y ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">D8</div>
+      <div><h2>无障碍标注（焦点序 / ARIA / 播报 / 色盲冗余）</h2>
+        <p>焦点顺序编号图 + 屏幕阅读器播报文本 + 「不只靠颜色」的冗余编码清单。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:14px">
+      <div class="fmap">
+        <div style="display:flex;gap:14px">
+          <div style="flex:1;position:relative">
+            <div style="position:relative;background:#fff;border-radius:8px;padding:8px 12px;font-size:12px;color:var(--sub);margin-bottom:10px;border:1px solid var(--line2)">
+              <span class="fnum" style="top:-9px;left:-9px">1</span>步骤条（← → 切步骤）
+            </div>
+            <div style="position:relative;background:#fff;border-radius:8px;padding:8px 12px;font-size:12px;color:var(--sub);margin-bottom:10px;border:1px solid var(--line2)">
+              <span class="fnum" style="top:-9px;left:-9px">2</span>顶栏动作（问题/预览/发布）
+            </div>
+            <div style="position:relative;background:#fff;border-radius:8px;padding:10px 12px;border:1px solid var(--line2)">
+              <span class="fnum" style="top:-9px;left:-9px">3</span>
+              <div style="font-size:12px;color:var(--sub);margin-bottom:6px">画布（roving tabindex：整图一个 Tab 停靠点）</div>
+              <div class="flowcol" style="padding:0">
+                <div class="mininode"><span class="mi3">起</span>发起人</div>
+                <div class="vline"></div>
+                <div class="mininode" style="border-color:var(--blue);box-shadow:0 0 0 2px var(--blue-1);position:relative"><span class="fnum" style="top:-9px;right:-9px;left:auto;background:var(--blue)">↕</span><span class="mi3">审</span>部门审批</div>
+                <div class="vline"></div>
+                <div class="mininode"><span class="mi3" style="background:var(--green)">终</span>结束</div>
+              </div>
+              <div class="muted" style="font-size:10.5px;margin-top:6px">↑↓ 节点间移动 · ←→ 分支列间移动 · Enter 开抽屉 · 菜单键=右键菜单</div>
+            </div>
+            <div style="position:relative;background:#fff;border-radius:8px;padding:8px 12px;font-size:12px;color:var(--sub);margin-top:10px;border:1px solid var(--line2)">
+              <span class="fnum" style="top:-9px;left:-9px">4</span>抽屉（焦点陷阱内循环 · Esc 归还到 ↕ 节点）
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="panel">
+          <div class="panel-hd" style="font-size:13px">屏幕阅读器播报文本（aria-label 模板）</div>
+          <div class="panel-bd" style="font-size:12px;font-family:Consolas,monospace;color:var(--sub);line-height:2">
+            节点：「审批节点 部门负责人审批，或签，处理人 发起人部门主管，<b style="color:#cf1322">2 个错误</b>，按 Enter 编辑」<br>
+            "+"：「在 部门负责人审批 之后 添加节点」<br>
+            分支列：「分支 大额，优先级 1 共 3 条，条件 报销金额大于等于 10000」<br>
+            插入完成（aria-live=polite）：「已添加 审批节点，抽屉已打开」<br>
+            保存态（aria-live=polite，节流 10s）：「草稿已保存」
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-hd" style="font-size:13px">色盲冗余编码（不只靠颜色）</div>
+          <div class="panel-bd" style="font-size:12.5px;color:var(--sub);line-height:2">
+            节点类型 = 颜色 <b>+ 图标字（审/自/抄）+ 边框样式</b>（自动=虚线）<br>
+            权限三态 = 底色 <b>+ 文字本身</b>（可编辑/只读/隐藏），矩阵不用纯色块<br>
+            干跑路径 = 绿色 <b>+ 加粗连线 + 途经节点角标人名</b><br>
+            诊断分级 = 红/黄点 <b>+「错误/警告」前缀词</b><br>
+            对比度：正文 ≥4.5:1；辅注（--mute on 白）≥4.6:1 达标；禁用态豁免但 tooltip 补全
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ D9 MOTION ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">D9</div>
+      <div><h2>动效关键帧规格</h2>
+        <p>三条曲线 + 全动效对照表。原则：位移用标准曲线、入场用减速、退场用加速且更快。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px">
+      <div class="curve">
+        <div style="font-size:12px;font-weight:600;margin-bottom:4px">standard <code>cubic-bezier(.2,.8,.2,1)</code></div>
+        <svg viewBox="0 0 100 60" width="100%" height="72">
+          <rect x="0" y="0" width="100" height="60" fill="#fafafa"/>
+          <path d="M5,55 C25,7 25,5 95,5" fill="none" stroke="#1677ff" stroke-width="2.5"/>
+          <circle cx="5" cy="55" r="2.5" fill="#1677ff"/><circle cx="95" cy="5" r="2.5" fill="#1677ff"/>
+        </svg>
+        <div class="muted" style="font-size:11px">布局位移：节点让位/生长、画布平移、分支展开</div>
+      </div>
+      <div class="curve">
+        <div style="font-size:12px;font-weight:600;margin-bottom:4px">decelerate <code>cubic-bezier(0,0,.2,1)</code></div>
+        <svg viewBox="0 0 100 60" width="100%" height="72">
+          <rect x="0" y="0" width="100" height="60" fill="#fafafa"/>
+          <path d="M5,55 C15,10 45,5 95,5" fill="none" stroke="#52c41a" stroke-width="2.5"/>
+          <circle cx="5" cy="55" r="2.5" fill="#52c41a"/><circle cx="95" cy="5" r="2.5" fill="#52c41a"/>
+        </svg>
+        <div class="muted" style="font-size:11px">入场：抽屉/弹层/菜单出现、toast 滑入</div>
+      </div>
+      <div class="curve">
+        <div style="font-size:12px;font-weight:600;margin-bottom:4px">accelerate <code>cubic-bezier(.4,0,1,1)</code></div>
+        <svg viewBox="0 0 100 60" width="100%" height="72">
+          <rect x="0" y="0" width="100" height="60" fill="#fafafa"/>
+          <path d="M5,55 C55,50 85,40 95,5" fill="none" stroke="#fa8c16" stroke-width="2.5"/>
+          <circle cx="5" cy="55" r="2.5" fill="#fa8c16"/><circle cx="95" cy="5" r="2.5" fill="#fa8c16"/>
+        </svg>
+        <div class="muted" style="font-size:11px">退场：关闭类，时长为入场 70%</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-bd" style="padding:0;overflow:auto">
+        <table class="mtb">
+          <tr><th>动效</th><th>属性</th><th>时长</th><th>曲线</th><th>编排备注</th></tr>
+          <tr><td>"+" hover</td><td>transform scale</td><td>120ms</td><td>standard</td><td>离开时 100ms 回落</td></tr>
+          <tr><td>插入菜单</td><td>opacity + scale .92→1</td><td>160ms</td><td>decelerate</td><td>transform-origin 锚在"+"位置</td></tr>
+          <tr><td>节点让位/生长</td><td>height / transform</td><td>240 / 200ms</td><td>standard</td><td>串行，见 D1；用 FLIP 技术避免重排抖动</td></tr>
+          <tr><td>抽屉开 / 关</td><td>transform translateX</td><td>240 / 170ms</td><td>decelerate / accelerate</td><td>内容在 60ms 后 fade-in（防白闪）</td></tr>
+          <tr><td>分支横向展开</td><td>width + opacity</td><td>280ms</td><td>standard</td><td>各列 stagger 40ms，从左到右</td></tr>
+          <tr><td>落位高亮闪烁</td><td>background</td><td>400ms ×1</td><td>ease-out</td><td>主色 8% 底纹，不重复闪</td></tr>
+          <tr><td>干跑路径点亮</td><td>stroke + 角标 fade</td><td>每段 160ms</td><td>decelerate</td><td>沿路径顺序 stagger 80ms，"流动感"</td></tr>
+          <tr><td>诊断定位滚动</td><td>scroll + outline 脉冲</td><td>360ms + 2×600ms</td><td>standard</td><td>目标节点外环脉冲两次后停</td></tr>
+          <tr><td>toast</td><td>translateY + opacity</td><td>200 / 140ms</td><td>decelerate / accelerate</td><td>多条堆叠间距 8px，上移让位</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="notes">
+      <h4>动效原则</h4>
+      <ul>
+        <li><b>150-300ms 区间</b>为主，超过 400ms 的只有分支展开与干跑点亮（有信息传达职责的编排动效）。</li>
+        <li><b>只动 transform/opacity</b>（合成层），例外是节点生长的 height（配 FLIP 限定在局部容器）。</li>
+        <li><code>prefers-reduced-motion</code>：位移类全部降级为 80ms fade；干跑路径点亮改为整体一次性高亮。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ D10 DARK ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">D10</div>
+      <div><h2>深色模式映射</h2>
+        <p>节点卡片深色态样张 + 令牌映射规则：色相不变、降饱和提亮、阴影转描边。</p></div>
+    </div>
+    <div class="darkzone">
+      <div class="dnode">
+        <div class="nh2"><span class="ni4" style="background:#3c89e8">审</span><span class="nt2">部门负责人审批</span><span style="font-size:11px;color:#3c89e8;background:rgba(60,137,232,.15);border:1px solid rgba(60,137,232,.35);border-radius:4px;padding:0 7px">或签</span></div>
+        <div class="nb2">处理人：发起人部门主管</div>
+      </div>
+      <div class="dnode" style="border-style:dashed;border-color:rgba(157,102,255,.4)">
+        <div class="nh2"><span class="ni4" style="background:#9d66ff">自</span><span class="nt2">自动生成凭证</span></div>
+        <div class="nb2">规则组：差旅报销</div>
+      </div>
+      <div class="dnode" style="border-color:#49aa19;box-shadow:0 0 0 3px rgba(73,170,25,.15)">
+        <div class="nh2"><span class="ni4" style="background:#49aa19">✓</span><span class="nt2">干跑命中态</span><span style="font-size:10px;color:#0f0f0f;background:#49aa19;border-radius:9px;padding:1px 7px">李强</span></div>
+        <div class="nb2">路径高亮 = 描边 + 外发光替代投影</div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-bd" style="padding:0;overflow:auto">
+        <table class="mtb">
+          <tr><th>语义</th><th>浅色</th><th>深色</th><th>规则</th></tr>
+          <tr><td>审批蓝</td><td><code>#1677ff</code></td><td><code>#3c89e8</code></td><td>AntD 暗色算法：提亮一档保对比度</td></tr>
+          <tr><td>自动紫</td><td><code>#722ed1</code></td><td><code>#9d66ff</code></td><td>同上；虚线边框透明度 .4</td></tr>
+          <tr><td>浅色底徽标（-1 系）</td><td>实底色</td><td>同色 15% 透明底 + 35% 描边</td><td>暗色下彩色实底刺眼，统一转透明底</td></tr>
+          <tr><td>卡片投影</td><td><code>--shadow-card</code></td><td>投影加深 + <b>1px 描边</b> <code>#303030</code></td><td>暗底投影不可见，描边承担层级表达</td></tr>
+          <tr><td>画布底/卡片底</td><td><code>#f0f2f5 / #fff</code></td><td><code>#141414 / #1f1f1f</code></td><td>走 <code>--color-bg-layout / -container</code>，随主题派生</td></tr>
+          <tr><td>干跑高亮</td><td>绿环+浅绿晕</td><td>绿描边+15% 外发光</td><td>发光半径 3px，替代 box-shadow 扩散</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="notes win">
+      <h4>落地约束</h4>
+      <ul>
+        <li>全部经由令牌层切换（<span class="k">stores/theme.ts</span> 派生机制），组件零感知；新增流程色令牌须同时给出暗色值。</li>
+        <li>只读总览图若走 ECharts/vue-flow：主题切换时按既有规则<b>重新解析真 hex</b> 并重绘（令牌 var() 不可直接进 canvas）。</li>
+        <li>诊断红/警告金在暗色下同样提亮一档，红点角标加 1px 深色描边防止与暗底糊化。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="foot">CardFlow 设计器细化方案 · 规格层（D1-D10）· 四层完整链路：骨架（9）→ 面板（16）→ 微交互（11）→ 规格（10），共 46 屏 · 此层之下即代码</div>
+</div>
+</body>
+</html>

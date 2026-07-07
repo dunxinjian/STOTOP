@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CardFlow 设计器细化方案 · 微观交互层（组件态 / 弹层 / 拖拽 / 反馈 / 规格）</title>
+<link rel="stylesheet" href="mock-shared.css">
+<style>
+  mark{background:var(--gold-1);color:#d48806;padding:0 1px;border-radius:2px}
+  kbd{display:inline-block;background:#f5f7fa;border:1px solid var(--line2);border-bottom-width:2px;border-radius:5px;padding:1px 7px;font-size:11.5px;font-family:Consolas,monospace;color:var(--sub)}
+
+  /* picker */
+  .picker{width:640px;background:#fff;border-radius:12px;box-shadow:var(--shadow-lg);overflow:hidden;margin:0 auto}
+  .picker .phd{padding:13px 18px;border-bottom:1px solid var(--line);font-weight:600;font-size:14px;display:flex;align-items:center}
+  .picker .pbody{display:flex;min-height:330px}
+  .ptabs{width:96px;flex:none;border-right:1px solid var(--line);background:#fafafa;padding:6px 0}
+  .ptabs div{padding:9px 14px;font-size:12.5px;color:var(--sub);cursor:pointer;border-left:2px solid transparent}
+  .ptabs div.on{background:#fff;color:var(--blue);border-left-color:var(--blue);font-weight:600}
+  .pmid{flex:1;padding:12px 14px;border-right:1px solid var(--line);min-width:0}
+  .psel{width:190px;flex:none;padding:12px 14px}
+  .trow{display:flex;align-items:center;gap:8px;padding:6px 6px;border-radius:6px;font-size:12.5px;cursor:pointer}
+  .trow:hover{background:var(--bg)}
+  .trow .arr{color:var(--faint);font-size:10px;width:12px;flex:none}
+  .cbx.half{background:#fff;border-color:var(--blue);position:relative}
+  .cbx.half::after{content:"";position:absolute;left:2px;top:5px;width:8px;height:2.5px;background:var(--blue)}
+  .pfoot{border-top:1px solid var(--line);padding:11px 18px;display:flex;align-items:center;gap:10px}
+
+  /* state matrix */
+  .smx{display:grid;grid-template-columns:110px 1fr;gap:0;border:1px solid var(--line2);border-radius:10px;overflow:hidden;background:#fff}
+  .smx>div{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .smx>div:nth-child(odd){background:#fafafa;font-size:12.5px;color:var(--sub);font-weight:600;border-right:1px solid var(--line)}
+  .stcap{font-size:11px;color:var(--mute);display:block;margin-top:4px;text-align:center}
+  .stitem{display:flex;flex-direction:column;align-items:center}
+  .btn.hov{border-color:var(--blue);color:var(--blue)}
+  .btn.act{border-color:#0958d9;color:#0958d9;background:var(--blue-1)}
+  .btn.dis{opacity:.45;cursor:not-allowed}
+  .btn.load{color:var(--mute)}
+  .spin{width:12px;height:12px;border:2px solid var(--blue-2);border-top-color:var(--blue);border-radius:50%;display:inline-block}
+  .inp.focus{border-color:var(--blue);box-shadow:0 0 0 2px var(--blue-1)}
+  .inp.err{border-color:var(--red);box-shadow:0 0 0 2px var(--red-1)}
+  .inp.dis{background:#f5f5f5;color:var(--faint)}
+  .errmsg{font-size:11.5px;color:var(--red);margin-top:4px}
+  .warnmsg{font-size:11.5px;color:#d48806;margin-top:4px}
+  .focusring{outline:2px solid var(--blue);outline-offset:2px;border-radius:6px}
+
+  /* mini node for states */
+  .mnode{width:210px;background:#fff;border:1px solid var(--line2);border-radius:9px;box-shadow:var(--shadow);font-size:12.5px;position:relative}
+  .mnode .mh{display:flex;align-items:center;gap:8px;padding:8px 11px}
+  .mnode .mi2{width:22px;height:22px;border-radius:6px;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex:none}
+  .mnode.hover{border-color:var(--blue-2)}
+  .mnode.sel2{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-1),var(--shadow)}
+  .mnode.off{opacity:.55}
+  .mnode.errn{border-color:var(--red)}
+  .ntools{position:absolute;top:-13px;right:8px;background:#fff;border:1px solid var(--line2);border-radius:6px;box-shadow:var(--shadow);display:flex;font-size:11px}
+  .ntools span{padding:3px 8px;border-right:1px solid var(--line);color:var(--sub);cursor:pointer}
+  .ntools span:last-child{border-right:0}
+  .errdot{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:var(--red);color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center}
+
+  /* drag */
+  .dragrow{border:1px dashed transparent;border-radius:7px;padding:10px 13px;position:relative;background:#fff}
+  .lift{box-shadow:0 10px 26px rgba(0,0,0,.16);transform:rotate(-.8deg);border:1px solid var(--blue-2);opacity:.95;z-index:3}
+  .insline{height:3px;background:var(--blue);border-radius:2px;position:relative;margin:3px 8px}
+  .insline::before{content:"";position:absolute;left:-5px;top:-3.5px;width:10px;height:10px;border-radius:50%;background:var(--blue)}
+  .insbubble{position:absolute;right:0;top:-24px;background:var(--blue);color:#fff;font-size:11px;border-radius:4px;padding:1px 8px}
+  .nodrop{border:1.5px dashed var(--red);background:var(--red-1);border-radius:8px}
+
+  /* toast */
+  .toast{display:flex;align-items:center;gap:9px;background:#fff;border-radius:9px;box-shadow:var(--shadow-lg);padding:10px 16px;font-size:13px;width:fit-content}
+  .toast .ti{width:18px;height:18px;border-radius:50%;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;flex:none}
+
+  /* coach mark */
+  .coach{position:relative;background:#2b3440;border-radius:12px;overflow:hidden}
+  .coach .dimmed{opacity:.35;filter:saturate(.6)}
+  .spot{position:absolute;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 6px rgba(255,255,255,.18);animation:none}
+  .coachcard{position:absolute;background:#fff;border-radius:10px;padding:14px 16px;width:250px;box-shadow:var(--shadow-lg)}
+
+  /* spec annotations */
+  .specwrap{position:relative;padding:46px 60px;background:#fff;border:1px solid var(--line);border-radius:10px}
+  .dim{position:absolute;font-size:10.5px;color:#d4380d;font-family:Consolas,monospace;white-space:nowrap}
+  .dimline{position:absolute;background:#ffbb96}
+  .spectb{width:100%;border-collapse:collapse;font-size:12.5px}
+  .spectb th,.spectb td{border:1px solid var(--line2);padding:7px 11px;text-align:left}
+  .spectb th{background:#fafafa;color:var(--sub);font-weight:600}
+  .spectb td code{font-family:Consolas,monospace;font-size:12px;background:#f5f7fa;border-radius:4px;padding:0 5px}
+  .swb{display:inline-block;width:13px;height:13px;border-radius:3px;vertical-align:-2px;margin-right:6px}
+
+  .ctxmenu{width:190px;background:#fff;border:1px solid var(--line2);border-radius:9px;box-shadow:var(--shadow-lg);padding:5px;font-size:12.5px}
+  .ctxmenu div{padding:7px 11px;border-radius:6px;display:flex;align-items:center;gap:8px;color:var(--ink)}
+  .ctxmenu div:hover{background:var(--bg)}
+  .ctxmenu .sep{height:1px;background:var(--line);margin:4px 6px;padding:0}
+  .ctxmenu .danger2{color:#cf1322}
+  .ctxmenu .dis2{color:var(--faint)}
+  .ctxmenu kbd{margin-left:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="doc-hd">
+    <h1>CardFlow 设计器细化方案 · 微观交互层</h1>
+    <p>第三层：把上/下篇里每个面板内部的<b style="color:#fff">组件状态、弹层展开态、拖拽反馈、校验时机、保存与并发、撤销体系、空态引导、操作反馈、尺寸与令牌规格</b>逐一定义。这一层解决的是"开发照着能直接写"的问题。</p>
+    <div class="tags">
+      <span>C1 人员/组织选择器</span><span>C2 组件状态全集</span><span>C3 拖拽微交互</span><span>C4 校验时机</span>
+      <span>C5 自动保存与编辑锁</span><span>C6 撤销/重做/快捷键</span><span>C7 节点微交互</span><span>C8 条件字段下拉</span>
+      <span>C9 空态与新手引导</span><span>C10 反馈体系</span><span>C11 规格与令牌</span>
+    </div>
+  </div>
+
+  <!-- ============ C1 PICKER ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">C1</div>
+      <div><h2>人员/组织选择器（全系统复用的最重弹层）</h2>
+        <p>处理人、抄送对象、发起范围、通知对象、兜底转交人……全部走同一个选择器。左类型页签 / 中搜索+树 / 右已选列表。</p></div>
+    </div>
+    <div class="picker">
+      <div class="phd">选择处理人<span style="margin-left:auto;color:var(--faint);font-weight:400">✕</span></div>
+      <div class="pbody">
+        <div class="ptabs">
+          <div class="on">成员</div><div>部门</div><div>角色</div><div>动态参数</div>
+        </div>
+        <div class="pmid">
+          <div class="inp sm" style="margin-bottom:8px">🔍 <mark>王</mark>｜<span class="muted" style="font-size:11.5px">支持拼音首字母 wf</span></div>
+          <div style="font-size:11px;color:var(--mute);margin:2px 4px 6px">搜索结果 · 3</div>
+          <div class="trow" style="background:var(--blue-1)"><span class="cbx on"></span><span class="mem" style="border:0;padding-left:0"><span class="av o">王</span><mark>王</mark>芳</span><span class="muted" style="font-size:11px;margin-left:auto">财务共享中心 · 财务经理</span></div>
+          <div class="trow"><span class="cbx"></span><span class="mem" style="border:0;padding-left:0"><span class="av p">王</span><mark>王</mark>建国</span><span class="muted" style="font-size:11px;margin-left:auto">大客户部</span></div>
+          <div class="trow"><span class="cbx"></span><span class="mem" style="border:0;padding-left:0"><span class="av g">汪</span><mark>汪</mark>成</span><span class="muted" style="font-size:11px;margin-left:auto">直营一部 · 试用期</span></div>
+          <div style="font-size:11px;color:var(--mute);margin:10px 4px 6px">按组织浏览</div>
+          <div class="trow"><span class="arr">▾</span><span class="cbx half"></span>🏢 美申集团（320）</div>
+          <div class="trow" style="padding-left:26px"><span class="arr">▾</span><span class="cbx on"></span>🏢 财务共享中心（12）</div>
+          <div class="trow" style="padding-left:46px"><span class="arr"></span><span class="cbx on"></span><span class="mem" style="border:0;padding-left:0"><span class="av o">王</span>王芳</span></div>
+          <div class="trow" style="padding-left:26px"><span class="arr">▸</span><span class="cbx"></span>🏢 大客户部（45）</div>
+        </div>
+        <div class="psel">
+          <div style="font-size:12px;color:var(--sub);margin-bottom:8px">已选 <b>3</b><span style="float:right;color:var(--blue);font-size:11.5px">清空</span></div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <span class="mem" style="width:100%"><span class="av o">王</span>王芳<span class="rm" style="margin-left:auto">✕</span></span>
+            <span class="mem" style="width:100%"><span class="av g">财</span>财务共享中心<span class="tag grey" style="margin-left:auto;font-size:10px">部门</span><span class="rm">✕</span></span>
+            <span class="mem" style="width:100%"><span class="av p">主</span>发起人部门主管<span class="tag p" style="margin-left:auto;font-size:10px">动态</span><span class="rm">✕</span></span>
+          </div>
+          <div style="font-size:11px;color:var(--mute);margin:12px 0 6px">最近使用</div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap">
+            <span class="chip" style="font-size:11px">李强</span><span class="chip" style="font-size:11px">周敏</span><span class="chip" style="font-size:11px">财务经理(角色)</span>
+          </div>
+        </div>
+      </div>
+      <div class="pfoot">
+        <span class="muted" style="font-size:12px">成员、部门、角色、动态参数可混选 · 部门默认含子部门（<span class="cbx on" style="vertical-align:-2px"></span> 含子部门）</span>
+        <div style="margin-left:auto;display:flex;gap:10px"><button class="btn sm">取消</button><button class="btn sm pri">确定 (3)</button></div>
+      </div>
+    </div>
+    <div class="notes src">
+      <h4>细节定义</h4>
+      <ul>
+        <li><b>四类页签</b>：成员 / 部门 / 角色 / 动态参数（发起人主管、表单人员字段等——上篇 A5 的十类中动态项归此页签）。调用方通过 props 声明允许哪些页签（如"兜底转交人"只开成员）。</li>
+        <li><b>树勾选三态</b>：全选 / <b>半选</b>（部分子级选中，横线态）/ 未选；勾部门=整部门，含子部门开关在底部说明区。</li>
+        <li><b>搜索</b>：拼音首字母匹配，命中字符 <mark>高亮</mark>；结果行右侧带部门+角色上下文防重名误选；试用期等状态灰字标注。</li>
+        <li><b>右栏已选</b>：类型徽标（部门/动态）区分；顺序即"依次审批"的顺序，可拖拽调整；确定按钮带计数。</li>
+        <li><b>最近使用</b>：按调用场景（处理人/抄送）分开记忆，点击直接加入已选。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ C2 STATE MATRIX ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">C2</div>
+      <div><h2>组件状态全集</h2>
+        <p>设计器内所有交互组件的完整状态定义：默认 / 悬停 / 按下 / 聚焦 / 禁用 / 加载 / 错误。</p></div>
+    </div>
+    <div class="smx">
+      <div>按钮</div>
+      <div>
+        <span class="stitem"><button class="btn">默认</button><span class="stcap">default</span></span>
+        <span class="stitem"><button class="btn hov">悬停</button><span class="stcap">hover 描边变主色</span></span>
+        <span class="stitem"><button class="btn act">按下</button><span class="stcap">active 底色加深</span></span>
+        <span class="stitem"><button class="btn focusring">键盘聚焦</button><span class="stcap">focus-visible 外环</span></span>
+        <span class="stitem"><button class="btn dis">禁用</button><span class="stcap">45% 透明+禁用光标</span></span>
+        <span class="stitem"><button class="btn load"><span class="spin"></span>发布中…</button><span class="stcap">loading 防重复点击</span></span>
+      </div>
+      <div>输入框</div>
+      <div>
+        <span class="stitem"><span class="inp sm" style="width:120px">默认</span><span class="stcap">default</span></span>
+        <span class="stitem"><span class="inp sm focus" style="width:120px">聚焦</span><span class="stcap">focus 主色环</span></span>
+        <span class="stitem"><span style="display:inline-block"><span class="inp sm err" style="width:120px">-500</span><span class="errmsg">金额需为正数</span></span><span class="stcap">error 红环+下方消息</span></span>
+        <span class="stitem"><span class="inp sm dis" style="width:120px">继承全局 (24h)</span><span class="stcap">disabled 灰底斜体=继承值</span></span>
+      </div>
+      <div>权限胶囊</div>
+      <div>
+        <span class="stitem"><div class="tri"><span class="e">可编辑</span><span>只读</span><span>隐藏</span></div><span class="stcap">选中态</span></span>
+        <span class="stitem"><div class="tri"><span>可编辑</span><span style="background:var(--bg)">只读</span><span>隐藏</span></div><span class="stcap">hover 预览浅灰</span></span>
+        <span class="stitem"><div class="tri"><span style="color:var(--faint);text-decoration:line-through">可编辑</span><span class="r">只读</span><span style="color:var(--faint)">隐藏</span></div><span class="stcap">禁用项划线+tooltip 说明原因</span></span>
+      </div>
+      <div>节点卡片</div>
+      <div>
+        <span class="stitem"><div class="mnode"><div class="mh"><span class="mi2">审</span>部门审批</div></div><span class="stcap">默认</span></span>
+        <span class="stitem"><div class="mnode hover" style="margin-top:12px"><div class="ntools"><span>⧉</span><span>⏸</span><span>🗑</span></div><div class="mh"><span class="mi2">审</span>部门审批</div></div><span class="stcap">悬停浮出工具条</span></span>
+        <span class="stitem"><div class="mnode sel2"><div class="mh"><span class="mi2">审</span>部门审批</div></div><span class="stcap">选中（抽屉打开）</span></span>
+        <span class="stitem"><div class="mnode off"><div class="mh"><span class="mi2" style="background:var(--faint)">审</span>部门审批 <span class="tag grey" style="font-size:10px">已停用</span></div></div><span class="stcap">停用置灰</span></span>
+        <span class="stitem"><div class="mnode errn"><span class="errdot">2</span><div class="mh"><span class="mi2">审</span>部门审批</div></div><span class="stcap">有诊断错误 · 角标计数</span></span>
+      </div>
+      <div>"+" 按钮</div>
+      <div>
+        <span class="stitem"><div class="plus" style="margin:0">+</div><span class="stcap">默认 26px</span></span>
+        <span class="stitem"><div class="plus" style="margin:0;transform:scale(1.18);background:var(--blue);color:#fff">+</div><span class="stcap">hover 放大 1.18 + 实心</span></span>
+        <span class="stitem"><div class="plus" style="margin:0;background:var(--blue);color:#fff;transform:rotate(45deg)">+</div><span class="stcap">菜单展开时旋转 45° 变 ✕</span></span>
+      </div>
+      <div>开关</div>
+      <div>
+        <span class="stitem"><span class="toggle sm"></span><span class="stcap">开</span></span>
+        <span class="stitem"><span class="toggle sm off"></span><span class="stcap">关</span></span>
+        <span class="stitem"><span class="toggle sm off" style="opacity:.45"></span><span class="stcap">禁用+tooltip 原因</span></span>
+      </div>
+    </div>
+    <div class="notes">
+      <h4>状态规则</h4>
+      <ul>
+        <li><b>禁用永远给原因</b>：所有禁用态组件 hover 出 tooltip 解释（"敏感字段不可设为可编辑"），绝不静默禁用。</li>
+        <li><b>继承值显示</b>：节点高级设置未覆盖全局时输入框呈灰斜体"继承全局 (24h)"，点击即转为本地覆盖值。</li>
+        <li><b>键盘可达</b>：所有可点元素有 <span class="k">focus-visible</span> 外环；节点卡片 <kbd>Tab</kbd> 可聚焦、<kbd>Enter</kbd> 开抽屉、<kbd>Del</kbd> 删除（走确认）。</li>
+        <li><b>节点错误角标</b>：与诊断面板同源，数字=该节点的错误+警告数，点击直接打开抽屉并定位到出错 Tab（Tab 红点，见上篇 A6）。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ C3 DRAG ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">C3</div>
+      <div><h2>拖拽微交互（控件入画布 / 字段排序 / 非法落点）</h2>
+        <p>拖起半透明幽灵 → 画布出现蓝色插入线 → 松手落位闪一次高亮。非法落点红色虚线+禁止说明。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">① 拖入 + 插入指示线</div>
+        <div class="panel-bd" style="background:var(--bg)">
+          <div style="max-width:330px;margin:0 auto;background:#fff;border-radius:10px;box-shadow:var(--shadow);padding:6px;position:relative">
+            <div class="dragrow"><div style="font-size:12.5px;color:var(--sub)">报销事由 *</div><div style="height:26px;border:1px solid var(--line2);border-radius:6px;margin-top:4px"></div></div>
+            <div class="insline"><span class="insbubble">松开插入到此处</span></div>
+            <div class="dragrow"><div style="font-size:12.5px;color:var(--sub)">报销金额 *</div><div style="height:26px;border:1px solid var(--line2);border-radius:6px;margin-top:4px"></div></div>
+            <div class="dragrow lift" style="position:absolute;width:200px;right:-30px;top:52px">
+              <div style="font-size:12.5px;color:var(--blue);display:flex;gap:6px;align-items:center">▦ 日期区间<span class="tag b" style="font-size:10px">拖动中</span></div>
+            </div>
+          </div>
+          <div class="muted" style="font-size:11.5px;text-align:center;margin-top:10px">幽灵体 95% 透明度 + 轻微旋转 · 指示线 3px 主色 + 左端圆点 · 落位后目标行闪一次 <span style="color:var(--blue)">主色底纹 400ms</span></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">② 非法落点</div>
+        <div class="panel-bd" style="background:var(--bg)">
+          <div style="max-width:330px;margin:0 auto;background:#fff;border-radius:10px;box-shadow:var(--shadow);padding:6px">
+            <div class="dragrow"><div style="font-size:12.5px;color:var(--sub)">费用明细（明细表）</div>
+              <div class="nodrop" style="padding:12px;margin-top:6px;text-align:center">
+                <div style="font-size:12px;color:#cf1322">🚫 明细表内不可嵌套明细表</div>
+                <div style="font-size:11px;color:var(--mute);margin-top:2px">光标变为 not-allowed · 松手回弹原位</div>
+              </div>
+            </div>
+            <div class="dragrow" style="opacity:.5"><div style="font-size:12.5px;color:var(--sub)">发票附件</div><div style="height:26px;border:1px solid var(--line2);border-radius:6px;margin-top:4px"></div></div>
+          </div>
+          <div class="muted" style="font-size:11.5px;text-align:center;margin-top:10px">同规则：敏感区块不接受说明文字控件 · 点击控件库 = 追加到画布末尾并滚动到可见（拖拽的免拖替代）</div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h4>细节定义</h4>
+      <ul>
+        <li><b>两种插入方式等价</b>：拖拽（精确落位）与点击（追加到末尾）——照顾触控板用户，吸收企微"点击即插入"。</li>
+        <li><b>落位反馈</b>：新字段落位后闪一次主色底纹并自动弹出右侧属性面板（吸收企微"拖入自动弹属性"），焦点落在"字段名称"输入框。</li>
+        <li><b>排序拖拽</b>：手柄 <span class="k">⠿</span> 限定在行左侧 28px 热区，避免与行点击（打开属性）冲突。</li>
+        <li><b>流程图侧不做自由拖拽</b>：节点移动用右键"移动到…"（见 C7），保持结构化图的"图永远合法"。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ C4 VALIDATION ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">C4</div>
+      <div><h2>校验时机与错误呈现</h2>
+        <p>三级校验：失焦即时校验（字段级）→ 编辑期持续诊断（问题徽标）→ 发布门禁（阻断）。各级呈现方式不同。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">① 失焦即时校验（抽屉内）</div>
+        <div class="panel-bd">
+          <div class="fld"><label>节点名称 <span class="req">*</span></label>
+            <div class="inp err"></div><div class="errmsg">节点名称不能为空</div></div>
+          <div class="fld"><label>节点名称</label>
+            <div class="inp" style="border-color:var(--gold)">部门审批</div><div class="warnmsg">⚠ 与已有节点「部门审批」重名，运行记录中难以区分（可发布）</div></div>
+          <div class="fld"><label>字段名称 <span class="muted" style="font-weight:400">带字数限制</span></label>
+            <div class="inp">报销事由说明补充材料<span style="margin-left:auto;font-size:11px;color:var(--mute)">10/20</span></div></div>
+          <div class="fld" style="margin-bottom:0"><label>条件值（金额类型）</label>
+            <div class="inp err">一万</div><div class="errmsg">请输入数字，如 10000</div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">② 发布按钮禁用态 + ③ 门禁阻断</div>
+        <div class="panel-bd">
+          <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+            <button class="btn dis" style="background:var(--blue);border-color:var(--blue);color:#fff">发布</button>
+            <div style="background:#2b3440;color:#fff;border-radius:7px;padding:7px 12px;font-size:12px;position:relative">
+              存在 2 个错误，修复后才能发布<span style="color:#8fc1ff;margin-left:6px;cursor:pointer">查看问题 →</span>
+              <span style="position:absolute;left:-5px;top:12px;width:10px;height:10px;background:#2b3440;transform:rotate(45deg)"></span>
+            </div>
+          </div>
+          <div class="muted" style="font-size:12px;margin-bottom:8px">仅警告（无错误）时按钮可用，发布确认里列出警告让用户知情确认：</div>
+          <div style="border:1px solid var(--gold-b);background:var(--gold-1);border-radius:8px;padding:10px 12px;font-size:12.5px;color:#d48806;margin-bottom:14px">
+            ⚠ 2 个警告将随本次发布带出：<br>· 节点重名「部门审批」 · 自动凭证未配失败策略<br>
+            <span style="display:inline-flex;align-items:center;gap:6px;margin-top:6px;color:var(--sub)"><span class="cbx on"></span>我已知晓，继续发布</span>
+          </div>
+          <div class="muted" style="font-size:12px">校验分级原则：</div>
+          <div style="font-size:12.5px;color:var(--sub);line-height:1.9">
+            <span class="tag r">错误</span> 结构性问题（断头分支/敏感字段泄漏/必填缺失）→ 阻断发布<br>
+            <span class="tag y">警告</span> 可运行但有风险（重名/未配失败策略）→ 知情确认<br>
+            <span class="tag grey">提示</span> 最佳实践（嵌套 ≥3 层建议拆分）→ 仅诊断面板展示
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h4>细节定义</h4>
+      <ul>
+        <li><b>失焦校验，不打字打扰</b>：输入过程中不标红；失焦（blur）后校验；已出错的字段转为输入即时消错。</li>
+        <li><b>错误不清空输入</b>：非法值（"一万"）保留原文让用户修改，绝不静默清空。</li>
+        <li><b>抽屉关不掉？可以关</b>：抽屉存在错误时允许关闭（不锁死用户），但节点卡片立即挂错误角标（C2），错误同步进问题徽标。<b>例外：模态弹层（发布确认/删除确认/条件编辑器）内的错误须就地解决或取消</b>——模态是短事务，允许带错关闭反而制造悬置状态（修订 E0-M3）。</li>
+        <li><b>三级呈现互相链接</b>：字段错误 → 节点角标 → 诊断面板 → 发布门禁，同一数据源四种视图（对应 B9 诊断合流的 <span class="k">target</span> 机制）。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ C5 AUTOSAVE + LOCK ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">C5</div>
+      <div><h2>自动保存状态机 + 并发编辑锁</h2>
+        <p>顶栏保存胶囊四态流转；他人正在编辑时进入只读模式，可申请接管。单写者编辑锁，比实时协同务实。</p></div>
+    </div>
+    <div class="panel">
+      <div class="panel-hd" style="font-size:13px">① 保存胶囊状态机（顶栏常驻）</div>
+      <div class="panel-bd" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <span class="stitem"><span class="chip" style="background:#fafafa;color:var(--mute);border-color:var(--line2)">✎ 编辑中…</span><span class="stcap">有未保存变更（防抖 2s）</span></span>
+        <span style="color:var(--faint)">→</span>
+        <span class="stitem"><span class="chip"><span class="spin" style="width:10px;height:10px"></span> 保存中</span><span class="stcap">请求中</span></span>
+        <span style="color:var(--faint)">→</span>
+        <span class="stitem"><span class="chip" style="background:var(--green-1);color:#389e0d;border-color:var(--green-b)">✓ 已保存 14:22</span><span class="stcap">成功 · 显示时刻</span></span>
+        <span style="color:var(--faint)">↘</span>
+        <span class="stitem"><span class="chip" style="background:var(--red-1);color:#cf1322;border-color:var(--red-b)">⚠ 保存失败 · 重试</span><span class="stcap">失败：指数退避自动重试 + 手动重试；离开页面时 beforeunload 拦截</span></span>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-hd" style="font-size:13px">② 他人正在编辑（进入时检测编辑锁）</div>
+      <div class="panel-bd">
+        <div style="display:flex;align-items:center;gap:12px;background:var(--gold-1);border:1px solid var(--gold-b);border-radius:9px;padding:11px 16px;font-size:13px">
+          <span class="mem"><span class="av o">王</span>王芳</span>
+          <span style="color:#d48806">正在编辑此流程（3 分钟前活跃）。你处于<b>只读查看</b>模式。</span>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <button class="btn sm">刷新状态</button>
+            <button class="btn sm" style="color:#d48806;border-color:var(--gold-b)">申请接管</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:20px;margin-top:14px;font-size:12.5px;color:var(--sub)">
+          <div style="flex:1"><b>申请接管</b> → 对方收到弹窗（应用内+钉钉）：「李强请求接管编辑」，60 秒未响应或同意则移交；对方未保存的变更先落草稿。</div>
+          <div style="flex:1"><b>锁的生命周期</b>：心跳 30s 续期；关闭页面/断线 2 分钟后锁自动释放；只读模式下所有输入禁用、"+"隐藏，但预览/干跑可用。</div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h4>细节定义</h4>
+      <ul>
+        <li><b>单写者锁而非协同编辑</b>：流程定义是低频强一致配置，实时协同的合并语义（两人同时改同一分支条件）风险大于收益；锁+接管覆盖 99% 场景。</li>
+        <li><b>草稿即保存单位</b>：自动保存写草稿版本（上/下篇的"草稿/发布"双态），保存失败不丢内存态，重试成功即补齐。</li>
+        <li>本机已有共享工作树并发经验教训（多会话互踩），同一原则搬到产品层：<b>宁可锁，不可静默覆盖</b>。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ C6 UNDO ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">C6</div>
+      <div><h2>撤销/重做 + 操作历史 + 快捷键</h2>
+        <p>工具条 ↺↻ 带历史下拉，可跳回任意一步；快捷键面板 <kbd>?</kbd> 唤起。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:14px">
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">操作历史下拉（点 ↺ 旁箭头）</div>
+        <div class="panel-bd" style="display:flex;gap:16px">
+          <div>
+            <div class="seg"><span>↺ 撤销</span><span>▾</span><span>↻ 重做</span></div>
+            <div class="ctxmenu" style="margin-top:8px;width:250px">
+              <div><span class="tag y" style="font-size:10px">改</span>修改分支阈值 5000→10000<kbd>当前</kbd></div>
+              <div><span class="tag g" style="font-size:10px">增</span>添加节点「财务总监会签」</div>
+              <div><span class="tag y" style="font-size:10px">改</span>字段权限：银行卡号→隐藏</div>
+              <div style="background:var(--blue-1)"><span class="tag r" style="font-size:10px">删</span>删除节点「出纳复核」<span style="margin-left:auto;font-size:11px;color:var(--blue)">回到此步</span></div>
+              <div><span class="tag g" style="font-size:10px">增</span>添加条件分支「金额分档」</div>
+            </div>
+          </div>
+          <div style="font-size:12.5px;color:var(--sub);line-height:1.9;flex:1">
+            <b>规则：</b><br>
+            · 撤销粒度=一次语义操作（加节点/改一项属性），非按键级<br>
+            · 跳回历史某步后再编辑 → 丢弃其后的重做栈（线性历史，同主流编辑器）<br>
+            · 历史仅存本次会话内存，自动保存不清空撤销栈——<b>Ctrl+Z 可撤销已自动保存的操作</b>（撤销后草稿回到更早态再次落库，撤销栈与保存流水解耦，修订 E0-M1）；接管他人会话后撤销栈为空<br>
+            · 抽屉内文本输入聚焦时 <kbd>Ctrl+Z</kbd> 先撤文本，再撤结构
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">快捷键面板（<kbd>?</kbd> 唤起）</div>
+        <div class="panel-bd" style="font-size:12.5px;color:var(--sub)">
+          <div style="display:grid;grid-template-columns:1fr auto;gap:7px 16px;align-items:center">
+            <span>撤销 / 重做</span><span><kbd>Ctrl+Z</kbd> <kbd>Ctrl+Shift+Z</kbd></span>
+            <span>手动保存草稿</span><span><kbd>Ctrl+S</kbd></span>
+            <span>打开预览（干跑）</span><span><kbd>Ctrl+P</kbd></span>
+            <span>删除选中节点</span><span><kbd>Del</kbd></span>
+            <span>复制选中节点</span><span><kbd>Ctrl+D</kbd></span>
+            <span>节点间导航</span><span><kbd>↑</kbd> <kbd>↓</kbd>（分支间 <kbd>←</kbd><kbd>→</kbd>）</span>
+            <span>打开选中节点抽屉</span><span><kbd>Enter</kbd></span>
+            <span>在选中节点后插入</span><span><kbd>Ctrl+Enter</kbd></span>
+            <span>切换向导步骤</span><span><kbd>Alt+1…4</kbd></span>
+            <span>关闭抽屉 / 取消拖拽</span><span><kbd>Esc</kbd></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ C7 NODE MICRO ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">C7</div>
+      <div><h2>节点卡片微交互（工具条 / 右键菜单 / 结构化移动 / 删除分级）</h2>
+        <p>悬停工具条三键；右键全量菜单；"移动到…"点亮全部合法落点；删除按有无配置分级确认。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1.1fr;gap:14px">
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">右键菜单</div>
+        <div class="panel-bd" style="display:flex;justify-content:center">
+          <div class="ctxmenu">
+            <div>✎ 编辑（打开抽屉）<kbd>Enter</kbd></div>
+            <div>⧉ 复制节点<kbd>Ctrl+D</kbd></div>
+            <div>➜ 移动到…</div>
+            <div class="sep"></div>
+            <div>⏸ 停用节点</div>
+            <div>🧪 从此节点干跑预览</div>
+            <div class="sep"></div>
+            <div class="dis2">✂ 剪切（分支头不可剪切）</div>
+            <div class="danger2">🗑 删除<kbd>Del</kbd></div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">「移动到…」结构化移动</div>
+        <div class="panel-bd" style="background:var(--bg)">
+          <div class="flowcol" style="padding:0">
+            <div class="mnode" style="width:180px"><div class="mh"><span class="mi2" style="background:#8c8c8c">起</span>发起人</div></div>
+            <div class="connector"></div>
+            <div class="plus" style="margin:2px 0;background:var(--green);border-color:var(--green);color:#fff;box-shadow:0 0 0 4px var(--green-1)">1</div>
+            <div class="connector"></div>
+            <div class="mnode sel2" style="width:180px;opacity:.6"><div class="mh"><span class="mi2">审</span>部门审批 <span class="tag b" style="font-size:10px">移动中</span></div></div>
+            <div class="connector"></div>
+            <div class="plus" style="margin:2px 0;background:var(--green);border-color:var(--green);color:#fff;box-shadow:0 0 0 4px var(--green-1)">2</div>
+            <div class="connector"></div>
+            <div class="mnode" style="width:180px"><div class="mh"><span class="mi2" style="background:var(--purple)">自</span>自动凭证</div></div>
+          </div>
+          <div class="muted" style="font-size:11.5px;text-align:center;margin-top:8px">全部合法"+"位变绿并编号，点击落位；<kbd>Esc</kbd> 取消。跨分支移动同理——不存在拖出非法图的可能。</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">删除分级确认</div>
+        <div class="panel-bd">
+          <div style="font-size:12.5px;color:var(--sub);margin-bottom:10px"><b>轻量 Popconfirm</b>（未配置的空节点）：</div>
+          <div style="background:#fff;border:1px solid var(--line2);border-radius:9px;box-shadow:var(--shadow);padding:10px 14px;font-size:12.5px;width:fit-content">
+            删除节点「新审批节点」？
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px"><button class="btn sm">取消</button><button class="btn sm danger">删除</button></div>
+          </div>
+          <div style="font-size:12.5px;color:var(--sub);margin:14px 0 6px"><b>Modal 确认</b>（已有配置/在途卡片的节点）：列出</div>
+          <div style="font-size:12px;color:var(--sub);line-height:1.9;background:var(--bg);border-radius:8px;padding:9px 12px">
+            · 将丢失：处理人策略、6 项字段权限、2 个自定义动作<br>
+            · 在途影响：3 张卡片停留于此（发布时按在途策略处理）<br>
+            · 引用检查：被诊断规则/抄送时机引用 0 处
+          </div>
+          <div class="muted" style="font-size:11.5px;margin-top:8px">删除后 toast 带「撤销」：<span class="tag grey">已删除「出纳复核」 · 撤销 (5s)</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h4>细节定义</h4>
+      <ul>
+        <li><b>移动=选落点而非自由拖</b>：结构化图里"移动"退化为"从合法落点集合中选一个"，绿色编号点即落点——保持图永远合法的同时补齐移动能力（钉钉/企微都不支持移动节点，只能删了重建）。</li>
+        <li><b>删除分级</b>：空节点轻确认、重配置节点 Modal 列三要素（丢什么/在途影响/引用检查），与 B5 分支删除同构。</li>
+        <li><b>Toast 撤销 5 秒</b>：删除类操作统一提供即时反悔，比确认弹窗更顺滑的第二道保险。</li>
+        <li><b>"从此节点干跑"</b>：右键菜单直通预览并定位到该节点视角（接总体方案屏 7）。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ C8 FIELD DROPDOWN ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">C8</div>
+      <div><h2>条件字段下拉（分组 / 类型图标 / 禁用说明 / 搜索）</h2>
+        <p>条件编辑器（B4）里"选字段"下拉的展开态：表单字段 / 派生字段 / 系统字段三组；不可用字段灰显并说明原因。</p></div>
+    </div>
+    <div style="display:flex;gap:20px;justify-content:center;align-items:flex-start">
+      <div style="width:330px">
+        <div class="inp focus">🔍 金</div>
+        <div style="background:#fff;border:1px solid var(--line2);border-radius:10px;box-shadow:var(--shadow-lg);margin-top:4px;padding:6px;max-height:340px;overflow:auto">
+          <div style="font-size:11px;color:var(--mute);padding:5px 10px 3px">表单字段</div>
+          <div class="trow" style="background:var(--blue-1)"><span>💰</span>报销<mark>金</mark>额<span class="tag grey" style="margin-left:auto;font-size:10px">金额</span></div>
+          <div class="trow"><span>▥</span>费用明细·<mark>金</mark>额（汇总）<span class="tag grey" style="margin-left:auto;font-size:10px">金额</span></div>
+          <div class="trow" style="opacity:.5;cursor:not-allowed"><span>▤</span>报销事由<span style="margin-left:auto;font-size:10px;color:var(--faint)">多行文本不可作条件</span></div>
+          <div class="trow" style="opacity:.5;cursor:not-allowed"><span>◉</span>付款方式<span style="margin-left:auto;font-size:10px;color:var(--faint)">非必填，去卡片设计设为必填 →</span></div>
+          <div style="font-size:11px;color:var(--mute);padding:8px 10px 3px">派生字段</div>
+          <div class="trow"><span>⏱</span>请假时长(天)<span class="tag p" style="margin-left:auto;font-size:10px">派生</span></div>
+          <div style="font-size:11px;color:var(--mute);padding:8px 10px 3px">系统字段</div>
+          <div class="trow"><span>👤</span>发起人<span class="tag grey" style="margin-left:auto;font-size:10px">人员</span></div>
+          <div class="trow"><span>🏢</span>发起组织<span class="tag grey" style="margin-left:auto;font-size:10px">组织</span></div>
+          <div class="trow"><span>▦</span>发起时间<span class="tag grey" style="margin-left:auto;font-size:10px">日期</span></div>
+        </div>
+      </div>
+      <div style="width:330px;font-size:12.5px;color:var(--sub);line-height:1.9;background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px 18px">
+        <b>交互规则</b><br>
+        · 三组固定顺序：表单 → 派生 → 系统；组内按画布顺序排列<br>
+        · <b>禁用项不隐藏</b>：灰显+右侧原因，"非必填"项附<span style="color:var(--blue)">去修复链接</span>（跳卡片设计并高亮该字段——跨步骤闭环）<br>
+        · 明细表字段仅暴露"汇总"聚合值（单行值在分支判定时机不存在）<br>
+        · 选中字段后算子下拉<b>自动聚焦</b>，回车逐级确认，全键盘可完成一行条件<br>
+        · 类型徽标与卡片设计控件库图标一致，建立同一心智
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ C9 EMPTY + COACH ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">C9</div>
+      <div><h2>空态与新手引导</h2>
+        <p>新流程的空画布不"空"——预置骨架+脉冲引导；首次使用三步蒙层导览。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1.3fr;gap:14px">
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">流程设计空态（新建后首见）</div>
+        <div class="panel-bd" style="background:var(--bg)">
+          <div class="flowcol" style="padding:6px 0">
+            <div class="mnode" style="width:200px"><div class="mh"><span class="mi2" style="background:#8c8c8c">起</span>发起人</div></div>
+            <div class="connector"></div>
+            <div class="plus" style="box-shadow:0 0 0 6px var(--blue-1),0 0 0 12px rgba(22,119,255,.06)">+</div>
+            <div style="font-size:12px;color:var(--blue);margin:2px 0 6px">点这里添加第一个审批节点</div>
+            <div class="connector"></div>
+            <div class="mnode" style="width:200px"><div class="mh"><span class="mi2" style="background:var(--green)">终</span>结束</div></div>
+          </div>
+          <div class="muted" style="font-size:11.5px;text-align:center">骨架永远存在（发起→结束），"+"呼吸脉冲 2 次后停止；卡片设计空画布同理：虚线框「从左侧拖入第一个控件，或点击控件直接添加」</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">首次进入 · 三步蒙层导览（步骤 2/3）</div>
+        <div class="panel-bd" style="padding:0">
+          <div class="coach" style="height:280px">
+            <div class="dimmed" style="padding:20px;display:flex;justify-content:center">
+              <div class="flowcol">
+                <div class="mnode" style="width:190px"><div class="mh"><span class="mi2" style="background:#8c8c8c">起</span>发起人</div></div>
+                <div class="connector"></div>
+                <div class="plus">+</div>
+              </div>
+            </div>
+            <div class="spot" style="width:52px;height:52px;left:calc(50% - 26px);top:118px"></div>
+            <div class="coachcard" style="left:calc(50% + 50px);top:100px">
+              <div style="font-weight:600;font-size:13.5px;margin-bottom:6px">➋ 用"+"搭建流程</div>
+              <div style="font-size:12.5px;color:var(--sub)">每个"+"可以插入审批人、抄送人、条件分支或自动处理。流程图不会画错——所有位置都是合法的。</div>
+              <div style="display:flex;align-items:center;margin-top:12px">
+                <span style="font-size:11.5px;color:var(--mute)">2 / 3</span>
+                <div style="margin-left:auto;display:flex;gap:8px"><button class="btn sm">跳过</button><button class="btn sm pri">下一步</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h4>细节定义</h4>
+      <ul>
+        <li><b>三步导览内容</b>：➊ 向导四步可随意往返 → ➋ "+"搭流程 → ➌ 右上角"预览"随时干跑。每人只出现一次（localStorage 记忆），帮助菜单可重看。</li>
+        <li><b>空态即骨架</b>：发起/结束节点不可删除，天然消除"从零画图"的恐惧；对比自由画布产品的空白焦虑。</li>
+        <li>版本历史空态：「尚未发布过 · 发布后每个版本都会记录在这里」；模板库搜索无结果：「没有匹配的模板 · 从空白创建」。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ C10 FEEDBACK ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">C10</div>
+      <div><h2>反馈体系（Toast / 发布进度 / 危险操作确认）</h2>
+        <p>三级反馈：轻操作 toast、长任务进度模态、危险操作输入名称确认。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:14px">
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">Toast 规范（右上角 · 4s 自动消失）</div>
+        <div class="panel-bd" style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+          <div class="toast"><span class="ti" style="background:var(--green)">✓</span>已发布 v8 · 23 张在途卡片按 v7 走完<span style="color:var(--blue);font-size:12px;margin-left:6px">查看版本</span></div>
+          <div class="toast"><span class="ti" style="background:var(--gold)">!</span>已删除「出纳复核」<span style="color:var(--blue);font-size:12px;margin-left:6px">撤销 (5s)</span></div>
+          <div class="toast"><span class="ti" style="background:var(--red)">✕</span>保存失败：网络异常<span style="color:var(--blue);font-size:12px;margin-left:6px">重试</span></div>
+          <div class="muted" style="font-size:11.5px">成功类 4s 自动关；错误类不自动关须手动；同类 toast 合并不叠罗汉；均带一个可选动作链接。</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd" style="font-size:13px">发布进度模态（长任务分步可见）+ 停用确认</div>
+        <div class="panel-bd">
+          <div style="border:1px solid var(--line2);border-radius:10px;padding:14px 16px;margin-bottom:14px">
+            <div style="font-weight:600;font-size:13.5px;margin-bottom:10px">正在发布 v8…</div>
+            <div style="font-size:12.5px;color:var(--sub);line-height:2.1">
+              <span style="color:#389e0d">✓ 门禁校验（0 错误）</span><br>
+              <span style="color:#389e0d">✓ 生成版本快照</span><br>
+              <span style="color:var(--blue)"><span class="spin" style="width:11px;height:11px;vertical-align:-1px"></span> 迁移在途卡片… 14 / 23</span><br>
+              <span style="color:var(--faint)">· 刷新菜单与权限缓存</span>
+            </div>
+            <div class="muted" style="font-size:11.5px;margin-top:8px">迁移失败的卡片列入结果清单可逐张处理，不整体回滚。</div>
+          </div>
+          <div style="border:1px solid var(--red-b);border-radius:10px;padding:14px 16px;background:#fffafa">
+            <div style="font-weight:600;font-size:13.5px;color:#cf1322;margin-bottom:6px">停用流程「费用报销单」</div>
+            <div style="font-size:12.5px;color:var(--sub)">停用后不可发起新卡片，<b>23 张在途卡片继续走完</b>。输入流程名称确认：</div>
+            <div class="inp sm ph" style="margin-top:8px">输入 费用报销单 以确认</div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button class="btn sm">取消</button><button class="btn sm dis danger">停用</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ C11 SPEC ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">C11</div>
+      <div><h2>尺寸规格与设计令牌映射</h2>
+        <p>节点卡片标注图 + 色彩/字号/间距对照表。所有颜色映射到项目令牌体系（web/docs/TOKENS.md），禁裸 hex。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1.25fr;gap:14px;align-items:start">
+      <div class="specwrap">
+        <div class="dim" style="top:18px;left:60px;right:60px;text-align:center">340px（画布节点标准宽）</div>
+        <div class="dimline" style="top:34px;left:60px;right:60px;height:1px"></div>
+        <div class="fnode n-appr" style="width:100%">
+          <div class="nh"><span class="ni">审</span><span class="nt">部门负责人审批</span><span class="tag b">或签</span></div>
+          <div class="nb"><div class="kv"><span class="kk">处理人</span><span>发起人部门主管</span></div></div>
+        </div>
+        <div class="dim" style="top:52px;right:8px">头部 46px</div>
+        <div class="dim" style="top:96px;right:8px">行高 24px</div>
+        <div class="dim" style="bottom:16px;left:60px">圆角 10px · 图标 26×26 r7 · 内距 10/13</div>
+        <div style="margin-top:26px;font-size:11.5px;color:var(--mute)">连接线 2px / 间距 20px · "+" 26px 圆 · 抽屉 400px（≤1440 屏为 360px）· 分支列 max 250px gap 20 · 全部间距走 4px 基数</div>
+      </div>
+      <table class="spectb">
+        <tr><th style="width:130px">语义</th><th>令牌（映射 TOKENS.md）</th><th>用途</th></tr>
+        <tr><td><span class="swb" style="background:#1677ff"></span>主色</td><td><code>var(--color-primary)</code></td><td>审批节点/选中/链接/主按钮</td></tr>
+        <tr><td><span class="swb" style="background:#722ed1"></span>自动紫</td><td><code>var(--color-flow-auto)</code>（新增）</td><td>自动处理节点/动态徽标</td></tr>
+        <tr><td><span class="swb" style="background:#fa8c16"></span>抄送橙</td><td><code>var(--color-flow-cc)</code>（新增）</td><td>抄送节点</td></tr>
+        <tr><td><span class="swb" style="background:#52c41a"></span>成功绿</td><td><code>var(--color-success)</code></td><td>干跑命中路径/已发布/结束节点</td></tr>
+        <tr><td><span class="swb" style="background:#faad14"></span>警告金</td><td><code>var(--color-warning)</code></td><td>警告级诊断/草稿态/兜底提示</td></tr>
+        <tr><td><span class="swb" style="background:#ff4d4f"></span>错误红</td><td><code>var(--color-error)</code></td><td>错误诊断/敏感字段/危险操作</td></tr>
+        <tr><td>字号阶梯</td><td colspan="2"><code>11.5</code> 辅注 · <code>12.5</code> 正文次 · <code>13.5</code> 节点标题/表单值 · <code>14.5</code> 弹层标题 · 权重仅 400/600</td></tr>
+        <tr><td>投影</td><td colspan="2">卡片 <code>var(--shadow-card)</code> · 弹层 <code>var(--shadow-popup)</code> · 拖拽抬升 <code>var(--shadow-lift)</code>（新增）</td></tr>
+        <tr><td>动效</td><td colspan="2">插入线/闪烁 <code>200ms ease-out</code> · 抽屉滑入 <code>240ms</code> · 分支展开 <code>280ms</code> · 尊重 <code>prefers-reduced-motion</code></td></tr>
+      </table>
+    </div>
+    <div class="notes win">
+      <h4>与项目规范对齐</h4>
+      <ul>
+        <li>三个新增令牌（<span class="k">--color-flow-auto</span> / <span class="k">--color-flow-cc</span> / <span class="k">--shadow-lift</span>）须先落 <span class="k">stores/theme.ts</span> + <span class="k">TOKENS.md</span> 再使用，过 stylelint 裸 hex 门禁。</li>
+        <li>流程图若用 ECharts/vue-flow 画只读总览，需按既有规则取<b>真 hex</b>（从令牌解析运行时值），不可直接塞 var()。</li>
+        <li>深色主题：节点卡片底色走 <span class="k">--color-bg-container</span>，四类节点色相不变仅降饱和（跟随现有主题派生机制）。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="foot">CardFlow 设计器细化方案 · 微观交互层（C1-C11）· 配合总体骨架（9 屏）与上/下篇（16 屏）构成三层完整设计：骨架 → 面板 → 微交互</div>
+</div>
+</body>
+</html>

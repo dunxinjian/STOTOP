@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CardFlow 设计器细化方案 · 上篇（入口 / 控件 / 节点抽屉五 Tab）</title>
+<link rel="stylesheet" href="mock-shared.css">
+</head>
+<body>
+<div class="wrap">
+
+  <div class="doc-hd">
+    <h1>CardFlow 设计器细化方案 · 上篇</h1>
+    <p>在已认可的总体骨架（四步向导 + 竖向流程图 + 干跑预览）之上，逐个功能细节展开。本篇覆盖：<b style="color:#fff">流程列表与模板库入口、控件属性四个高频细节、摘要字段、节点属性抽屉五 Tab 全展开</b>。每屏标注「吸收来源」——哪条来自钉钉、哪条来自企微、哪条是 CardFlow 特有。</p>
+    <div class="tags">
+      <span>A1 列表与模板库</span><span>A2 控件属性细节 ×4</span><span>A3 摘要字段</span>
+      <span>A4-A8 节点抽屉：基础 / 处理人 / 字段权限 / 动作 / 高级</span>
+    </div>
+  </div>
+
+  <!-- ============ A1: LIST + TEMPLATE GALLERY ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">A1</div>
+      <div><h2>流程定义列表 · 新建入口与模板库</h2>
+        <p>新建时先选「空白创建 / 从模板创建 / 复制现有流程」。模板库按业务域分组，鼠标悬停可预览流程结构缩略图。</p></div>
+    </div>
+    <div class="frame">
+      <div style="display:flex;flex-wrap:wrap;min-height:520px">
+        <div style="flex:1;min-width:460px;padding:20px 24px;background:var(--bg)">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <b style="font-size:16px">流程定义</b>
+            <span class="tag b">费用类 8</span><span class="tag grey">导入类 12</span><span class="tag grey">人事类 3</span>
+            <div style="flex:1"></div>
+            <div class="inp sm" style="width:200px;color:var(--faint)">🔍 搜索流程名称</div>
+            <button class="btn pri">+ 新建流程</button>
+          </div>
+          <div class="panel">
+            <div style="display:grid;grid-template-columns:2.2fr 1fr 1fr 1fr 1.2fr;padding:10px 16px;border-bottom:1px solid var(--line);font-size:12px;color:var(--mute)">
+              <span>流程名称</span><span>状态</span><span>版本</span><span>在途卡片</span><span>操作</span>
+            </div>
+            <div style="display:grid;grid-template-columns:2.2fr 1fr 1fr 1fr 1.2fr;padding:12px 16px;border-bottom:1px solid var(--line);font-size:13px;align-items:center">
+              <span><b>费用报销单</b> <span class="tag grey">财务类</span></span>
+              <span><span class="tag g">已发布</span></span><span>v7</span><span>23</span>
+              <span style="color:var(--blue);font-size:12.5px">编辑 · 复制 · 停用</span>
+            </div>
+            <div style="display:grid;grid-template-columns:2.2fr 1fr 1fr 1fr 1.2fr;padding:12px 16px;border-bottom:1px solid var(--line);font-size:13px;align-items:center;background:var(--gold-1)">
+              <span><b>差旅申请</b> <span class="tag grey">财务类</span></span>
+              <span><span class="tag g">已发布</span> <span class="tag y">有未发布草稿</span></span><span>v3 <span class="muted">(草稿 v4)</span></span><span>5</span>
+              <span style="color:var(--blue);font-size:12.5px">继续编辑 · 放弃草稿</span>
+            </div>
+            <div style="display:grid;grid-template-columns:2.2fr 1fr 1fr 1fr 1.2fr;padding:12px 16px;font-size:13px;align-items:center">
+              <span><b>申通总部交易明细导入</b> <span class="tag p">导入触发</span></span>
+              <span><span class="tag g">已发布</span></span><span>v12</span><span>—</span>
+              <span style="color:var(--blue);font-size:12.5px">编辑 · 复制 · 停用</span>
+            </div>
+          </div>
+        </div>
+        <!-- template modal -->
+        <div style="width:430px;flex:none;border-left:1px solid var(--line2);background:#fff;padding:18px 20px">
+          <div style="font-weight:600;font-size:14.5px;margin-bottom:4px">新建流程</div>
+          <div class="muted" style="font-size:12px;margin-bottom:14px">选择起点，创建后均可自由修改</div>
+          <div class="optlist" style="margin-bottom:14px">
+            <div class="opt on"><span class="oi">📄</span><div><div class="ot">空白创建</div><div class="od">从零搭建卡片与流程</div></div></div>
+            <div class="opt"><span class="oi">🧬</span><div><div class="ot">复制现有流程</div><div class="od">选择一个已有流程作为副本起点</div></div></div>
+          </div>
+          <div style="font-size:12px;color:var(--mute);margin:12px 0 8px;letter-spacing:1px">— 或从模板创建 —</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div style="border:1px solid var(--line2);border-radius:9px;padding:11px">
+              <div style="font-size:13px;font-weight:600">费用报销</div>
+              <div class="muted" style="font-size:11.5px;margin:3px 0 8px">发起→部门→金额分档→凭证</div>
+              <div style="display:flex;gap:3px"><span style="width:9px;height:9px;border-radius:2px;background:#8c8c8c"></span><span style="width:9px;height:9px;border-radius:2px;background:var(--blue)"></span><span style="width:9px;height:9px;border-radius:2px;background:var(--gold)"></span><span style="width:9px;height:9px;border-radius:2px;background:var(--purple)"></span></div>
+            </div>
+            <div style="border:1px solid var(--blue);border-radius:9px;padding:11px;background:var(--blue-1)">
+              <div style="font-size:13px;font-weight:600">请假申请</div>
+              <div class="muted" style="font-size:11.5px;margin:3px 0 8px">发起→时长分档→主管链</div>
+              <div style="display:flex;gap:3px"><span style="width:9px;height:9px;border-radius:2px;background:#8c8c8c"></span><span style="width:9px;height:9px;border-radius:2px;background:var(--gold)"></span><span style="width:9px;height:9px;border-radius:2px;background:var(--blue)"></span></div>
+            </div>
+            <div style="border:1px solid var(--line2);border-radius:9px;padding:11px">
+              <div style="font-size:13px;font-weight:600">总部账单导入</div>
+              <div class="muted" style="font-size:11.5px;margin:3px 0 8px">导入→质检→映射→凭证</div>
+              <div style="display:flex;gap:3px"><span style="width:9px;height:9px;border-radius:2px;background:var(--purple)"></span><span style="width:9px;height:9px;border-radius:2px;background:var(--purple)"></span><span style="width:9px;height:9px;border-radius:2px;background:var(--purple)"></span></div>
+            </div>
+            <div style="border:1px solid var(--line2);border-radius:9px;padding:11px">
+              <div style="font-size:13px;font-weight:600">付款申请</div>
+              <div class="muted" style="font-size:11.5px;margin:3px 0 8px">发起→财务→出纳→凭证</div>
+              <div style="display:flex;gap:3px"><span style="width:9px;height:9px;border-radius:2px;background:#8c8c8c"></span><span style="width:9px;height:9px;border-radius:2px;background:var(--blue)"></span><span style="width:9px;height:9px;border-radius:2px;background:var(--blue)"></span><span style="width:9px;height:9px;border-radius:2px;background:var(--purple)"></span></div>
+            </div>
+          </div>
+          <button class="btn pri" style="width:100%;justify-content:center;margin-top:16px">创建并进入设计器</button>
+        </div>
+      </div>
+    </div>
+    <div class="notes src">
+      <h4>吸收来源对照</h4>
+      <ul>
+        <li><b>企微</b>：内置模板库（请假、报销等预设模板可直接点开编辑）→ 吸收为"从模板创建"，并加流程结构缩略色条预览。</li>
+        <li><b>钉钉</b>：表单管理列表按分组管理 → 吸收为顶部分组 Tab 筛选。</li>
+        <li><b>CardFlow 特有</b>：列表区分"已发布 / 有未发布草稿"双态（黄色行），入口直接给<span class="k">继续编辑 / 放弃草稿</span>；在途卡片数常驻列，停用前一眼看到影响面。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ A2: CONTROL PROPERTY DETAILS ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">A2</div>
+      <div><h2>控件属性四个高频细节</h2>
+        <p>单选选项编辑、金额控件、日期区间自动算时长、明细表子字段与汇总——四个从钉钉/企微对照后吸收的属性面板细节。</p></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <!-- radio options -->
+      <div class="panel">
+        <div class="panel-hd">① 单选控件 · 选项编辑<span style="margin-left:auto" class="tag grey">费用类型</span></div>
+        <div class="panel-bd">
+          <div class="fld"><label>选项列表 <span class="muted" style="font-weight:400">（拖拽排序）</span></label>
+            <div class="optlist">
+              <div class="fprow"><span style="color:var(--faint);margin-right:8px;cursor:grab">⠿</span><span class="fn">差旅</span><span class="tag b" style="margin-right:8px">被分支引用</span><span style="color:var(--faint)">✕</span></div>
+              <div class="fprow"><span style="color:var(--faint);margin-right:8px;cursor:grab">⠿</span><span class="fn">办公用品</span><span style="color:var(--faint)">✕</span></div>
+              <div class="fprow"><span style="color:var(--faint);margin-right:8px;cursor:grab">⠿</span><span class="fn">业务招待</span><span style="color:var(--faint)">✕</span></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px"><button class="btn sm">+ 添加选项</button><button class="btn sm">批量编辑（每行一个）</button></div>
+          <div style="background:var(--blue-1);border:1px solid var(--blue-2);border-radius:7px;padding:8px 10px;font-size:12px;color:var(--blue);margin-top:12px">选项「差旅」被条件分支「金额分档·优先级1」引用：<b>改名</b>自动同步更新条件文本；<b>删除被拦截</b>（否则条件引用空集、分支永不命中），需先去分支解除引用（与字段级路由依赖同一强度，修订 E0-M2）。</div>
+        </div>
+      </div>
+      <!-- amount -->
+      <div class="panel">
+        <div class="panel-hd">② 金额控件<span style="margin-left:auto" class="tag grey">报销金额</span></div>
+        <div class="panel-bd">
+          <div class="setrow"><div class="toggle sm"></div><div class="st"><div class="t">显示大写金额</div><div class="d">填写时实时显示"壹万贰仟元整"</div></div></div>
+          <div class="setrow"><div class="toggle sm"></div><div class="st"><div class="t">千分位分隔</div><div class="d">12,000.00</div></div></div>
+          <div class="setrow"><div class="st"><div class="t">小数位数</div></div><div class="seg sm"><span>0</span><span class="on">2</span><span>4</span></div></div>
+          <div class="setrow"><div class="st"><div class="t">币种</div></div><div class="inp sm" style="width:130px">人民币 CNY ▾</div></div>
+          <div class="setrow"><div class="toggle sm off"></div><div class="st"><div class="t">上限校验</div><div class="d">超过上限阻止提交并提示</div></div><div class="inp sm ph" style="width:110px">如 50000</div></div>
+        </div>
+      </div>
+      <!-- date range -->
+      <div class="panel">
+        <div class="panel-hd">③ 日期区间 · 自动计算时长<span style="margin-left:auto" class="tag grey">请假时间</span></div>
+        <div class="panel-bd">
+          <div class="setrow"><div class="st"><div class="t">日期精度</div></div><div class="seg sm"><span>年月日</span><span class="on">年月日+时分</span></div></div>
+          <div class="setrow"><div class="toggle sm"></div><div class="st"><div class="t">自动计算时长</div><div class="d">派生只读字段「时长」，可被条件分支引用</div></div></div>
+          <div class="setrow"><div class="st"><div class="t">时长单位</div></div><div class="seg sm"><span class="on">天</span><span>小时</span></div></div>
+          <div class="setrow"><div class="toggle sm"></div><div class="st"><div class="t">按工作日计算</div><div class="d">跳过周末与法定节假日（读企业日历）</div></div></div>
+          <div style="background:var(--green-1);border:1px solid var(--green-b);border-radius:7px;padding:8px 10px;font-size:12px;color:#389e0d;margin-top:10px">派生字段「时长(天)」已可在条件分支中使用，如 <span class="k">时长 > 3 → 总监审批</span>。</div>
+        </div>
+      </div>
+      <!-- detail table -->
+      <div class="panel">
+        <div class="panel-hd">④ 明细表 · 子字段与汇总<span style="margin-left:auto" class="tag grey">费用明细</span></div>
+        <div class="panel-bd">
+          <div class="fld"><label>子字段</label>
+            <div class="fplist">
+              <div class="fprow"><span class="fn">费用项目（下拉）</span><span class="tag grey">必填</span></div>
+              <div class="fprow"><span class="fn">金额（金额）</span><span class="tag b">参与汇总</span></div>
+              <div class="fprow"><span class="fn">发票号（文本）</span><span class="tag grey">选填</span></div>
+            </div>
+          </div>
+          <button class="btn sm" style="margin-bottom:12px">+ 添加子字段</button>
+          <div class="setrow"><div class="toggle sm"></div><div class="st"><div class="t">汇总求和</div><div class="d">对"金额"列自动求和，显示在明细表底部</div></div></div>
+          <div class="setrow"><div class="toggle sm"></div><div class="st"><div class="t">汇总回写主字段</div><div class="d">求和结果自动写入主表单「报销金额」，该字段变为只读</div></div></div>
+          <div class="setrow"><div class="st"><div class="t">行数限制</div></div><div class="inp sm" style="width:110px">1 ~ 50 行</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes src">
+      <h4>吸收来源对照</h4>
+      <ul>
+        <li><b>企微</b>：金额大写开关、明细表子字段+汇总求和 → 全盘吸收；在其上加<b>汇总回写主字段</b>（回写后主字段自动只读，防手填与明细不一致——CardFlow 凭证金额取数需要）。</li>
+        <li><b>钉钉</b>：日期区间自动算时长（请假天数）且派生值可作流程条件 → 吸收并显式提示"派生字段可被分支引用"，接通屏 A2①的引用保护。</li>
+        <li><b>CardFlow 特有</b>：选项被分支引用时标 <span class="k">被分支引用</span>，删除/改名走确认+同步更新，与卡片设计页的"路由依赖锁定"同一套机制下沉到选项级。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ A3: SUMMARY FIELDS ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">A3</div>
+      <div><h2>摘要字段设置</h2>
+        <p>决定卡片在待办列表、通知推送、移动端卡片封面上显示哪几个字段。左选右预览，实时联动。</p></div>
+    </div>
+    <div class="drawer-demo">
+      <div style="flex:1;padding:20px 24px">
+        <div style="font-weight:600;font-size:14px;margin-bottom:4px">摘要字段 <span class="muted" style="font-size:12px;font-weight:400">最多 3 个 · 拖拽排序</span></div>
+        <div class="muted" style="font-size:12.5px;margin-bottom:14px">摘要展示在待办列表、消息通知与移动端卡片封面。</div>
+        <div class="fplist" style="max-width:420px">
+          <div class="fprow"><span class="cbx on"></span><span class="fn" style="margin-left:8px">报销金额</span><span style="color:var(--faint);cursor:grab">⠿</span></div>
+          <div class="fprow"><span class="cbx on"></span><span class="fn" style="margin-left:8px">费用类型</span><span style="color:var(--faint);cursor:grab">⠿</span></div>
+          <div class="fprow"><span class="cbx on"></span><span class="fn" style="margin-left:8px">报销事由</span><span style="color:var(--faint);cursor:grab">⠿</span></div>
+          <div class="fprow"><span class="cbx"></span><span class="fn" style="margin-left:8px;color:var(--mute)">费用明细（明细表不可作摘要）</span></div>
+          <div class="fprow"><span class="cbx"></span><span class="fn" style="margin-left:8px;color:var(--mute)">银行卡号 <span class="lock">🔒 敏感字段不可作摘要</span></span></div>
+        </div>
+      </div>
+      <div style="width:340px;flex:none;border-left:1px solid var(--line2);padding:18px;background:var(--bg)">
+        <div style="font-size:12px;color:var(--mute);margin-bottom:10px">实时预览 · 待办列表卡片</div>
+        <div style="background:#fff;border-radius:10px;box-shadow:var(--shadow);padding:13px 15px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span class="mem"><span class="av">张</span>张伟</span>
+            <b style="font-size:13.5px">的费用报销单</b>
+            <span class="tag o" style="margin-left:auto">待我审批</span>
+          </div>
+          <div style="font-size:12.5px;color:var(--sub);display:flex;flex-direction:column;gap:3px">
+            <div><span class="muted">报销金额：</span><b style="color:#cf1322">¥ 12,000.00</b></div>
+            <div><span class="muted">费用类型：</span>差旅</div>
+            <div><span class="muted">报销事由：</span>出差·上海客户拜访</div>
+          </div>
+          <div style="border-top:1px solid var(--line);margin-top:10px;padding-top:9px;display:flex;gap:8px">
+            <button class="btn sm" style="flex:1;justify-content:center;color:#389e0d;border-color:var(--green-b)">同意</button>
+            <button class="btn sm" style="flex:1;justify-content:center;color:#cf1322;border-color:var(--red-b)">拒绝</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes src">
+      <h4>吸收来源对照</h4>
+      <ul>
+        <li><b>钉钉</b>：审批列表摘要字段可配置（默认取前 3 个字段）→ 吸收为显式勾选+拖拽排序，右侧实时预览待办卡片。</li>
+        <li><b>CardFlow 特有</b>：<b>敏感字段禁止作摘要</b>（🔒 直接禁用勾选）——摘要会出现在通知推送里，绕过节点字段权限，必须在源头拦截；明细表类不可作摘要。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ A4: DRAWER TAB 1 BASIC ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">A4</div>
+      <div><h2>节点抽屉 Tab① 基础</h2>
+        <p>名称、审批类型（人工/自动通过/自动拒绝）、节点说明、停用开关。审批类型切自动时给出条件式配置。</p></div>
+    </div>
+    <div class="drawer-demo">
+      <div class="drawer-canvas">
+        <div class="flowcol">
+          <div class="fnode n-appr sel"><div class="nh"><span class="ni">审</span><span class="nt">部门负责人审批</span><span class="tag b">或签</span></div>
+            <div class="nb"><div class="kv"><span class="kk">处理人</span><span>发起人部门主管</span></div></div></div>
+          <div class="connector"></div><div class="plus">+</div>
+        </div>
+      </div>
+      <div class="drawer">
+        <div class="dhd"><span class="nico" style="background:var(--blue)">审</span><b style="font-size:14px">部门负责人审批</b><span class="close">✕</span></div>
+        <div class="dtabs"><span class="on">基础</span><span>处理人</span><span>字段权限</span><span>动作</span><span>高级</span></div>
+        <div class="dbd">
+          <div class="fld"><label>节点名称 <span class="req">*</span></label><div class="inp">部门负责人审批</div>
+            <div class="muted" style="font-size:11.5px;margin-top:5px">显示在流程图、待办列表与审批记录中</div></div>
+          <div class="fld"><label>审批类型</label>
+            <div class="optlist">
+              <div class="opt on"><span class="radio on"></span><div><div class="ot">人工审批</div><div class="od">由处理人手动审批</div></div></div>
+              <div class="opt"><span class="radio"></span><div><div class="ot">满足条件时自动通过</div><div class="od">如：报销金额 ≤ 100 时本节点自动通过</div></div></div>
+              <div class="opt"><span class="radio"></span><div><div class="ot">满足条件时自动拒绝</div><div class="od">如：事假时长 > 15 天时自动拒绝并终止</div></div></div>
+            </div>
+          </div>
+          <div style="border:1px dashed var(--line2);border-radius:8px;padding:10px 12px;margin-bottom:14px;background:#fafafa">
+            <div style="font-size:12px;color:var(--mute);margin-bottom:7px">自动通过条件（选中"自动通过"时展开）</div>
+            <div class="crow"><div class="inp sm" style="flex:1.2">报销金额 ▾</div><div class="inp sm" style="width:60px">≤ ▾</div><div class="inp sm" style="width:80px">100</div></div>
+            <div style="font-size:11.5px;color:var(--mute);margin-top:6px">不满足条件时仍走人工审批。</div>
+          </div>
+          <div class="fld"><label>节点说明 <span class="muted" style="font-weight:400">（选填，处理人可见）</span></label>
+            <div class="inp ph" style="min-height:52px;align-items:flex-start;padding-top:8px">请核对发票与明细金额一致后再同意</div></div>
+          <div class="setrow" style="border-top:1px solid var(--line);padding-top:14px"><div class="toggle sm off"></div>
+            <div class="st"><div class="t">暂时停用本节点</div><div class="d">停用后流程跳过此节点（图中置灰），保留配置随时恢复</div></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes src">
+      <h4>吸收来源对照</h4>
+      <ul>
+        <li><b>钉钉</b>：节点级"人工审批 / 自动通过 / 自动拒绝"三态 → 吸收，且把"满足条件时"做成<b>就地展开的条件行</b>而非跳去别处配；不满足条件回退人工。</li>
+        <li><b>企微</b>：无节点说明能力 → 补上"节点说明"（处理人打开卡片时看到操作指引，常见诉求）。</li>
+        <li><b>CardFlow 特有</b>：<b>节点停用开关</b>（对应现有 route 停用能力的节点级版本）——比删除温和，调试期常用。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ A5: DRAWER TAB 2 ASSIGNEE ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">A5</div>
+      <div><h2>节点抽屉 Tab② 处理人（最重的一个 Tab）</h2>
+        <p>处理人类型十选一 → 类型专属参数区 → 多人审批方式 → 空缺兜底。四段纵向排布，逐段决策。</p></div>
+    </div>
+    <div class="drawer-demo">
+      <div class="drawer-canvas" style="align-items:stretch">
+        <div style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:420px;margin:0 auto">
+          <div class="panel">
+            <div class="panel-hd" style="font-size:13px">处理人类型全集（下拉展开态）</div>
+            <div class="panel-bd" style="padding:8px">
+              <div class="optlist" style="border:0">
+                <div class="opt"><div><div class="ot">指定成员</div><div class="od">固定一人或多人</div></div></div>
+                <div class="opt on"><div><div class="ot">发起人部门主管</div><div class="od">按组织树取发起人所在部门负责人</div></div></div>
+                <div class="opt"><div><div class="ot">连续多级主管</div><div class="od">逐级向上直到指定层级，逐级审批</div></div></div>
+                <div class="opt"><div><div class="ot">指定角色</div><div class="od">如「财务经理」角色下的所有成员</div></div></div>
+                <div class="opt"><div><div class="ot">发起人自选</div><div class="od">发起时由发起人指定，可限定范围</div></div></div>
+                <div class="opt"><div><div class="ot">表单人员字段</div><div class="od">取卡片中某个人员控件的值</div></div></div>
+                <div class="opt"><div><div class="ot">发起人本人</div><div class="od">用于确认/补充材料类节点</div></div></div>
+                <div class="opt"><div><div class="ot">上一节点处理人指定</div><div class="od">运行时由上一节点审批人现场指定</div></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="drawer">
+        <div class="dhd"><span class="nico" style="background:var(--blue)">审</span><b style="font-size:14px">部门负责人审批</b><span class="close">✕</span></div>
+        <div class="dtabs"><span>基础</span><span class="on">处理人</span><span>字段权限</span><span>动作</span><span>高级</span></div>
+        <div class="dbd">
+          <div class="fld"><label>① 处理人类型 <span class="req">*</span></label>
+            <div class="inp">发起人部门主管 ▾</div></div>
+          <div class="fld"><label>② 类型参数</label>
+            <div style="border:1px solid var(--line2);border-radius:8px;padding:11px 12px;background:#fafcff">
+              <div class="setrow" style="padding:6px 0"><div class="st"><div class="t" style="font-size:12.5px">主管层级</div></div>
+                <div class="seg sm"><span class="on">直属主管</span><span>第 2 级</span><span>第 3 级</span></div></div>
+              <div class="setrow" style="padding:6px 0;border-bottom:0"><div class="toggle sm off"></div>
+                <div class="st"><div class="t" style="font-size:12.5px">发起人即主管时跳过本节点</div><div class="d">避免自审自批</div></div></div>
+            </div>
+          </div>
+          <div class="fld"><label>③ 多人时的审批方式</label>
+            <div class="optlist">
+              <div class="opt"><span class="radio"></span><div><div class="ot">依次审批（顺序）</div><div class="od">按顺序逐人审批，全部通过才进入下一节点</div></div></div>
+              <div class="opt on"><span class="radio on"></span><div><div class="ot">或签（任一人）</div><div class="od">任意一人处理即完成，其余人待办自动取消</div></div></div>
+              <div class="opt"><span class="radio"></span><div><div class="ot">会签（全员）</div><div class="od">须全员通过；任一人拒绝即节点拒绝</div></div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12.5px;color:var(--sub)">
+              <span class="cbx on"></span>会签时按比例通过 <div class="inp sm" style="width:76px">≥ 2/3 ▾</div>
+            </div>
+          </div>
+          <div class="fld" style="margin-bottom:4px"><label>④ 处理人为空时（空缺兜底） <span class="req">*</span></label>
+            <div class="optlist">
+              <div class="opt"><span class="radio"></span><div><div class="ot">自动通过本节点</div></div></div>
+              <div class="opt on"><span class="radio on"></span><div><div class="ot">转交给指定人</div><div class="od" style="margin-top:4px"><span class="mem"><span class="av o">王</span>王芳（财务经理）</span></div></div></div>
+              <div class="opt"><span class="radio"></span><div><div class="ot">转交给流程管理员</div></div></div>
+            </div>
+            <div style="background:var(--gold-1);border:1px solid var(--gold-b);border-radius:7px;padding:8px 10px;font-size:12px;color:#d48806;margin-top:8px">⚠ 干跑检测：发起人「李娜（直营一部）」的部门未设主管，将触发此兜底 → 王芳。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes src">
+      <h4>吸收来源对照</h4>
+      <ul>
+        <li><b>钉钉</b>：处理人类型约 10 种 + 连续多级主管 + 会签/或签/依次 → 全集吸收（左侧为下拉展开态全清单）；每种类型选中后展开<b>类型专属参数区</b>（②），而非把所有参数平铺。</li>
+        <li><b>钉钉</b>：审批人为空的兜底（自动通过/转管理员/指定人）→ 吸收为该 Tab 第④段<b>必填项</b>，不允许留空——比钉钉埋在全局设置里更贴近出错现场。</li>
+        <li><b>CardFlow 特有</b>：兜底区下方接<b>干跑联动提示</b>——用真实组织数据检测"哪些发起人会命中空缺"，把抽象配置变成具体人名的预警。</li>
+        <li><b>会签比例通过</b>（≥2/3）：两家都没有的补充，大委员会场景（如预算评审）需要。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ A6: DRAWER TAB 3 FIELD PERM ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">A6</div>
+      <div><h2>节点抽屉 Tab③ 字段权限</h2>
+        <p>逐字段三态（可编辑/只读/隐藏）+ 表头批量设置 + 敏感字段锁 + 明细表下钻到列级。</p></div>
+    </div>
+    <div class="drawer-demo">
+      <div class="drawer-canvas">
+        <div style="max-width:400px;width:100%">
+          <div class="panel">
+            <div class="panel-hd" style="font-size:13px">明细表下钻（点「费用明细」展开列级权限）</div>
+            <div class="panel-bd" style="padding:10px">
+              <div class="fplist">
+                <div class="fprow hd"><span class="fn">费用明细 · 列</span><span>权限</span></div>
+                <div class="fprow"><span class="fn">└ 费用项目</span><div class="tri"><span class="e">可编辑</span><span>只读</span><span>隐藏</span></div></div>
+                <div class="fprow"><span class="fn">└ 金额</span><div class="tri"><span>可编辑</span><span class="r">只读</span><span>隐藏</span></div></div>
+                <div class="fprow"><span class="fn">└ 发票号</span><div class="tri"><span class="e">可编辑</span><span>只读</span><span>隐藏</span></div></div>
+                <div class="fprow"><span class="fn">└ 允许增删行</span><div style="display:flex;gap:8px;align-items:center"><span class="toggle sm"></span></div></div>
+              </div>
+              <div class="muted" style="font-size:11.5px;margin-top:8px">列级权限不高于整表权限（整表只读时列不可编辑）。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="drawer">
+        <div class="dhd"><span class="nico" style="background:var(--blue)">审</span><b style="font-size:14px">部门负责人审批</b><span class="close">✕</span></div>
+        <div class="dtabs"><span>基础</span><span>处理人</span><span class="on">字段权限<span class="dotbadge"></span></span><span>动作</span><span>高级</span></div>
+        <div class="dbd">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <span style="font-size:12.5px;color:var(--sub)">批量设置：</span>
+            <button class="btn sm">全部只读</button><button class="btn sm">全部可编辑</button>
+            <span style="margin-left:auto;font-size:12px;color:var(--blue)">在矩阵中查看 →</span>
+          </div>
+          <div class="fplist">
+            <div class="fprow hd"><span class="fn">字段</span><span>本节点权限</span></div>
+            <div class="fprow"><span class="fn">报销事由</span><div class="tri"><span>可编辑</span><span class="r">只读</span><span>隐藏</span></div></div>
+            <div class="fprow"><span class="fn">报销金额 🔗</span><div class="tri"><span style="color:var(--faint)">可编辑</span><span class="r">只读</span><span style="color:var(--faint)">隐藏</span></div></div>
+            <div class="fprow"><span class="fn">费用类型</span><div class="tri"><span>可编辑</span><span class="r">只读</span><span>隐藏</span></div></div>
+            <div class="fprow"><span class="fn">费用明细 <span style="color:var(--blue);font-size:11px">▸ 列级</span></span><div class="tri"><span class="e">可编辑</span><span>只读</span><span>隐藏</span></div></div>
+            <div class="fprow"><span class="fn">发票附件</span><div class="tri"><span>可编辑</span><span class="r">只读</span><span>隐藏</span></div></div>
+            <div class="fprow" style="background:var(--red-1)"><span class="fn">银行卡号 <span class="lock">🔒</span></span><div class="tri"><span style="color:var(--faint)">可编辑</span><span>只读</span><span class="h">隐藏</span></div></div>
+          </div>
+          <div style="background:var(--red-1);border:1px solid var(--red-b);border-radius:7px;padding:8px 10px;font-size:12px;color:#cf1322;margin-top:10px">🔒 敏感字段默认隐藏；改为"只读"需二次确认并记录到发布说明。「可编辑」仅发起节点可选。</div>
+          <div style="background:var(--blue-1);border:1px solid var(--blue-2);border-radius:7px;padding:8px 10px;font-size:12px;color:var(--blue);margin-top:8px">🔗 路由条件字段「报销金额」在审批节点锁定为只读——若允许编辑，改值可能使已走的分支判定失效。</div>
+        </div>
+      </div>
+    </div>
+    <div class="notes src">
+      <h4>吸收来源对照</h4>
+      <ul>
+        <li><b>钉钉</b>：节点内逐字段"可编辑/只读/隐藏" → 吸收为三态胶囊；补<b>表头批量设置</b>（全部只读/全部可编辑，审批节点 90% 场景是"全只读+个别放开"）。</li>
+        <li><b>企微</b>：明细表整表权限 → 深化为<b>下钻列级权限</b>（左图）：审批人可改"费用项目"但不能改"金额"，且"允许增删行"独立开关。</li>
+        <li><b>CardFlow 特有</b>：两条硬约束就地灰化——🔒 敏感字段不可"可编辑"、🔗 路由条件字段在分支判定后的节点锁只读；Tab 标红点提示本 Tab 有待处理告警，与全局矩阵（总体方案屏 6）双向同步。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ A7: DRAWER TAB 4 ACTIONS ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">A7</div>
+      <div><h2>节点抽屉 Tab④ 动作</h2>
+        <p>处理人可见的操作按钮逐个开关；每个动作可配"必填意见"；退回动作配运行时目标策略；支持自定义动作接自动处理。</p></div>
+    </div>
+    <div class="drawer-demo">
+      <div class="drawer-canvas">
+        <div style="max-width:380px;width:100%">
+          <div style="font-size:12px;color:var(--mute);margin-bottom:10px">处理人实际看到的操作条（实时预览）</div>
+          <div style="background:#fff;border-radius:10px;box-shadow:var(--shadow);padding:14px">
+            <div style="font-size:13px;font-weight:600;margin-bottom:10px">费用报销单 · 张伟</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn" style="flex:1;justify-content:center;background:var(--green);border-color:var(--green);color:#fff">同意</button>
+              <button class="btn" style="flex:1;justify-content:center;color:#cf1322;border-color:var(--red-b)">拒绝</button>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn sm" style="flex:1;justify-content:center">退回</button>
+              <button class="btn sm" style="flex:1;justify-content:center">转交</button>
+              <button class="btn sm" style="flex:1;justify-content:center">加签</button>
+              <button class="btn sm" style="flex:1;justify-content:center;color:var(--purple);border-color:var(--purple-b)">质疑金额</button>
+            </div>
+          </div>
+          <div style="font-size:11.5px;color:var(--mute);margin-top:8px;text-align:center">「质疑金额」为自定义动作 → 触发自动处理「通知发起人补充发票」</div>
+        </div>
+      </div>
+      <div class="drawer">
+        <div class="dhd"><span class="nico" style="background:var(--blue)">审</span><b style="font-size:14px">部门负责人审批</b><span class="close">✕</span></div>
+        <div class="dtabs"><span>基础</span><span>处理人</span><span>字段权限</span><span class="on">动作</span><span>高级</span></div>
+        <div class="dbd">
+          <div class="fplist" style="margin-bottom:12px">
+            <div class="fprow hd"><span class="fn">动作</span><span style="width:104px;text-align:center">意见要求</span><span style="width:40px;text-align:right">启用</span></div>
+            <div class="fprow"><span class="fn"><b>同意</b></span><div class="seg sm" style="width:104px"><span class="on">选填</span><span>必填</span></div><span class="toggle sm" style="margin-left:12px"></span></div>
+            <div class="fprow"><span class="fn"><b>拒绝</b></span><div class="seg sm" style="width:104px"><span>选填</span><span class="on">必填</span></div><span class="toggle sm" style="margin-left:12px"></span></div>
+            <div class="fprow"><span class="fn"><b>退回</b> <span class="muted" style="font-size:11px">目标见下</span></span><div class="seg sm" style="width:104px"><span>选填</span><span class="on">必填</span></div><span class="toggle sm" style="margin-left:12px"></span></div>
+            <div class="fprow"><span class="fn"><b>转交</b></span><div class="seg sm" style="width:104px"><span class="on">选填</span><span>必填</span></div><span class="toggle sm" style="margin-left:12px"></span></div>
+            <div class="fprow"><span class="fn"><b>加签</b> <span class="muted" style="font-size:11px">前加签/后加签</span></span><div class="seg sm" style="width:104px"><span class="on">选填</span><span>必填</span></div><span class="toggle sm" style="margin-left:12px"></span></div>
+          </div>
+          <div class="fld"><label>退回时可选目标</label>
+            <div class="optlist">
+              <div class="opt"><span class="radio"></span><div><div class="ot">仅退回发起人</div></div></div>
+              <div class="opt on"><span class="radio on"></span><div><div class="ot">运行时由处理人选择目标节点</div><div class="od">从已经过的节点中现场选（引擎既有语义）</div></div></div>
+            </div>
+            <div style="background:#fafafa;border:1px solid var(--line2);border-radius:7px;padding:8px 10px;margin-top:8px;font-size:12px;color:var(--mute)">重提走向（回到退回节点 / 重走全程）在<b>发起节点 · 撤回与重提</b>中统一配置（单一真源，见 B1 与修订篇 E1），此处不重复配置。</div>
+          </div>
+          <div class="fld" style="margin-bottom:0"><label>自定义动作</label>
+            <div style="border:1px solid var(--purple-b);border-radius:8px;padding:10px 12px;background:var(--purple-1)">
+              <div style="display:flex;align-items:center;gap:8px;font-size:13px"><b>质疑金额</b><span class="tag p">触发自动处理</span><span style="margin-left:auto;color:var(--faint)">✕</span></div>
+              <div style="font-size:12px;color:var(--sub);margin-top:5px">点击后：卡片保持本节点 + 执行「通知发起人补充发票」，处理人可留言。</div>
+            </div>
+            <button class="btn sm" style="margin-top:8px">+ 添加自定义动作</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes src">
+      <h4>吸收来源对照</h4>
+      <ul>
+        <li><b>钉钉/企微</b>：转交、加签（前/后加签）开关 → 吸收进动作清单统一管理，而非散在"高级设置"。</li>
+        <li><b>两家共同缺失 → 补</b>：<b>逐动作"意见必填"</b>（拒绝/退回必须写理由是审计刚需）；左侧<b>操作条实时预览</b>，配了什么按钮处理人就看到什么。</li>
+        <li><b>退回目标</b>：显式暴露引擎既有语义"运行时现场选目标"；重提走向（回到退回节点/重走全程）统一配置在发起节点（B1），并受条件变化强制重路由规则约束（修订 E1）。</li>
+        <li><b>CardFlow 特有</b>：<b>自定义动作可挂自动处理</b>（如"质疑金额"→触发通知），把动作和自动节点能力打通。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ A8: DRAWER TAB 5 ADVANCED ============ -->
+  <div class="screen">
+    <div class="screen-lead">
+      <div class="screen-no">A8</div>
+      <div><h2>节点抽屉 Tab⑤ 高级</h2>
+        <p>超时策略（多级升级）、本节点去重例外、限时处理、处理提醒。节点级设置覆盖全局默认，右上有"恢复默认"。</p></div>
+    </div>
+    <div class="drawer-demo">
+      <div class="drawer-canvas">
+        <div style="max-width:400px;width:100%">
+          <div class="panel">
+            <div class="panel-hd" style="font-size:13px">超时升级链（时间轴预览）</div>
+            <div class="panel-bd">
+              <div style="display:flex;flex-direction:column;gap:0;font-size:12.5px">
+                <div style="display:flex;gap:12px"><div style="width:64px;color:var(--mute);text-align:right">0h</div><div style="border-left:2px solid var(--blue-2);padding:0 0 18px 14px;position:relative"><span style="position:absolute;left:-6px;top:2px;width:10px;height:10px;border-radius:50%;background:var(--blue)"></span>待办派发给 <b>李强</b></div></div>
+                <div style="display:flex;gap:12px"><div style="width:64px;color:var(--mute);text-align:right">12h</div><div style="border-left:2px solid var(--blue-2);padding:0 0 18px 14px;position:relative"><span style="position:absolute;left:-6px;top:2px;width:10px;height:10px;border-radius:50%;background:var(--gold)"></span>第一次提醒（应用内 + 钉钉）</div></div>
+                <div style="display:flex;gap:12px"><div style="width:64px;color:var(--mute);text-align:right">24h</div><div style="border-left:2px solid var(--blue-2);padding:0 0 18px 14px;position:relative"><span style="position:absolute;left:-6px;top:2px;width:10px;height:10px;border-radius:50%;background:var(--orange)"></span>升级：抄送其上级 <b>周敏</b></div></div>
+                <div style="display:flex;gap:12px"><div style="width:64px;color:var(--mute);text-align:right">48h</div><div style="padding:0 0 0 14px;position:relative;border-left:2px solid transparent"><span style="position:absolute;left:-6px;top:2px;width:10px;height:10px;border-radius:50%;background:var(--red)"></span>执行超时策略：<b>自动转交给王芳</b></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="drawer">
+        <div class="dhd"><span class="nico" style="background:var(--blue)">审</span><b style="font-size:14px">部门负责人审批</b><span class="close">✕</span>
+        </div>
+        <div class="dtabs"><span>基础</span><span>处理人</span><span>字段权限</span><span>动作</span><span class="on">高级</span></div>
+        <div class="dbd">
+          <div style="display:flex;justify-content:flex-end;margin-bottom:6px"><span style="font-size:12px;color:var(--blue)">↺ 恢复全局默认</span></div>
+          <div class="setrow"><div class="toggle sm"></div><div class="st"><div class="t">超时提醒</div><div class="d">未处理达到时限时提醒处理人</div></div><div class="inp sm" style="width:88px">12 小时 ▾</div></div>
+          <div class="setrow"><div class="toggle sm"></div><div class="st"><div class="t">超时升级</div><div class="d">再次超时抄送处理人上级</div></div><div class="inp sm" style="width:88px">24 小时 ▾</div></div>
+          <div class="fld" style="padding:10px 0;border-bottom:1px solid var(--line)"><label>最终超时策略（48 小时）</label>
+            <div class="optlist">
+              <div class="opt"><span class="radio"></span><div><div class="ot">仅持续提醒</div></div></div>
+              <div class="opt on"><span class="radio on"></span><div><div class="ot">自动转交给指定人</div><div class="od" style="margin-top:4px"><span class="mem"><span class="av o">王</span>王芳</span></div></div></div>
+              <div class="opt"><span class="radio"></span><div><div class="ot">自动通过</div><div class="od">谨慎使用，将记录"超时自动通过"标记</div></div></div>
+            </div>
+          </div>
+          <div class="setrow"><div class="toggle sm off"></div><div class="st"><div class="t">本节点不参与审批人去重</div><div class="d">即使同一人已在前序节点审批过，本节点仍需其再审（如合规复核岗）</div></div></div>
+          <div class="setrow"><div class="toggle sm off"></div><div class="st"><div class="t">限时处理（硬时限）</div><div class="d">超过时限卡片标红并计入节点超时率统计</div></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes src">
+      <h4>吸收来源对照</h4>
+      <ul>
+        <li><b>钉钉</b>：超时提醒 → 深化为<b>三级升级链</b>（提醒→抄送上级→执行策略），左侧时间轴实时预览整条链，所配即所见。</li>
+        <li><b>钉钉</b>：全局"自动去重" → 补<b>节点级例外</b>（"本节点不参与去重"）——合规复核岗即使重复出现也必须亲审，全局开关一刀切覆盖不了。</li>
+        <li><b>层级覆盖模型</b>：节点级设置 &gt; 全局默认（第四步发布设置），右上角"恢复全局默认"一键回退；未改动时显示继承值（灰字）。</li>
+        <li>"超时自动通过"带审计标记——满足效率诉求同时不丢责任链。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="foot">CardFlow 设计器细化方案 · 上篇（A1-A8）· 下篇见 mock-detail-part2.html：发起/抄送/自动节点属性 · 条件编辑器 · 分支操作 · 发布与版本</div>
+</div>
+</body>
+</html>
