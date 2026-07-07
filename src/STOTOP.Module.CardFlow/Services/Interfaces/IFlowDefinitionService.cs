@@ -15,6 +15,7 @@ public interface IFlowDefinitionService
     Task DisableAsync(long id, long operatorId);
     Task EnableAsync(long id, long operatorId);
     Task<List<FlowVersionDto>> GetVersionsAsync(long definitionId);
+    Task<InflightSummaryDto> GetInflightSummaryAsync(long definitionId);
     Task<FlowVersionDetailDto?> GetVersionDetailAsync(long definitionId, long versionId);
     Task<FlowVersionDetailDto> SaveDraftVersionAsync(long definitionId, SaveDraftVersionRequest request, long operatorId);
     Task<FlowVersionDetailDto?> GetDraftVersionAsync(long definitionId);

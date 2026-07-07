@@ -427,6 +427,64 @@ public class FlowDefinitionService : IFlowDefinitionService
             .ToListAsync();
     }
 
+    public async Task<InflightSummaryDto> GetInflightSummaryAsync(long definitionId)
+    {
+        // 在途 = active（审批中）+ returned（退回待重提，仍绑定版本会继续走）；终态与 draft 不计
+        var inflightStatuses = new[] { "active", "returned" };
+        var cards = await _dbContext.Set<CfCard>()
+            .Where(c => c.FFlowDefinitionId == definitionId && inflightStatuses.Contains(c.FStatus))
+            .Select(c => new { c.FID, c.FFlowVersionId, c.FCurrentStageInstanceId })
+            .ToListAsync();
+
+        var versionIds = cards.Select(c => c.FFlowVersionId).Distinct().ToList();
+        var versionNumberMap = await _dbContext.Set<CfFlowVersion>()
+            .Where(v => versionIds.Contains(v.FID))
+            .Select(v => new { v.FID, v.FVersionNumber })
+            .ToDictionaryAsync(v => v.FID, v => v.FVersionNumber);
+
+        var instanceIds = cards
+            .Where(c => c.FCurrentStageInstanceId.HasValue)
+            .Select(c => c.FCurrentStageInstanceId!.Value)
+            .Distinct()
+            .ToList();
+        var activeInstances = await _dbContext.Set<CfStageInstance>()
+            .Where(s => instanceIds.Contains(s.FID) && s.FStatus == "active" && s.FStageDefinitionId != null)
+            .Select(s => new { s.FID, s.FStageDefinitionId })
+            .ToListAsync();
+        var stageDefIds = activeInstances.Select(s => s.FStageDefinitionId!.Value).Distinct().ToList();
+        var stageKeyMap = await _dbContext.Set<CfStageDefinition>()
+            .Where(d => stageDefIds.Contains(d.FID))
+            .Select(d => new { d.FID, d.FStageKey })
+            .ToDictionaryAsync(d => d.FID, d => d.FStageKey);
+        var instanceStageKeyMap = activeInstances
+            .Where(s => stageKeyMap.ContainsKey(s.FStageDefinitionId!.Value))
+            .ToDictionary(s => s.FID, s => stageKeyMap[s.FStageDefinitionId!.Value]);
+
+        var byVersion = cards
+            .GroupBy(c => c.FFlowVersionId)
+            .Select(g => new InflightVersionSummaryDto
+            {
+                VersionId = g.Key,
+                VersionNumber = versionNumberMap.TryGetValue(g.Key, out var num) ? num : 0,
+                Count = g.Count(),
+                StuckStageKeys = g
+                    .Where(c => c.FCurrentStageInstanceId.HasValue
+                        && instanceStageKeyMap.ContainsKey(c.FCurrentStageInstanceId.Value))
+                    .Select(c => instanceStageKeyMap[c.FCurrentStageInstanceId!.Value])
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(key => key, StringComparer.OrdinalIgnoreCase)
+                    .ToList()
+            })
+            .OrderByDescending(v => v.VersionNumber)
+            .ToList();
+
+        return new InflightSummaryDto
+        {
+            Total = cards.Count,
+            ByVersion = byVersion
+        };
+    }
+
     public async Task<FlowVersionDetailDto?> GetVersionDetailAsync(long definitionId, long versionId)
     {
         var version = await _dbContext.Set<CfFlowVersion>()

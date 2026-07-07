@@ -154,6 +154,16 @@ public class FlowDefinitionController : ControllerBase
         return ApiResult<List<FlowVersionDto>>.Success(result);
     }
 
+    /// <summary>
+    /// 在途卡片计数（按版本分组，含被卡节点 stageKey）
+    /// </summary>
+    [HttpGet("{id}/inflight-summary")]
+    public async Task<ApiResult<InflightSummaryDto>> GetInflightSummary(long id)
+    {
+        var result = await _service.GetInflightSummaryAsync(id);
+        return ApiResult<InflightSummaryDto>.Success(result);
+    }
+
     [HttpGet("{id}/versions/{versionId}")]
     public async Task<ApiResult<FlowVersionDetailDto>> GetVersionDetail(long id, long versionId)
     {
