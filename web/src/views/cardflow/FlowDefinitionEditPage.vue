@@ -27,15 +27,14 @@ import {
   EyeOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
-  LoadingOutlined,
   ReloadOutlined,
   CopyOutlined,
   DeleteOutlined,
   HolderOutlined,
   RightOutlined,
-  EditOutlined,
 } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
+import SaveStateChip from '@/components/common/SaveStateChip.vue'
 import SchemaFieldEditor from '@/components/cardflow/SchemaFieldEditor.vue'
 import type { DetailRow } from '@/components/cardflow/CardDetailTable.vue'
 import StageDefinitionEditor, { type StageDefinition } from '@/components/cardflow/StageDefinitionEditor.vue'
@@ -250,14 +249,6 @@ const auto = useAutoSave({
 })
 
 watch(() => state, () => { editSeq++; dirty.value = true; auto.markDirty() }, { deep: true })
-
-const saveStateText = computed(() => {
-  if (auto.saveState.value === 'saving') return '保存中...'
-  if (auto.saveState.value === 'error')  return '保存失败'
-  if (auto.saveState.value === 'dirty')  return '未保存的更改'
-  return '已保存'
-})
-const saveStateClass = computed(() => `tb-state tb-state--${auto.saveState.value}`)
 
 const previewStageOptions = computed(() =>
   state.stages.map((stage, index) => ({
@@ -1793,13 +1784,7 @@ function goBack() {
           发布
         </a-button>
 
-        <span :class="saveStateClass">
-          <CheckCircleFilled v-if="auto.saveState.value === 'saved'" />
-          <LoadingOutlined v-else-if="auto.saveState.value === 'saving'" />
-          <CloseCircleFilled v-else-if="auto.saveState.value === 'error'" />
-          <EditOutlined v-else />
-          {{ saveStateText }}
-        </span>
+        <SaveStateChip :state="auto.saveState.value" :saved-at="auto.lastSavedAt.value" @retry="handleSaveDraft" />
       </template>
     </PageHeader>
 
@@ -3009,22 +2994,6 @@ function goBack() {
   width: 1px; height: 16px;
   background: var(--border);
   margin: 0 4px;
-}
-
-.tb-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  margin-left: 8px;
-  padding: 0 8px;
-  height: 24px;
-  border-radius: 12px;
-
-  &--saved   { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 8%, transparent); }
-  &--saving  { color: var(--color-info); background: color-mix(in srgb, var(--color-info) 8%, transparent); }
-  &--dirty   { color: var(--color-warning-text); background: color-mix(in srgb, var(--color-warning) 8%, transparent); }
-  &--error   { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 8%, transparent); }
 }
 
 /* ============ 步骤条 ============ */
