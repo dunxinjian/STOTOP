@@ -914,8 +914,13 @@ function getStageHealth(stage: StageDefinition) {
                 mode="multiple"
                 style="width: 100%"
                 placeholder="卡片摘要区优先展示的字段"
-                :options="(schemaFields || []).map(f => ({ value: f.key, label: f.label }))"
+                :options="(schemaFields || []).map(f => ({
+                  value: f.key,
+                  label: f.sensitive ? `${f.label}（敏感字段不可作摘要）` : f.label,
+                  disabled: !!f.sensitive,
+                }))"
               />
+              <p class="sde-fld__hint">摘要出现在待办列表与通知，敏感字段在此禁选以防绕过节点权限泄漏</p>
             </div>
 
             <div class="sde-fld sde-fld--block">
