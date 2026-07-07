@@ -173,6 +173,23 @@ public class FlowDefinitionController : ControllerBase
         return ApiResult<FlowVersionDetailDto>.Success(result);
     }
 
+    /// <summary>
+    /// 回滚：以指定历史版本快照创建新草稿（已存在草稿时拒绝）
+    /// </summary>
+    [HttpPost("{id}/versions/{versionId}/create-draft")]
+    public async Task<ApiResult<FlowVersionDetailDto>> CreateDraftFromVersion(long id, long versionId)
+    {
+        try
+        {
+            var result = await _service.CreateDraftFromVersionAsync(id, versionId, GetUserId());
+            return ApiResult<FlowVersionDetailDto>.Success(result, "已从历史版本创建草稿");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ApiResult<FlowVersionDetailDto>.Fail(ex.Message);
+        }
+    }
+
     [HttpPut("{id}/draft-version")]
     public async Task<ApiResult<FlowVersionDetailDto>> SaveDraftVersion(long id, [FromBody] SaveDraftVersionRequest request)
     {

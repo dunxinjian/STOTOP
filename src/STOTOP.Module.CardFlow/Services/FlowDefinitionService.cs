@@ -1055,64 +1055,92 @@ public class FlowDefinitionService : IFlowDefinitionService
                 .FirstOrDefaultAsync(x => x.FFlowDefinitionId == definitionId && x.FIsCurrentVersion);
             if (published == null) return null; // 既无草稿也无已发布版本
 
-            // 计算新版本号
-            var maxVersion = await _dbContext.Set<CfFlowVersion>()
-                .Where(x => x.FFlowDefinitionId == definitionId)
-                .MaxAsync(x => (int?)x.FVersionNumber) ?? 0;
-
-            draft = new CfFlowVersion
-            {
-                FFlowDefinitionId = definitionId,
-                FVersionNumber = maxVersion + 1,
-                FStatus = "draft",
-                FCardSchemaJson = published.FCardSchemaJson,
-                FDetailSchemaJson = published.FDetailSchemaJson,
-                FFlowSettingsJson = published.FFlowSettingsJson,
-                FCreatorId = published.FCreatorId,
-                FCreatedTime = DateTime.Now,
-                FIsCurrentVersion = false
-            };
-            _dbContext.Set<CfFlowVersion>().Add(draft);
-            await _dbContext.SaveChangesAsync();
-
-            // 克隆节点定义
-            var sourceStages = await _dbContext.Set<CfStageDefinition>()
-                .Where(s => s.FFlowVersionId == published.FID)
-                .OrderBy(s => s.FSortOrder)
-                .ToListAsync();
-
-            var usedStageKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var src in sourceStages)
-            {
-                var clone = new CfStageDefinition
-                {
-                    FFlowVersionId = draft.FID,
-                    FStageKey = EnsureStageKey(src.FStageKey, src.FSortOrder, src.FStageName, usedStageKeys),
-                    FSortOrder = src.FSortOrder,
-                    FStageName = src.FStageName,
-                    FType = src.FType,
-                    FApprovalMode = src.FApprovalMode,
-                    FAssigneeStrategy = src.FAssigneeStrategy,
-                    FAssigneeConfigJson = src.FAssigneeConfigJson,
-                    FConditionJson = src.FConditionJson,
-                    FInputFieldsJson = src.FInputFieldsJson,
-                    F处理粒度 = src.F处理粒度,
-                    F插件注册ID = src.F插件注册ID,
-                    F插件规则ID = src.F插件规则ID,
-                    FFailurePolicyJson = src.FFailurePolicyJson,
-                    FCcConfigJson = src.FCcConfigJson,
-                    FTimeoutHours = src.FTimeoutHours,
-                    FPriorityTemplate = src.FPriorityTemplate
-                };
-                _dbContext.Set<CfStageDefinition>().Add(clone);
-            }
-            await _dbContext.SaveChangesAsync();
-            await CloneRouteRulesAsync(published.FID, draft.FID);
-            await CloneDynamicPoliciesAsync(published.FID, draft.FID);
-            await _dbContext.SaveChangesAsync();
+            draft = await CreateDraftFromSnapshotAsync(definitionId, published, published.FCreatorId);
         }
 
         return await GetVersionDetailAsync(definitionId, draft.FID);
+    }
+
+    public async Task<FlowVersionDetailDto> CreateDraftFromVersionAsync(long definitionId, long versionId, long operatorId)
+    {
+        var hasDraft = await _dbContext.Set<CfFlowVersion>()
+            .AnyAsync(x => x.FFlowDefinitionId == definitionId && x.FStatus == "draft");
+        if (hasDraft)
+            throw new InvalidOperationException("已存在未发布草稿，请先发布或放弃当前草稿");
+
+        var sourceVersion = await _dbContext.Set<CfFlowVersion>()
+            .FirstOrDefaultAsync(x => x.FID == versionId && x.FFlowDefinitionId == definitionId)
+            ?? throw new InvalidOperationException("指定的历史版本不存在");
+        if (sourceVersion.FStatus == "draft")
+            throw new InvalidOperationException("不能从草稿版本创建草稿");
+
+        var draft = await CreateDraftFromSnapshotAsync(definitionId, sourceVersion, operatorId);
+        _logger.LogInformation("从历史版本创建草稿：定义 {DefinitionId}，源版本 v{SourceVersion}(FID={SourceId}) → 草稿 v{DraftVersion}，操作人 {OperatorId}",
+            definitionId, sourceVersion.FVersionNumber, sourceVersion.FID, draft.FVersionNumber, operatorId);
+
+        return (await GetVersionDetailAsync(definitionId, draft.FID))!;
+    }
+
+    /// <summary>以指定版本为快照新建草稿版本（复制 schema JSON + 节点 + 路由 + 动态策略）。
+    /// 调用方须先保证单草稿不变量（当前定义下无 draft 版本）。</summary>
+    private async Task<CfFlowVersion> CreateDraftFromSnapshotAsync(long definitionId, CfFlowVersion sourceVersion, long creatorId)
+    {
+        var maxVersion = await _dbContext.Set<CfFlowVersion>()
+            .Where(x => x.FFlowDefinitionId == definitionId)
+            .MaxAsync(x => (int?)x.FVersionNumber) ?? 0;
+
+        var draft = new CfFlowVersion
+        {
+            FFlowDefinitionId = definitionId,
+            FVersionNumber = maxVersion + 1,
+            FStatus = "draft",
+            FCardSchemaJson = sourceVersion.FCardSchemaJson,
+            FDetailSchemaJson = sourceVersion.FDetailSchemaJson,
+            FFlowSettingsJson = sourceVersion.FFlowSettingsJson,
+            FCreatorId = creatorId,
+            FCreatedTime = DateTime.Now,
+            FIsCurrentVersion = false
+        };
+        _dbContext.Set<CfFlowVersion>().Add(draft);
+        await _dbContext.SaveChangesAsync();
+
+        // 克隆节点定义
+        var sourceStages = await _dbContext.Set<CfStageDefinition>()
+            .Where(s => s.FFlowVersionId == sourceVersion.FID)
+            .OrderBy(s => s.FSortOrder)
+            .ToListAsync();
+
+        var usedStageKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var src in sourceStages)
+        {
+            var clone = new CfStageDefinition
+            {
+                FFlowVersionId = draft.FID,
+                FStageKey = EnsureStageKey(src.FStageKey, src.FSortOrder, src.FStageName, usedStageKeys),
+                FSortOrder = src.FSortOrder,
+                FStageName = src.FStageName,
+                FType = src.FType,
+                FApprovalMode = src.FApprovalMode,
+                FAssigneeStrategy = src.FAssigneeStrategy,
+                FAssigneeConfigJson = src.FAssigneeConfigJson,
+                FConditionJson = src.FConditionJson,
+                FInputFieldsJson = src.FInputFieldsJson,
+                F处理粒度 = src.F处理粒度,
+                F插件注册ID = src.F插件注册ID,
+                F插件规则ID = src.F插件规则ID,
+                FFailurePolicyJson = src.FFailurePolicyJson,
+                FCcConfigJson = src.FCcConfigJson,
+                FTimeoutHours = src.FTimeoutHours,
+                FPriorityTemplate = src.FPriorityTemplate
+            };
+            _dbContext.Set<CfStageDefinition>().Add(clone);
+        }
+        await _dbContext.SaveChangesAsync();
+        await CloneRouteRulesAsync(sourceVersion.FID, draft.FID);
+        await CloneDynamicPoliciesAsync(sourceVersion.FID, draft.FID);
+        await _dbContext.SaveChangesAsync();
+
+        return draft;
     }
 
     public async Task<FlowDefinitionDto> CloneFlowDefinitionAsync(
