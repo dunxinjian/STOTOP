@@ -1,0 +1,109 @@
+<script setup lang="ts">
+/**
+ * 竖向流程图节点卡片（mock 总体屏 3 .fnode / 设计 C2 状态全集）。
+ * 结构类来自 cardflow-designer.scss（.cfd-node 族），本组件只写状态绑定不重写样式。
+ */
+import { computed } from 'vue'
+import type { StageDefinition } from '@/components/cardflow/StageDefinitionEditor.vue'
+import { parseAssigneeConfig } from '@/components/cardflow/stageDefinitionShared'
+
+const props = defineProps<{
+  stage: StageDefinition
+  selected: boolean
+  /** 该节点的诊断计数（错误+警告，>0 显示角标） */
+  issueCount?: number
+  /** 该节点的错误级计数（决定角标色） */
+  errorCount?: number
+}>()
+
+const emit = defineEmits<{ select: [] }>()
+
+/** 节点视觉分类：审/自 两类 + 图标字（设计 D8 色盲冗余：色+字+边框三重编码） */
+const kindClass = computed(() => (props.stage.type === 'auto' ? 'cfd-node--auto is-auto' : 'cfd-node--appr'))
+const iconChar = computed(() => (props.stage.type === 'auto' ? '自' : '审'))
+
+const approvalModeText = computed(() => {
+  switch (props.stage.approvalMode) {
+    case 'single': return '单人'
+    case 'orsign': return '或签'
+    case 'countersign': return '会签'
+    case 'sequential': return '依次'
+    default: return ''
+  }
+})
+
+const STRATEGY_LABELS: Record<string, string> = {
+  role: '按角色',
+  fixed: '指定人员',
+  fieldUsers: '按字段取人',
+  initiator: '发起人',
+}
+
+const assigneeText = computed(() => {
+  if (props.stage.type === 'auto') return ''
+  const strategy = props.stage.assigneeStrategy
+  if (!strategy) return '未配置处理人'
+  const config = parseAssigneeConfig(props.stage)
+  const label = STRATEGY_LABELS[strategy] || strategy
+  if (strategy === 'role' && config?.roleCode) return `${label}·${config.roleName || config.roleCode}`
+  if (strategy === 'fixed' && Array.isArray(config?.users) && config.users.length) {
+    const names = config.users.map((u: { name?: string; id?: unknown }) => u.name || `#${u.id}`)
+    return names.length > 2 ? `${names.slice(0, 2).join('、')} 等 ${names.length} 人` : names.join('、')
+  }
+  if (strategy === 'fieldUsers' && config?.fieldKey) return `${label}·${config.fieldKey}`
+  return label
+})
+</script>
+
+<template>
+  <div
+    class="cfd-node"
+    :class="[kindClass, { 'is-selected': selected }]"
+    role="button"
+    tabindex="0"
+    :aria-label="`${stage.type === 'auto' ? '自动处理节点' : '审批节点'} ${stage.name || '未命名'}${issueCount ? `，${issueCount} 个问题` : ''}，按 Enter 编辑`"
+    @click="emit('select')"
+    @keydown.enter.prevent="emit('select')"
+  >
+    <span v-if="issueCount" class="cfd-node__errdot" :class="{ 'is-warn': !errorCount }">{{ issueCount }}</span>
+    <div class="cfd-node__head">
+      <span class="cfd-node__icon">{{ iconChar }}</span>
+      <span class="cfd-node__title">{{ stage.name || '未命名节点' }}</span>
+      <a-tag v-if="stage.type === 'auto'" class="cfd-node__tag" :bordered="false">自动</a-tag>
+      <a-tag v-else-if="approvalModeText" class="cfd-node__tag" color="blue" :bordered="false">{{ approvalModeText }}</a-tag>
+    </div>
+    <div v-if="assigneeText" class="cfd-node__body">
+      <div class="cfd-node__kv">
+        <span class="cfd-node__kk">处理人</span>
+        <span class="cfd-node__vv">{{ assigneeText }}</span>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped lang="scss">
+// 结构样式在全局 cardflow-designer.scss（.cfd-node 族）；此处仅补组件内特有微调
+.cfd-node {
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+.cfd-node__errdot.is-warn {
+  background: var(--color-warning);
+}
+
+.cfd-node__tag {
+  flex: none;
+  margin-inline-end: 0;
+}
+
+.cfd-node__vv {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>

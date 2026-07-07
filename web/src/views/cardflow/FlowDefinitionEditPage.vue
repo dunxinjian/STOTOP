@@ -40,13 +40,15 @@ import type { DetailRow } from '@/components/cardflow/CardDetailTable.vue'
 import StageDefinitionEditor, { type StageDefinition } from '@/components/cardflow/StageDefinitionEditor.vue'
 import StageConfigPanel from '@/components/cardflow/StageConfigPanel.vue'
 import FlowStateCanvas from '@/components/cardflow/designer/FlowStateCanvas.vue'
+import FlowVerticalGraph from '@/components/cardflow/designer/FlowVerticalGraph.vue'
 import RouteRuleCardEditor from '@/components/cardflow/designer/RouteRuleCardEditor.vue'
 import DynamicApprovalPolicyEditor from '@/components/cardflow/designer/DynamicApprovalPolicyEditor.vue'
 import PathPreviewPanel from '@/components/cardflow/designer/PathPreviewPanel.vue'
 import RuleHealthPanel from '@/components/cardflow/designer/RuleHealthPanel.vue'
 import CardComponentCatalog from '@/components/cardflow/designer/CardComponentCatalog.vue'
 import CardComponentConfigDrawer from '@/components/cardflow/designer/CardComponentConfigDrawer.vue'
-import { validatePublishConfig, type DiagnosticTarget } from '@/utils/cardflowDiagnostics'
+import { runRuleHealthChecks, validatePublishConfig, type DiagnosticTarget, type HealthItem } from '@/utils/cardflowDiagnostics'
+import type { FieldOption } from '@/components/cardflow/ConditionBuilder.vue'
 import CardComponentRenderer from '@/components/cardflow/runtime/CardComponentRenderer.vue'
 import SchemaRenderer from '@/components/cardflow/SchemaRenderer.vue'
 import {
@@ -390,6 +392,34 @@ function selectDesignerBlank() {
   designerSelection.type = 'blank'
   designerSelection.key = null
   designerDrawerOpen.value = true
+}
+
+// ==================== 竖向流程图（M1）====================
+
+/** 诊断结果（竖向图节点角标消费；与 RuleHealthPanel 同源纯函数） */
+const stageDiagnostics = computed<HealthItem[]>(() =>
+  runRuleHealthChecks({
+    stages: state.stages,
+    routes: state.routes,
+    dynamicPolicies: state.dynamicPolicies,
+    fields: state.cardSchema,
+  }),
+)
+
+/** 分支头条件摘要用字段选项（与 RouteRuleCardEditor 同一派生口径） */
+const routeConditionFields = computed<FieldOption[]>(() =>
+  state.cardSchema.map(field => ({
+    key: field.key,
+    label: field.label || field.key,
+    type: field.type,
+    options: field.options || undefined,
+  })),
+)
+
+/** 竖向图结构变更：整体替换 stages/routes，经 state 深监听统一进撤销栈+自动保存 */
+function applyGraphStructure(payload: { stages: StageDefinition[]; routes: StageRouteRuleRequest[] }) {
+  state.stages = payload.stages
+  state.routes = payload.routes
 }
 
 // 诊断"点击直达现场"：切到节点链步骤 + 选中对应节点/边并打开配置抽屉
@@ -2373,21 +2403,19 @@ function goBack() {
 
         <!-- 步骤：节点链 -->
         <div v-show="activeStep === STEP_STAGES" class="fdef-step fdef-step--nodechain" :class="{ 'fdef-step--err': errors.stages || errors.condition }">
-          <a-tabs class="fdef-designer-tabs" default-active-key="canvas">
-            <a-tab-pane key="canvas" tab="流程图">
+          <a-tabs class="fdef-designer-tabs" default-active-key="vertical">
+            <a-tab-pane key="vertical" tab="流程视图">
               <div class="fdef-designer-layout">
-                <FlowStateCanvas
+                <FlowVerticalGraph
                   :stages="state.stages"
                   :routes="state.routes"
-                  :dynamic-policies="state.dynamicPolicies"
+                  :diagnostics="stageDiagnostics"
                   :selected-type="designerSelection.type"
                   :selected-key="designerSelection.key"
+                  :condition-fields="routeConditionFields"
                   @select-node="selectDesignerNode"
                   @select-edge="selectDesignerEdge"
-                  @select-blank="selectDesignerBlank"
-                  @create-route="createRoute"
-                  @connect-route="connectRouteFromCanvas"
-                  @reorder-stages="reorderStagesByCanvas"
+                  @update-structure="applyGraphStructure"
                 />
                 <RuleHealthPanel
                   :stages="state.stages"
@@ -2412,6 +2440,21 @@ function goBack() {
                   </div>
                 </template>
               </StageDefinitionEditor>
+            </a-tab-pane>
+
+            <a-tab-pane key="canvas" tab="只读总览图">
+              <div class="fdef-designer-layout">
+                <FlowStateCanvas
+                  :stages="state.stages"
+                  :routes="state.routes"
+                  :dynamic-policies="state.dynamicPolicies"
+                  :selected-type="designerSelection.type"
+                  :selected-key="designerSelection.key"
+                  @select-node="selectDesignerNode"
+                  @select-edge="selectDesignerEdge"
+                  @select-blank="selectDesignerBlank"
+                />
+              </div>
             </a-tab-pane>
           </a-tabs>
         </div>
