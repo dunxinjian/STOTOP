@@ -332,20 +332,28 @@ function branchPosition(group: FlowTreeNode, edgeKey: string): { first: boolean;
                   </div>
                 </div>
               </template>
-              <div v-else class="cfd-graph__nested">嵌套分支 · 点击分支头进入编辑</div>
+              <div v-else-if="child.kind === 'stageRef' && child.stageId" class="cfd-graph__stageref" role="note">
+                ↳ 汇入「{{ stageById.get(child.stageId)?.name || child.stageId }}」
+              </div>
+              <div v-else-if="child.kind === 'branchGroup'" class="cfd-graph__nested">嵌套分支 · 点击分支头进入编辑</div>
             </template>
           </div>
         </div>
         <div class="cfd-branch-bar" :style="{ width: `${Math.min(86, (node.branches?.length ?? 0) * 28)}%` }"></div>
       </template>
+
+      <!-- 顶层交叉引用（罕见：主干汇入他支已渲染节点） -->
+      <div v-else-if="node.kind === 'stageRef' && node.stageId" class="cfd-graph__stageref" role="note">
+        ↳ 汇入「{{ stageById.get(node.stageId)?.name || node.stageId }}」
+      </div>
     </template>
 
     <!-- 复杂区段/孤儿提示 -->
     <div v-if="projection.complex.length" class="cfd-graph__notice is-warn">
       存在复杂连接（{{ projection.complex.map((id) => stageById.get(id)?.name || id).join('、') }}），竖向图仅展示一次，完整拓扑请切换「只读总览图」查看。
     </div>
-    <div v-if="projection.orphans.length" class="cfd-graph__notice is-error">
-      {{ projection.orphans.length }} 个节点不可达：{{ projection.orphans.map((id) => stageById.get(id)?.name || id).join('、') }}（点击节点链或诊断面板处理）
+    <div v-if="projection.orphans.length" class="cfd-graph__notice is-warn">
+      {{ projection.orphans.length }} 个节点未被路由引用（{{ projection.orphans.map((id) => stageById.get(id)?.name || id).join('、') }}），已按排序追加显示；批次链/线性推进段属正常，其余请检查。
     </div>
 
     <!-- 终点 -->
@@ -413,6 +421,14 @@ function branchPosition(group: FlowTreeNode, edgeKey: string): { first: boolean;
   background: $bg-page;
   border: 1px dashed $border-color;
   border-radius: 6px;
+}
+
+.cfd-graph__stageref {
+  padding: 5px 10px;
+  font-size: $font-size-sm;
+  color: $text-secondary;
+  background: $bg-page;
+  border-radius: 12px;
 }
 
 .cfd-graph__notice {

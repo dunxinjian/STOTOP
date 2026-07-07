@@ -94,12 +94,12 @@ describe('buildFlowTree 投影', () => {
     expect(group.branches!.map((b) => b.routeEdgeKey)).toEqual(['cond1', 'cond2', 'def'])
   })
 
-  it('孤儿节点（不可达）进 orphans，不进树', () => {
+  it('孤儿节点（不可达）记入 orphans 且按 sortOrder 追加渲染在尾部（保持可编辑）', () => {
     const { tree, orphans } = buildFlowTree(
       [s('a', 1), s('b', 2), s('ghost', 9)],
       [r('e1', 'a', 'b', { isDefault: true })],
     )
-    expect(collectStageIds(tree)).toEqual(['a', 'b'])
+    expect(collectStageIds(tree)).toEqual(['a', 'b', 'ghost'])
     expect(orphans).toEqual(['ghost'])
   })
 
@@ -139,7 +139,7 @@ describe('buildFlowTree 投影', () => {
     expect(complex.length).toBeGreaterThan(0)
   })
 
-  it('交叉边（两分支汇到 x 但第三支不汇）→ x 所在区段降级 complex', () => {
+  it('交叉边（两分支汇到 x 但第三支不汇）→ 后到支渲染 stageRef 引用而非重复节点', () => {
     const stages = [s('a', 1), s('b', 2), s('c', 3), s('d', 4), s('x', 5)]
     const routes = [
       r('c1', 'a', 'b', { conditionJson: '{}', priority: 1 }),
@@ -148,11 +148,33 @@ describe('buildFlowTree 投影', () => {
       r('e1', 'b', 'x', { isDefault: true }),
       r('e2', 'c', 'x', { isDefault: true }),
     ]
-    const { tree, complex } = buildFlowTree(stages, routes)
-    // x 被两条分支到达但非全组汇合点 → 只出现一次 + complex 标记（不重复渲染）
+    const { tree } = buildFlowTree(stages, routes)
+    // x 作为实体 stage 只出现一次；另一支以 stageRef 引用
     const ids = collectStageIds(tree)
     expect(ids.filter((id) => id === 'x')).toHaveLength(1)
-    expect(complex).toContain('x')
+    const group = tree.find((n) => n.kind === 'branchGroup')!
+    const refCount = group.branches!.flatMap((b) => b.children).filter((c) => c.kind === 'stageRef' && c.stageId === 'x').length
+    expect(refCount).toBe(1)
+  })
+
+  it('部分汇合形态（#2261 借款流）：两条件支同指一中间节点+兜底直指终点 → 引用渲染零孤儿', () => {
+    // loan_approval → [cond1 → finance, cond2 → upper, cond3 → finance, DEF → payment]
+    // finance → payment / upper → payment
+    const stages = [s('approval', 1), s('upper', 2), s('finance', 3), s('payment', 4)]
+    const routes = [
+      r('r1', 'approval', 'finance', { conditionJson: '{}', priority: 1 }),
+      r('r2', 'approval', 'upper', { conditionJson: '{}', priority: 2 }),
+      r('r3', 'approval', 'finance', { conditionJson: '{}', priority: 3 }),
+      r('r4', 'approval', 'payment', { isDefault: true, priority: 4 }),
+      r('r5', 'finance', 'payment', { isDefault: true }),
+      r('r6', 'upper', 'payment', { isDefault: true }),
+    ]
+    const { tree, orphans, complex } = buildFlowTree(stages, routes)
+    expect(orphans).toEqual([])
+    expect(complex).toEqual([])
+    // 全部 4 节点可见（实体恰一次）
+    const ids = collectStageIds(tree)
+    expect([...ids].sort()).toEqual(['approval', 'finance', 'payment', 'upper'])
   })
 })
 
@@ -312,5 +334,41 @@ describe('分支操作三纯函数 (M1-4)', () => {
     // c1 再右移撞兜底 → 不变
     const out2 = reorderBranch(out.stages, out.routes, 'c1', 'right')
     expect(out2.routes.find((x) => x.edgeKey === 'c1')!.priority).toBe(2)
+  })
+})
+
+describe('dev 库实测形态夹具 (M1-6)', () => {
+  it('#1357 形态：迁移遗留重复死节点（交错孤儿）→ 全部可见渲染 + orphans 告警', () => {
+    // stage_1350_N(type=approval, 迁移遗留) 与 expense_request_*(type=human) 同 sortOrder 并存，
+    // routes 只引用 expense_request_*。投影须：路由链正常 + 死节点追加可见 + orphans 列出。
+    const stages = [
+      s('legacy_1', 1), s('approval', 1),
+      s('legacy_2', 2), s('dept', 2),
+      s('legacy_3', 3), s('region', 3),
+      s('legacy_4', 4), s('budget', 4),
+    ]
+    const routes = [
+      r('r1', 'approval', 'region', { conditionJson: '{}', priority: 1 }),
+      r('r2', 'approval', 'dept', { conditionJson: '{}', priority: 2 }),
+      r('r3', 'approval', 'budget', { isDefault: true, priority: 99 }),
+      r('r4', 'dept', 'budget', { isDefault: true, priority: 99 }),
+      r('r5', 'region', 'budget', { isDefault: true, priority: 99 }),
+    ]
+    const { tree, orphans, complex } = buildFlowTree(stages, routes)
+    expect(complex).toEqual([])
+    expect(orphans.sort()).toEqual(['legacy_1', 'legacy_2', 'legacy_3', 'legacy_4'])
+    // 守恒：8 个节点全部可见（实体恰一次）
+    expect(collectStageIds(tree)).toHaveLength(8)
+  })
+
+  it('#2331 形态：批次链尾段无路由（纯尾段孤儿）→ 追加渲染保持编辑可见', () => {
+    const stages = [s('imp', 1, 'auto'), s('qa', 2, 'auto'), s('voucher', 3, 'auto'), s('summary', 4, 'auto'), s('confirm', 5)]
+    const routes = [
+      r('c1', 'imp', 'qa', { conditionJson: '{}', priority: 1 }),
+      r('c2', 'imp', 'qa', { conditionJson: '{}', priority: 2 }),
+    ]
+    const { tree, orphans } = buildFlowTree(stages, routes)
+    expect(orphans).toEqual(['voucher', 'summary', 'confirm'])
+    expect(collectStageIds(tree)).toHaveLength(5)
   })
 })

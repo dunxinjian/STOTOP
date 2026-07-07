@@ -16,8 +16,8 @@ import type { StageDefinition } from '@/components/cardflow/StageDefinitionEdito
 import type { StageRouteRuleRequest } from '@/types/cardflow'
 
 export interface FlowTreeNode {
-  kind: 'stage' | 'branchGroup'
-  /** kind=stage */
+  kind: 'stage' | 'branchGroup' | 'stageRef'
+  /** kind=stage | stageRef（引用：同组内他支已渲染的共享目标，见 #2261 形态） */
   stageId?: string
   /** kind=branchGroup */
   branches?: FlowTreeBranch[]
@@ -33,7 +33,10 @@ export interface FlowTreeBranch {
 
 export interface FlowTreeResult {
   tree: FlowTreeNode[]
-  /** 不可达节点 id（诊断消费） */
+  /**
+   * 路由不可达节点 id（诊断提示用）。为保证编辑可见性，这些节点仍按 sortOrder
+   * 追加渲染在 tree 尾部（引擎批次链/legacy 段按 sortOrder 推进，见 FlowEngineService）。
+   */
   orphans: string[]
   /** 复杂区段节点 id（环/交叉边降级，只渲染一次） */
   complex: string[]
@@ -87,19 +90,31 @@ function reachableChain(start: string, ctx: ProjectionContext): string[] {
   return chain
 }
 
-/** 递归展开一段链：从 startKey 走到 stopKey（不含）或终点 */
-function walkChain(startKey: string | undefined, stopKey: string | undefined, ctx: ProjectionContext): FlowTreeNode[] {
+/** 递归展开一段链：从 startKey 走到 stopKey（不含）或终点。path=当前递归祖先链（环检测） */
+function walkChain(
+  startKey: string | undefined,
+  stopKey: string | undefined,
+  ctx: ProjectionContext,
+  path: readonly string[] = [],
+): FlowTreeNode[] {
   const nodes: FlowTreeNode[] = []
+  const localPath = new Set(path)
   let cursor = startKey
   while (cursor && cursor !== stopKey) {
     const stage = ctx.stageById.get(cursor)
     if (!stage) break
     if (ctx.rendered.has(cursor)) {
-      // 交叉边/环：已渲染过 → 标复杂区段并停止本支展开（只渲染一次）
-      ctx.complex.add(cursor)
+      if (localPath.has(cursor)) {
+        // 环：祖先回边 → 复杂区段（只读总览图查看）
+        ctx.complex.add(cursor)
+      } else {
+        // 交叉引用：他支已渲染 → 引用节点（可见但非实体）
+        nodes.push({ kind: 'stageRef', stageId: cursor })
+      }
       break
     }
     ctx.rendered.add(cursor)
+    localPath.add(cursor)
     nodes.push({ kind: 'stage', stageId: cursor })
 
     const outs = ctx.outgoing.get(cursor) ?? []
@@ -111,14 +126,26 @@ function walkChain(startKey: string | undefined, stopKey: string | undefined, ct
 
     // 多出边 → 分支组
     const merge = findMergePoint(outs, ctx)
-    const branches: FlowTreeBranch[] = outs.map((route) => ({
-      routeEdgeKey: route.edgeKey,
-      isDefault: route.isDefault,
-      priority: route.priority,
-      children: route.toStageKey && route.toStageKey !== merge
-        ? walkChain(route.toStageKey, merge, ctx)
-        : [],
-    }))
+    const branchPath = [...localPath]
+    const branches: FlowTreeBranch[] = outs.map((route) => {
+      const to = route.toStageKey || undefined
+      let children: FlowTreeNode[]
+      if (!to || to === merge) {
+        children = []
+      } else if (ctx.rendered.has(to)) {
+        children = branchPath.includes(to)
+          ? (ctx.complex.add(to), [])
+          : [{ kind: 'stageRef', stageId: to }]
+      } else {
+        children = walkChain(to, merge, ctx, branchPath)
+      }
+      return {
+        routeEdgeKey: route.edgeKey,
+        isDefault: route.isDefault,
+        priority: route.priority,
+        children,
+      }
+    })
     nodes.push({ kind: 'branchGroup', branches })
     cursor = merge
   }
@@ -159,12 +186,20 @@ export function buildFlowTree(
     stageById: new Map(sorted.map((s) => [s.id, s])),
   }
 
-  // 起点：无入边的节点（按 sortOrder 最早者）；全有入边（环）则退回 sortOrder 首节点
+  // 起点：无入边节点中优先取"有出边"者（避免选中无边僵尸节点，见 #1357 形态）；
+  // 均无出边则按 sortOrder 最早；全有入边（环）退回 sortOrder 首节点
   const hasIncoming = new Set(activeRoutes.map((r) => r.toStageKey).filter(Boolean))
-  const start = sorted.find((s) => !hasIncoming.has(s.id)) ?? sorted[0]
+  const noIncoming = sorted.filter((s) => !hasIncoming.has(s.id))
+  const start =
+    noIncoming.find((s) => (ctx.outgoing.get(s.id) ?? []).length > 0) ?? noIncoming[0] ?? sorted[0]
   const tree = start ? walkChain(start.id, undefined, ctx) : []
 
   const orphans = sorted.filter((s) => !ctx.rendered.has(s.id)).map((s) => s.id)
+  // 孤儿节点按 sortOrder 追加为可见尾段（可编辑），orphans 列表仅作诊断
+  for (const id of orphans) {
+    ctx.rendered.add(id)
+    tree.push({ kind: 'stage', stageId: id })
+  }
   return { tree, orphans, complex: [...ctx.complex] }
 }
 
