@@ -279,6 +279,9 @@ const currentPluginCode = computed<string | undefined>(() => {
   return pluginRegistryAll.value.find(p => p.id === id)?.pluginCode
 })
 
+/** 凭证插件：预留试算按钮位（M5-3 解禁，桥接契约见总体 plan §六.五） */
+const isVoucherPlugin = computed(() => /voucher/i.test(currentPluginCode.value || ''))
+
 /** 当前插件的规则选项 */
 const pluginRuleOptions = computed(() => {
   const code = currentPluginCode.value
@@ -1000,6 +1003,12 @@ function getStageHealth(stage: StageDefinition) {
                 <p class="sde-fld__hint">
                   {{ FAILURE_POLICIES.find(p => p.value === selectedStage!.failurePolicy)?.hint }}
                 </p>
+              </div>
+
+              <div v-if="isVoucherPlugin" class="sde-fld">
+                <a-tooltip title="随干跑工作台上线（预演步骤将支持凭证分录试算）">
+                  <a-button size="small" disabled>🧪 试算凭证分录</a-button>
+                </a-tooltip>
               </div>
             </template>
           </div>

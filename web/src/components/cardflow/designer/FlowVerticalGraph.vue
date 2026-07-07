@@ -172,14 +172,23 @@ function branchPosition(group: FlowTreeNode, edgeKey: string): { first: boolean;
 
 <template>
   <div class="cfd-graph" @click.self="openMenuAnchor = null">
-    <!-- 起点（隐含节点，不在 stages 中） -->
-    <div class="cfd-node cfd-node--start cfd-graph__terminal">
-      <div class="cfd-node__head">
-        <span class="cfd-node__icon">起</span>
-        <span class="cfd-node__title">发起人</span>
-        <a-tag :bordered="false">起点</a-tag>
+    <!-- 起点（隐含节点，不在 stages 中；发起范围/代提交/重提走向属二期，诚实呈现不出假配置） -->
+    <a-popover placement="right" trigger="click">
+      <template #content>
+        <div class="cfd-graph__startpop">
+          <p><b>发起人节点</b></p>
+          <p>谁可以发起：由流程所属组织与菜单权限决定（当前版本）。</p>
+          <p class="cfd-graph__startpop-muted">发起范围圈定 / 代他人提交 / 被退回后重提走向 属二期规划，暂不可配置。</p>
+        </div>
+      </template>
+      <div class="cfd-node cfd-node--start cfd-graph__terminal" role="button" tabindex="0" aria-label="发起人节点，点击查看说明">
+        <div class="cfd-node__head">
+          <span class="cfd-node__icon">起</span>
+          <span class="cfd-node__title">发起人</span>
+          <a-tag :bordered="false">起点</a-tag>
+        </div>
       </div>
-    </div>
+    </a-popover>
 
     <template v-for="(node, i) in projection.tree" :key="node.kind === 'stage' ? node.stageId : `bg-${i}`">
       <!-- 节点前连接件："+"锚定在上一个 stage 或起点 -->
@@ -429,6 +438,18 @@ function branchPosition(group: FlowTreeNode, edgeKey: string): { first: boolean;
   color: $text-secondary;
   background: $bg-page;
   border-radius: 12px;
+}
+
+.cfd-graph__startpop {
+  max-width: 260px;
+  font-size: $font-size-sm2;
+
+  p { margin-bottom: 6px; }
+
+  .cfd-graph__startpop-muted {
+    font-size: $font-size-sm;
+    color: $text-secondary;
+  }
 }
 
 .cfd-graph__notice {
