@@ -26,6 +26,11 @@ const props = defineProps<{
   title?: string
   /** 用于 cardRef 类型的"目标流程"下拉，可外部传入；不传则懒加载 */
   availableFlows?: { code: string; name: string }[]
+  /**
+   * 路由引用保护（E0-M2 拦截强度）：fieldKey → 引用分支名列表。
+   * 被引用字段的删除被拦截（改类型/取消必填由发布校验兜底）。
+   */
+  routeRefs?: Map<string, string[]>
 }>()
 
 const emit = defineEmits<{
@@ -160,6 +165,16 @@ function commitEditor() {
 
 function removeField(index: number) {
   const field = fields.value[index]
+  // 路由依赖锁定（设计屏2/E0-M2）：被条件分支引用的字段删除=拦截而非确认
+  const refs = field?.key ? props.routeRefs?.get(field.key) : undefined
+  if (refs?.length) {
+    Modal.warning({
+      title: `字段「${field?.label || field?.key}」不可删除`,
+      content: `该字段被条件分支引用（${refs.slice(0, 3).join('、')}${refs.length > 3 ? ' 等' : ''}），删除会使分支永不命中。请先在流程设计中解除引用。`,
+      okText: '知道了',
+    })
+    return
+  }
   Modal.confirm({
     title: `删除字段「${field?.label || field?.key || ''}」？`,
     content: '若该字段被节点权限、摘要、进入条件或流转条件引用，引用会失效并在发布校验中报错。',

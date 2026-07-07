@@ -49,6 +49,7 @@ import RuleHealthPanel from '@/components/cardflow/designer/RuleHealthPanel.vue'
 import CardComponentCatalog from '@/components/cardflow/designer/CardComponentCatalog.vue'
 import CardComponentConfigDrawer from '@/components/cardflow/designer/CardComponentConfigDrawer.vue'
 import { runRuleHealthChecks, validatePublishConfig, type DiagnosticTarget, type HealthItem } from '@/utils/cardflowDiagnostics'
+import { buildRouteFieldIndex } from '@/utils/routeFieldIndex'
 import type { FieldOption } from '@/components/cardflow/ConditionBuilder.vue'
 import CardComponentRenderer from '@/components/cardflow/runtime/CardComponentRenderer.vue'
 import SchemaRenderer from '@/components/cardflow/SchemaRenderer.vue'
@@ -422,6 +423,16 @@ function applyGraphStructure(payload: { stages: StageDefinition[]; routes: Stage
   state.stages = payload.stages
   state.routes = payload.routes
 }
+
+/** 路由引用保护（E0-M2）：fieldKey→引用分支名，供 schema 编辑器拦截删除 */
+const routeFieldRefNames = computed<Map<string, string[]>>(() => {
+  const idx = buildRouteFieldIndex(state.routes)
+  const out = new Map<string, string[]>()
+  for (const [fieldKey, edgeKeys] of idx.fields) {
+    out.set(fieldKey, edgeKeys.map(e => state.routes.find(r => r.edgeKey === e)?.routeName || e))
+  }
+  return out
+})
 
 // 诊断"点击直达现场"：切到节点链步骤 + 选中对应节点/边并打开配置抽屉 + 竖向图滚动定位脉冲
 function focusDiagnosticTarget(target: DiagnosticTarget) {
@@ -1886,6 +1897,7 @@ function goBack() {
                 v-model="state.cardSchema"
                 title="卡片字段"
                 :available-flows="availableFlows"
+                :route-refs="routeFieldRefNames"
               />
             </a-col>
             <a-col :span="12">
