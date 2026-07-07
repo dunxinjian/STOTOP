@@ -422,76 +422,28 @@ function applyGraphStructure(payload: { stages: StageDefinition[]; routes: Stage
   state.routes = payload.routes
 }
 
-// 诊断"点击直达现场"：切到节点链步骤 + 选中对应节点/边并打开配置抽屉
+// 诊断"点击直达现场"：切到节点链步骤 + 选中对应节点/边并打开配置抽屉 + 竖向图滚动定位脉冲
 function focusDiagnosticTarget(target: DiagnosticTarget) {
   activeStep.value = STEP_STAGES
   if (target.kind === 'node') selectDesignerNode(target.key)
   else selectDesignerEdge(target.key)
+  void nextTick(() => pulseGraphSelection())
 }
 
-function createRoute(fromStageKey?: string) {
-  if (state.stages.length < 2) {
-    message.warning('至少需要两个节点才能添加条件边')
-    return
-  }
-  const from = fromStageKey && state.stages.some(stage => stage.id === fromStageKey)
-    ? fromStageKey
-    : state.stages[0].id
-  const fromIndex = state.stages.findIndex(stage => stage.id === from)
-  const to = state.stages[fromIndex + 1]?.id || state.stages.find(stage => stage.id !== from)?.id
-  if (!to) return
-  const route: StageRouteRuleRequest = {
-    edgeKey: genStableKey('edge'),
-    fromStageKey: from,
-    toStageKey: to,
-    routeName: '其他情况',
-    conditionJson: null,
-    priority: state.routes.filter(item => item.fromStageKey === from).length + 1,
-    isDefault: !state.routes.some(item => item.fromStageKey === from && item.isDefault),
-    status: 'active',
-    failurePolicyJson: null,
-  }
-  state.routes.push(route)
-  selectDesignerEdge(route.edgeKey)
+/** 竖向图定位：滚动到选中元素并外环脉冲 2 次（设计 D9；reduced-motion 降级一次性高亮） */
+function pulseGraphSelection() {
+  const el = document.querySelector('.cfd-graph .is-selected') as HTMLElement | null
+  if (!el) return
+  el.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' })
+  el.classList.remove('cfd-pulse')
+  // 强制重排使动画可重复触发
+  void el.offsetWidth
+  el.classList.add('cfd-pulse')
+  window.setTimeout(() => el.classList.remove('cfd-pulse'), 1300)
 }
 
-function connectRouteFromCanvas(payload: { fromStageKey: string; toStageKey: string }) {
-  if (state.stages.length < 2) {
-    message.warning('至少需要两个节点才能添加条件边')
-    return
-  }
-  const fromExists = state.stages.some(stage => stage.id === payload.fromStageKey)
-  const toExists = state.stages.some(stage => stage.id === payload.toStageKey)
-  if (!fromExists || !toExists || payload.fromStageKey === payload.toStageKey) {
-    message.warning('请选择不同的来源和目标节点')
-    return
-  }
-  const route: StageRouteRuleRequest = {
-    edgeKey: genStableKey('edge'),
-    fromStageKey: payload.fromStageKey,
-    toStageKey: payload.toStageKey,
-    routeName: '条件分支',
-    conditionJson: null,
-    priority: state.routes.filter(item => item.fromStageKey === payload.fromStageKey).length + 1,
-    isDefault: !state.routes.some(item => item.fromStageKey === payload.fromStageKey && item.isDefault),
-    status: 'active',
-    failurePolicyJson: null,
-  }
-  state.routes.push(route)
-  selectDesignerEdge(route.edgeKey)
-}
-
-function reorderStagesByCanvas(orderedStageKeys: string[]) {
-  if (orderedStageKeys.length !== state.stages.length) return
-  const stageById = new Map(state.stages.map(stage => [stage.id, stage]))
-  const orderedStages = orderedStageKeys
-    .map(stageKey => stageById.get(stageKey))
-    .filter((stage): stage is StageDefinition => Boolean(stage))
-  if (orderedStages.length !== state.stages.length) return
-  state.stages = orderedStages.map((stage, index) => ({
-    ...stage,
-    sortOrder: index + 1,
-  }))
+function prefersReducedMotion(): boolean {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 function updateRoute(route: StageRouteRuleRequest) {

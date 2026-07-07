@@ -437,6 +437,28 @@
   }
 }
 
+// ---------- 诊断定位脉冲（设计 D9：2×600ms 外环脉冲；reduced-motion 降级一次性高亮）----------
+@keyframes cfd-pulse-ring {
+  0% { outline-color: var(--color-primary); outline-offset: 2px; }
+  50% { outline-color: transparent; outline-offset: 6px; }
+  100% { outline-color: var(--color-primary); outline-offset: 2px; }
+}
+
+.cfd-pulse {
+  outline: 2px solid var(--color-primary);
+  animation: cfd-pulse-ring 600ms ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cfd-pulse {
+    animation: none;
+  }
+
+  .cfd-plus {
+    transition: none;
+  }
+}
+
 // ---------- 成员胶囊（mock .mem/.av）----------
 .cfd-member {
   display: inline-flex;

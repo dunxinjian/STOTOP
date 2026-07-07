@@ -32,9 +32,6 @@ const emit = defineEmits<{
   (e: 'select-node', stageKey: string): void
   (e: 'select-edge', edgeKey: string): void
   (e: 'select-blank'): void
-  (e: 'create-route', fromStageKey?: string): void
-  (e: 'connect-route', payload: { fromStageKey: string; toStageKey: string }): void
-  (e: 'reorder-stages', orderedStageKeys: string[]): void
 }>()
 
 const flowNodes = ref<Node[]>([])
@@ -188,7 +185,7 @@ function buildFlowNode(stage: StageDefinition, index: number, previousPosition?:
     id: stage.id,
     type: 'stage',
     position: preservedPosition,
-    draggable: true,
+    draggable: false,
     selectable: true,
     data: buildFlowNodeData(stage, index),
   }
@@ -214,34 +211,6 @@ function stagePolicyCount(stageKey: string) {
   return props.dynamicPolicies.filter(policy => policy.sourceStageKey === stageKey && policy.status !== 'disabled').length
 }
 
-function handleConnect(connection: { source?: string | null; target?: string | null }) {
-  const source = connection.source
-  const target = connection.target
-  if (!source || !target || source === target) return
-  emit('connect-route', { fromStageKey: source, toStageKey: target })
-}
-
-function handleNodeDragStop() {
-  const orderedStageKeys = flowNodes.value
-    .map<{ id: string; x: number; y: number }>(node => ({
-      id: node.id,
-      x: node.position?.x || 0,
-      y: node.position?.y || 0,
-    }))
-    .filter(node => stageByKey.value.has(node.id))
-    .sort((left, right) => {
-      const yDelta = left.y - right.y
-      if (Math.abs(yDelta) > 8) return yDelta
-      return left.x - right.x
-    })
-    .map(node => node.id)
-  const current = props.stages.map(stage => stage.id).join(',')
-  const next = orderedStageKeys.join(',')
-  if (orderedStageKeys.length === props.stages.length && next !== current) {
-    emit('reorder-stages', orderedStageKeys)
-  }
-}
-
 function handleNodeClick(...args: any[]) {
   const node = resolveFlowPayload(args, 'node')
   if (node?.id && stageByKey.value.has(node.id)) {
@@ -252,10 +221,7 @@ function handleNodeClick(...args: any[]) {
 function handleEdgeClick(...args: any[]) {
   const edge = resolveFlowPayload(args, 'edge')
   if (!edge?.id) return
-  if (String(edge.id).startsWith('linear_')) {
-    emit('create-route', edge.source)
-    return
-  }
+  if (String(edge.id).startsWith('linear_')) return // 线性虚拟边只读，不再触发建边
   emit('select-edge', edge.id)
 }
 
@@ -270,14 +236,11 @@ function resolveFlowPayload(args: any[], key: 'node' | 'edge') {
   <section class="cf-flow-canvas">
     <header class="cf-flow-canvas__head">
       <div>
-        <strong>审批状态机画布</strong>
+        <strong>只读总览图</strong>
         <span>{{ stages.length }} 个节点 · {{ routes.length }} 条条件边 · {{ dynamicPolicies.length }} 个动态审批策略</span>
       </div>
       <div class="cf-flow-canvas__actions">
-        <span>拖动节点调整主链顺序 · 从节点连接点拖出条件分支</span>
-        <a-button size="small" type="primary" ghost @click="emit('create-route', stages[0]?.id)">
-          添加条件边
-        </a-button>
+        <span>查看完整拓扑 · 编辑请在「流程视图」进行</span>
       </div>
     </header>
 
@@ -294,12 +257,13 @@ function resolveFlowPayload(args: any[], key: 'node' | 'edge') {
         :max-zoom="1.35"
         :snap-to-grid="true"
         :snap-grid="[12, 12]"
+        :nodes-draggable="false"
+        :nodes-connectable="false"
+        :edges-updatable="false"
         fit-view-on-init
         class="cf-flow-vue"
-        @connect="handleConnect"
         @node-click="handleNodeClick"
         @edge-click="handleEdgeClick"
-        @node-drag-stop="handleNodeDragStop"
         @pane-click="emit('select-blank')"
       >
         <Background />
