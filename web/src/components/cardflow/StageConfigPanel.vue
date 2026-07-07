@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * StageConfigPanel —— 选中节点的属性面板（5-tab：基础/处理人/节点视图/动作时限/进入条件）
+ * StageConfigPanel —— 选中节点的属性面板（五 Tab：基础/处理人/字段权限/动作/高级，M2-1 对齐 mock A4-A8）
  *
  * 从 StageDefinitionEditor 右栏零逻辑抽出的共用面板，以便节点链右栏与画布节点抽屉共用同一套
  * 完整配置能力（消灭双入口能力差）。
@@ -10,6 +10,8 @@
  *    上层（StageDefinitionEditor）对 stages 的 deep watch 负责 emitUpdate，本面板不再另发事件。
  *  - 选中节点变化（切换选择 / 撤销重做整体替换致对象换新）经 watch(selectedStage) 回显编辑态，
  *    等价于原 selectStage 的调用时机；就地编辑不改变 selectedStage 引用故不触发回显。
+ *  - 只暴露引擎已实现的配置（M2 裁剪决策）：ccConfigJson 运行时零消费故不再出输入框；
+ *    超时提醒接 StageTimeoutReminderJob（M2-7）；自动通过语义=进入条件跳过（引擎既有）。
  */
 import { computed, onMounted, ref, watch, nextTick } from 'vue'
 import {
@@ -20,6 +22,8 @@ import {
 } from '@ant-design/icons-vue'
 import ConditionBuilder from './ConditionBuilder.vue'
 import StageComponentViewEditor from './designer/StageComponentViewEditor.vue'
+import PermissionTri from './designer/PermissionTri.vue'
+import type { PermissionValue } from './designer/permissionTriShared'
 import type { ConditionGroup, FieldOption } from './ConditionBuilder.vue'
 import type { StageDefinition, StageNodeType, StageAccessMode, AssigneeFallbackType } from './StageDefinitionEditor.vue'
 import type { CardComponentDefinition, SchemaFieldDefinition, AutoPluginRegistryDto, AutoPluginRuleDto } from '@/types/cardflow'
@@ -67,25 +71,29 @@ const ACTION_OPTIONS = [
   { value: 'urge', label: '催办' },
 ]
 
-const ACCESS_OPTIONS = [
-  { value: 'hidden', label: '隐藏' },
-  { value: 'masked', label: '脱敏' },
-  { value: 'readonly', label: '只读' },
-  { value: 'editable', label: '可编辑' },
-  { value: 'required', label: '必填' },
+// 引擎实现的失败策略仅 halt/retry（AutoStage 执行链）；skip 未实现故不出（M2 裁剪：不做假配置）
+const FAILURE_POLICIES = [
+  { value: 'halt',  label: '中止', hint: '失败后流程中止（转异常处理）' },
+  { value: 'retry', label: '重试', hint: '自动重试 3 次，超限后中止' },
 ]
 
-const FAILURE_POLICIES = [
-  { value: 'skip',  label: '跳过', hint: '失败后继续下一节点' },
-  { value: 'halt',  label: '中止', hint: '失败后流程中止' },
-  { value: 'retry', label: '重试', hint: '自动重试 3 次' },
-]
+/** viewProfile access（含 required 复合态）→ 权限胶囊四态（required 显示为可编辑，另有必填勾） */
+function triValueOf(access: StageAccessMode): PermissionValue {
+  return access === 'required' ? 'editable' : access
+}
+
+/** 字段权限批量设置（mock A6 表头批量；hidden/masked 锁定字段不受影响由 setFieldAccess 语义保证） */
+function batchSetFieldAccess(access: PermissionValue) {
+  for (const field of props.schemaFields || []) {
+    setFieldAccess(field.key, access)
+  }
+}
 
 // ==================== 选中节点 ====================
 
 const selectedStage = computed(() => props.selectedIndex >= 0 ? props.stages[props.selectedIndex] ?? null : null)
 const draftCondition = ref<ConditionGroup>({ logic: 'and', conditions: [] })
-const activeConfigTab = ref<'basic' | 'assignee' | 'view' | 'actions' | 'condition'>('basic')
+const activeConfigTab = ref<'basic' | 'assignee' | 'fieldPerm' | 'actions' | 'advanced'>('basic')
 
 // ===== 处理人策略配置状态 =====
 const roleOptions = ref<{ label: string; value: string }[]>([])
@@ -681,7 +689,7 @@ function getStageHealth(stage: StageDefinition) {
           </div>
         </a-tab-pane>
 
-        <a-tab-pane key="view" tab="节点视图" :disabled="selectedStage.type !== 'manual'">
+        <a-tab-pane key="fieldPerm" tab="字段权限" :disabled="selectedStage.type !== 'manual'">
           <div v-if="selectedStage.type === 'manual'" class="sde-tab-panel">
             <div class="sde-fld">
               <label class="sde-fld__label">补充字段</label>
@@ -697,20 +705,23 @@ function getStageHealth(stage: StageDefinition) {
             <div class="sde-fld sde-fld--block">
               <div class="sde-fld__label-row">
                 <label class="sde-fld__label">字段展示权限</label>
-                <span class="sde-fld__hint">按节点职责配置可见、可写和必填</span>
+                <span class="sde-fld__batch">
+                  批量：
+                  <a-button size="small" type="link" @click="batchSetFieldAccess('readonly')">全部只读</a-button>
+                  <a-button size="small" type="link" @click="batchSetFieldAccess('editable')">全部可编辑</a-button>
+                </span>
               </div>
-              <div class="sde-access">
-                <div v-for="field in (schemaFields || [])" :key="field.key" class="sde-access__row">
-                  <span class="sde-access__name" :title="field.label">{{ field.label }}</span>
-                  <a-select
-                    class="sde-access__select"
-                    size="small"
-                    :value="getFieldAccess(field.key)"
-                    :options="ACCESS_OPTIONS"
-                    @change="(value: any) => setFieldAccess(field.key, value)"
+              <div class="cfd-list">
+                <div v-for="field in (schemaFields || [])" :key="field.key" class="cfd-list__row">
+                  <span class="cfd-list__label" :title="field.label">{{ field.label }}</span>
+                  <PermissionTri
+                    :value="triValueOf(getFieldAccess(field.key))"
+                    @update:value="(v: PermissionValue) => setFieldAccess(field.key, v)"
                   />
                   <a-checkbox
+                    class="sde-access__req"
                     :checked="isFieldRequired(field.key)"
+                    :disabled="getFieldAccess(field.key) === 'hidden' || getFieldAccess(field.key) === 'masked'"
                     @change="(event: any) => setFieldRequired(field.key, event.target.checked)"
                   >
                     必填
@@ -722,19 +733,17 @@ function getStageHealth(stage: StageDefinition) {
             <div class="sde-fld sde-fld--block">
               <div class="sde-fld__label-row">
                 <label class="sde-fld__label">明细字段权限</label>
-                <span class="sde-fld__hint">同一套明细数据可按节点职责分层展示</span>
+                <span class="sde-fld__hint">列级权限：同一套明细数据按节点职责分层展示</span>
               </div>
-              <div v-if="(detailSchemaFields || []).length" class="sde-access">
-                <div v-for="field in (detailSchemaFields || [])" :key="field.key" class="sde-access__row">
-                  <span class="sde-access__name" :title="field.label">{{ field.label }}</span>
-                  <a-select
-                    class="sde-access__select"
-                    size="small"
-                    :value="getDetailAccess(field.key)"
-                    :options="ACCESS_OPTIONS"
-                    @change="(value: any) => setDetailAccess(field.key, value)"
+              <div v-if="(detailSchemaFields || []).length" class="cfd-list">
+                <div v-for="field in (detailSchemaFields || [])" :key="field.key" class="cfd-list__row">
+                  <span class="cfd-list__label" :title="field.label">└ {{ field.label }}</span>
+                  <PermissionTri
+                    :value="triValueOf(getDetailAccess(field.key))"
+                    @update:value="(v: PermissionValue) => setDetailAccess(field.key, v)"
                   />
                   <a-checkbox
+                    class="sde-access__req"
                     :checked="isDetailRequired(field.key)"
                     @change="(event: any) => setDetailRequired(field.key, event.target.checked)"
                   >
@@ -765,7 +774,7 @@ function getStageHealth(stage: StageDefinition) {
           </div>
         </a-tab-pane>
 
-        <a-tab-pane key="actions" :tab="selectedStage.type === 'manual' ? '动作/时限' : '执行配置'">
+        <a-tab-pane key="actions" :tab="selectedStage.type === 'manual' ? '动作' : '执行配置'">
           <div class="sde-tab-panel">
             <template v-if="selectedStage.type === 'manual'">
               <div class="sde-fld">
@@ -780,21 +789,6 @@ function getStageHealth(stage: StageDefinition) {
                 <p v-if="selectedStage.actionPolicy!.allowedActions?.includes('returnToStage')" class="sde-fld__hint">
                   「退回节点」的目标由审批人在运行时现场选择（本轮已完成的人工节点），无需在设计器指定。
                 </p>
-              </div>
-
-              <div class="sde-fld">
-                <label class="sde-fld__label">抄送配置</label>
-                <a-input v-model:value="selectedStage.ccConfigJson" placeholder="抄送人员/角色 JSON" />
-              </div>
-
-              <div class="sde-fld">
-                <label class="sde-fld__label">超时（小时）</label>
-                <a-input-number
-                  v-model:value="selectedStage.timeoutHours"
-                  :min="0"
-                  placeholder="0 表示不限制"
-                  style="width: 120px"
-                />
               </div>
             </template>
 
@@ -849,12 +843,23 @@ function getStageHealth(stage: StageDefinition) {
           </div>
         </a-tab-pane>
 
-        <a-tab-pane key="condition" tab="进入条件">
+        <a-tab-pane key="advanced" tab="高级">
           <div class="sde-tab-panel">
+            <div v-if="selectedStage.type === 'manual'" class="sde-fld">
+              <label class="sde-fld__label">超时提醒（小时）</label>
+              <a-input-number
+                v-model:value="selectedStage.timeoutHours"
+                :min="0"
+                placeholder="0 表示不提醒"
+                style="width: 140px"
+              />
+              <p class="sde-fld__hint">超过时长未处理时提醒处理人（0 或留空 = 不提醒）</p>
+            </div>
+
             <div class="sde-fld sde-fld--block">
               <div class="sde-fld__label-row">
                 <label class="sde-fld__label">进入条件</label>
-                <span class="sde-fld__hint">满足时此节点激活，否则跳过</span>
+                <span class="sde-fld__hint">满足时此节点激活，否则跳过（可实现"小额自动通过"类流转）</span>
               </div>
               <ConditionBuilder v-model="draftCondition" :fields="conditionFields" />
             </div>
