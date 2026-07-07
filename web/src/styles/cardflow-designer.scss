@@ -1,0 +1,467 @@
+// =============================================================
+// CardFlow 流程设计器结构类（cfd- 前缀）
+// 真源：docs/superpowers/specs/2026-07-07-cardflow-designer-mocks/mock-shared.css
+// 保真规则（ui-baseline.md）：尺寸/间距/圆角/字号/投影逐值照抄 mock；
+// 颜色一律语义令牌 var()（色调随项目主题，UI 保真唯一豁免项）。
+// 消费方：FlowVerticalGraph/FlowGraphNode（M1）、StageConfigPanel 五 Tab（M2）、
+// ConditionBuilder 条件组（M3）、FieldPermissionMatrix（M4）。
+// =============================================================
+@use './variables.scss' as *;
+
+// ---------- 节点卡片（mock .fnode）----------
+.cfd-node {
+  position: relative;
+  width: 340px;
+  overflow: hidden;
+  background: $bg-card;
+  border: 1px solid $border-color;
+  border-radius: 10px;
+  box-shadow: $shadow-card;
+
+  &.is-selected {
+    border-color: $color-primary;
+    box-shadow: 0 0 0 3px $color-primary-light, $shadow-card;
+  }
+
+  &.is-disabled {
+    opacity: 0.55;
+  }
+
+  // 自动处理节点：紫 + 虚线（mock .n-auto）
+  &.is-auto {
+    border-style: dashed;
+    border-color: $color-flow-auto-border;
+  }
+}
+
+.cfd-node__head {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  padding: 10px 13px;
+  border-bottom: 1px solid $border-color-faint;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+.cfd-node__icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  font-size: 13px;
+  font-weight: 700;
+  color: $text-on-accent;
+  border-radius: 7px;
+
+  .cfd-node--start &,
+  .cfd-node--end-neutral & { background: $text-secondary; }
+  .cfd-node--appr & { background: $color-primary; }
+  .cfd-node--auto & { background: $color-flow-auto; }
+  .cfd-node--cc & { background: $color-flow-cc; }
+  .cfd-node--end & { background: $color-success; }
+}
+
+.cfd-node__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cfd-node__body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 13px;
+  font-size: 12.5px;
+  color: $text-regular;
+}
+
+.cfd-node__kv {
+  display: flex;
+  gap: 6px;
+
+  .cfd-node__kk {
+    flex: none;
+    width: 56px;
+    color: $text-secondary;
+  }
+}
+
+// 错误角标（设计 C2：与诊断同源计数）
+.cfd-node__errdot {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  color: $text-on-accent;
+  background: $color-danger;
+  border-radius: 8px;
+}
+
+// 悬停工具条（设计 C2/C7）
+.cfd-node__tools {
+  position: absolute;
+  top: -13px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  font-size: 11px;
+  background: $bg-card;
+  border: 1px solid $border-color;
+  border-radius: 6px;
+  box-shadow: $shadow-card;
+
+  span {
+    padding: 3px 8px;
+    color: $text-regular;
+    cursor: pointer;
+    border-right: 1px solid $border-color-faint;
+
+    &:last-child { border-right: 0; }
+    &:hover { color: $color-primary; }
+  }
+}
+
+// ---------- 连接件（mock .connector/.plus）----------
+.cfd-connector {
+  width: 2px;
+  height: 20px;
+  background: $border-color;
+
+  &.is-hot { background: $color-success; }
+}
+
+.cfd-plus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 5px 0;
+  font-size: 17px;
+  line-height: 1;
+  color: $color-primary;
+  cursor: pointer;
+  background: $bg-card;
+  border: 1.5px solid $color-primary;
+  border-radius: 50%;
+  box-shadow: 0 2px 6px var(--color-primary-border);
+  transition: transform 0.12s ease-out, background 0.12s ease-out, color 0.12s ease-out;
+
+  &:hover {
+    color: $text-on-accent;
+    background: $color-primary;
+    transform: scale(1.18);
+  }
+
+  // 菜单展开态：旋转 45° 变 ✕（D1 F2）
+  &.is-open {
+    color: $text-on-accent;
+    background: $color-primary;
+    transform: rotate(45deg);
+  }
+
+  &:focus-visible {
+    outline: 2px solid $color-primary;
+    outline-offset: 2px;
+  }
+}
+
+// ---------- 分支（mock .branchcols/.bcol/.bhead/.prio）----------
+.cfd-branch-bar {
+  height: 2px;
+  background: var(--color-primary-border);
+}
+
+.cfd-branch-cols {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  width: 100%;
+  padding: 0 8px;
+}
+
+.cfd-branch-col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  max-width: 250px;
+  min-width: 0;
+
+  .cfd-branch-stem {
+    width: 2px;
+    height: 20px;
+    background: var(--color-primary-border);
+  }
+}
+
+.cfd-branch-head {
+  width: 100%;
+  padding: 10px 12px;
+  background: $bg-card;
+  border: 1px solid var(--color-primary-border);
+  border-top: 3px solid $color-primary;
+  border-radius: 9px;
+  box-shadow: $shadow-card;
+
+  &.is-default {
+    border-color: $border-color;
+    border-top-color: $text-placeholder;
+  }
+
+  &.is-selected {
+    box-shadow: 0 0 0 3px $color-primary-light, $shadow-card;
+  }
+}
+
+.cfd-branch-head__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.cfd-branch-head__name {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cfd-branch-prio {
+  flex: none;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 16px;
+  color: $text-on-accent;
+  background: $color-primary;
+  border-radius: 4px;
+
+  &.is-default { background: $text-placeholder; }
+}
+
+.cfd-branch-cond {
+  padding: 6px 9px;
+  font-family: $font-family-mono;
+  font-size: 12px;
+  line-height: 1.6;
+  color: $text-regular;
+  background: $bg-page;
+  border-radius: 6px;
+
+  .is-default & { color: $text-secondary; }
+}
+
+// ---------- 插入菜单（mock .pmenu）----------
+.cfd-pmenu {
+  z-index: 20;
+  width: 180px;
+  padding: 6px;
+  background: $bg-card;
+  border: 1px solid $border-color;
+  border-radius: 10px;
+  box-shadow: $shadow-dropdown;
+}
+
+.cfd-pmenu__row {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  padding: 8px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 6px;
+
+  &:hover { background: $bg-page; }
+
+  .cfd-pmenu__icon {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+    font-weight: 700;
+    color: $text-on-accent;
+    border-radius: 6px;
+  }
+}
+
+// ---------- 抽屉结构（mock .dhd/.dtabs/.dbd；宽度由 AntD Drawer prop 控制）----------
+.cfd-drawer-head {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  padding: 13px 18px;
+  border-bottom: 1px solid $border-color-faint;
+}
+
+.cfd-drawer-body {
+  padding: 16px 18px;
+  overflow: auto;
+}
+
+// ---------- 配置列表（mock .fplist/.fprow）----------
+.cfd-list {
+  overflow: hidden;
+  border: 1px solid $border-color;
+  border-radius: 8px;
+}
+
+.cfd-list__row {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  background: $bg-card;
+  border-bottom: 1px solid $border-color-faint;
+
+  &:last-child { border-bottom: 0; }
+
+  &.is-head {
+    font-size: 12px;
+    color: $text-secondary;
+    background: $bg-page;
+  }
+
+  &.is-sensitive { background: var(--color-danger-light); }
+
+  .cfd-list__label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: $text-primary;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+// ---------- 选项卡列表（mock .optlist/.opt，radio 场景）----------
+.cfd-opts {
+  overflow: hidden;
+  border: 1px solid $border-color;
+  border-radius: 8px;
+}
+
+.cfd-opts__item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 13px;
+  font-size: 13px;
+  cursor: pointer;
+  background: $bg-card;
+  border-bottom: 1px solid $border-color-faint;
+
+  &:last-child { border-bottom: 0; }
+  &:hover { background: $bg-page; }
+  &.is-active { background: $color-primary-light; }
+
+  .cfd-opts__title {
+    font-weight: 500;
+    color: $text-primary;
+  }
+
+  .cfd-opts__desc {
+    margin-top: 1px;
+    font-size: 12px;
+    color: $text-secondary;
+  }
+}
+
+// ---------- 条件组（mock .cgroup/.orsep/.orbadge）----------
+.cfd-cgroup {
+  padding: 12px;
+  margin-bottom: 4px;
+  background: $bg-page;
+  border: 1px solid var(--color-primary-border);
+  border-radius: 9px;
+
+  &.is-plain {
+    background: $bg-page;
+    border-color: $border-color;
+  }
+}
+
+.cfd-cgroup__head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  color: $text-regular;
+}
+
+.cfd-orsep {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 10px 0;
+  font-size: 12px;
+  color: $text-secondary;
+
+  &::before,
+  &::after {
+    flex: 1;
+    height: 1px;
+    content: '';
+    background: $border-color;
+  }
+
+  .cfd-orsep__badge {
+    padding: 1px 12px;
+    font-weight: 600;
+    color: var(--color-warning-text);
+    background: var(--color-warning-light);
+    border: 1px solid var(--color-warning-border);
+    border-radius: 12px;
+  }
+}
+
+// ---------- 成员胶囊（mock .mem/.av）----------
+.cfd-member {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  padding: 3px 12px 3px 4px;
+  font-size: 12.5px;
+  background: $bg-card;
+  border: 1px solid $border-color;
+  border-radius: 18px;
+
+  .cfd-member__avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    font-size: 11px;
+    color: $text-on-accent;
+    background: $color-primary;
+    border-radius: 50%;
+  }
+
+  .cfd-member__rm {
+    color: $text-placeholder;
+    cursor: pointer;
+  }
+}
