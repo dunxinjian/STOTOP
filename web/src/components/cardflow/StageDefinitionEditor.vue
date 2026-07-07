@@ -26,7 +26,7 @@ import { DEFAULT_ACTIONS, getStageHealth as computeStageHealth } from './stageDe
 export type StageNodeType = 'manual' | 'auto'
 export type StageApprovalMode = 'single' | 'countersign' | 'orsign' | 'sequential'
 export type StageAccessMode = 'hidden' | 'masked' | 'readonly' | 'editable' | 'required'
-export type AssigneeFallbackType = 'failSubmit' | 'flowAdmin'
+export type AssigneeFallbackType = 'failSubmit' | 'flowAdmin' | 'fixedUsers'
 
 /** 处理粒度：card=卡片级，batch=批次级 */
 export type ProcessingGranularity = 'card' | 'batch'
@@ -47,6 +47,14 @@ export interface StageViewProfileDraft {
 
 export interface StageActionPolicyDraft {
   allowedActions: string[]
+  /** 需填写处理意见的动作（approve/reject/returnToStage/transfer） */
+  opinionRequiredActions?: string[]
+}
+
+/** 自动裁决：条件命中时自动通过/自动拒绝（无 UI，保存链透传信封 autoDecision） */
+export interface StageAutoDecisionDraft {
+  mode: 'none' | 'autoApprove' | 'autoReject'
+  conditionJson?: string
 }
 
 export interface StageDefinition {
@@ -68,6 +76,7 @@ export interface StageDefinition {
   inputFields?: string[]
   viewProfile?: StageViewProfileDraft
   actionPolicy?: StageActionPolicyDraft
+  autoDecision?: StageAutoDecisionDraft
   ccConfigJson?: string
   timeoutHours?: number
 

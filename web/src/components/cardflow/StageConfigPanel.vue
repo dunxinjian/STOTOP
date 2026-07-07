@@ -29,7 +29,7 @@ import type { StageDefinition, StageNodeType, StageAccessMode, AssigneeFallbackT
 import type { CardComponentDefinition, SchemaFieldDefinition, AutoPluginRegistryDto, AutoPluginRuleDto } from '@/types/cardflow'
 import { getRoleList, getUserList } from '@/api/system'
 import { getPluginRegistry, getPluginRules } from '@/api/cardflow'
-import { DEFAULT_ACTIONS, parseAssigneeConfig, getStageHealth as computeStageHealth } from './stageDefinitionShared'
+import { DEFAULT_ACTIONS, parseAssigneeConfig, normalizeAssigneeStrategy, getStageHealth as computeStageHealth } from './stageDefinitionShared'
 
 const props = defineProps<{
   stages: StageDefinition[]
@@ -52,12 +52,14 @@ const ASSIGNEE_STRATEGIES = [
   { value: 'role',      label: '按角色',   hint: '指定角色的成员处理' },
   { value: 'fixed',     label: '指定人员', hint: '固定指定的用户处理' },
   { value: 'fieldUsers', label: '按字段取人', hint: '从卡片人员字段中读取处理人' },
+  { value: 'orgChain',  label: '组织链主管', hint: '沿组织树逐级取负责人（连续多级主管）' },
   { value: 'initiator', label: '发起人',   hint: '由流程发起人处理' },
 ]
 
 const FALLBACK_OPTIONS = [
   { value: 'failSubmit', label: '提交失败', hint: '未解析到处理人时阻止提交，要求配置人员或修正字段数据' },
   { value: 'flowAdmin',  label: '审批管理员', hint: '未解析到处理人时转给流程配置中的审批管理员处理' },
+  { value: 'fixedUsers', label: '转交指定人', hint: '未解析到处理人时转交给下方指定的人员' },
 ] as const
 
 const ACTION_OPTIONS = [
@@ -110,6 +112,8 @@ const editRoleCode = ref<string>('')
 const editUserIds = ref<number[]>([])
 const editFieldUserKey = ref<string>('')
 const editFallbackType = ref<AssigneeFallbackType>('failSubmit')
+const editFallbackUserIds = ref<number[]>([])
+const editOrgChainMaxLevels = ref<number>(20)
 // 防止回显期间被 strategy watch 误清
 let suppressStrategyReset = false
 
@@ -367,15 +371,25 @@ function setDetailRequired(fieldKey: string, checked: boolean) {
 }
 
 function isFallbackConfigStrategy(strategy?: string) {
-  return strategy === 'role' || strategy === 'fixed' || strategy === 'fieldUsers'
+  return strategy === 'role' || strategy === 'fixed' || strategy === 'fieldUsers' || strategy === 'orgChain'
 }
 
 function fallbackFromConfig(config: any): AssigneeFallbackType {
-  return config?.fallback?.type === 'flowAdmin' ? 'flowAdmin' : 'failSubmit'
+  const type = config?.fallback?.type
+  if (type === 'flowAdmin') return 'flowAdmin'
+  if (type === 'fixedUsers') return 'fixedUsers'
+  return 'failSubmit'
 }
 
 function buildAssigneeConfig(stage: StageDefinition) {
-  const fallback = { type: editFallbackType.value }
+  // 兜底转指定人：users 即兜底人清单（引擎 ApplyFallbackAsync 读 fallback.users）
+  const fallback: Record<string, unknown> = { type: editFallbackType.value }
+  if (editFallbackType.value === 'fixedUsers') {
+    fallback.users = editFallbackUserIds.value.map(id => {
+      const opt = userOptions.value.find(o => o.value === id)
+      return { userId: id, userName: opt?.userName || '' }
+    })
+  }
   if (stage.assigneeStrategy === 'role') {
     return { roleCode: editRoleCode.value || '', users: [], fallback }
   }
@@ -396,6 +410,10 @@ function buildAssigneeConfig(stage: StageDefinition) {
   }
   if (stage.assigneeStrategy === 'fieldUsers') {
     return { fieldKey: editFieldUserKey.value || '', fallback }
+  }
+  if (stage.assigneeStrategy === 'orgChain') {
+    const config: Record<string, unknown> = { maxLevels: editOrgChainMaxLevels.value || 20, fallback }
+    return config
   }
   return null
 }
@@ -419,7 +437,14 @@ function rehydrateSelection(src: StageDefinition | null | undefined) {
   editUserIds.value = []
   editFieldUserKey.value = ''
   editFallbackType.value = 'failSubmit'
+  editFallbackUserIds.value = []
+  editOrgChainMaxLevels.value = 20
   ensureStageConfigDefaults(src)
+  // 存量策略变体（fixedusers/specified 等）归一到 UI 规范值，避免下拉显示裸值
+  if (src.type === 'manual' && src.assigneeStrategy) {
+    const normalized = normalizeAssigneeStrategy(src.assigneeStrategy)
+    if (normalized !== src.assigneeStrategy) src.assigneeStrategy = normalized
+  }
   if (src.assigneeConfigJson) {
     try {
       const config = JSON.parse(src.assigneeConfigJson)
@@ -427,8 +452,11 @@ function rehydrateSelection(src: StageDefinition | null | undefined) {
       editUserIds.value = (config?.users || []).map((u: any) => u.userId)
       editFieldUserKey.value = config?.fieldKey || ''
       editFallbackType.value = fallbackFromConfig(config)
-      if (config?.users?.length) {
-        userOptions.value = config.users.map((u: any) => ({
+      editFallbackUserIds.value = (config?.fallback?.users || []).map((u: any) => u.userId)
+      editOrgChainMaxLevels.value = config?.maxLevels || 20
+      const knownUsers = [...(config?.users || []), ...(config?.fallback?.users || [])]
+      if (knownUsers.length) {
+        userOptions.value = knownUsers.map((u: any) => ({
           label: formatUserOptionLabel(u),
           value: u.userId,
           userName: u.userName || String(u.userId),
@@ -504,6 +532,17 @@ watch(editFieldUserKey, () => {
 
 watch(editFallbackType, () => {
   syncAssigneeConfig()
+})
+
+watch(editFallbackUserIds, () => {
+  if (suppressStrategyReset) return
+  if (editFallbackType.value === 'fixedUsers') syncAssigneeConfig()
+}, { deep: true })
+
+watch(editOrgChainMaxLevels, () => {
+  if (props.selectedIndex < 0 || suppressStrategyReset) return
+  const stage = props.stages[props.selectedIndex]
+  if (stage?.assigneeStrategy === 'orgChain') syncAssigneeConfig()
 })
 
 // 条件变化时写回
@@ -675,8 +714,14 @@ function getStageHealth(stage: StageDefinition) {
               />
             </div>
 
+            <div v-if="selectedStage.assigneeStrategy === 'orgChain'" class="sde-fld">
+              <label class="sde-fld__label">最多逐级层数</label>
+              <a-input-number v-model:value="editOrgChainMaxLevels" :min="1" :max="20" style="width: 120px" />
+              <p class="sde-fld__hint">从发起组织沿组织树向上逐级取负责人，直到根或达到层数上限</p>
+            </div>
+
             <div v-if="isFallbackConfigStrategy(selectedStage.assigneeStrategy)" class="sde-fld">
-              <label class="sde-fld__label">处理人兜底</label>
+              <label class="sde-fld__label">处理人兜底 <span class="sde-fld__req">*</span></label>
               <a-radio-group v-model:value="editFallbackType" button-style="solid" size="small">
                 <a-radio-button v-for="option in FALLBACK_OPTIONS" :key="option.value" :value="option.value">
                   {{ option.label }}
@@ -685,6 +730,19 @@ function getStageHealth(stage: StageDefinition) {
               <p class="sde-fld__hint">
                 {{ FALLBACK_OPTIONS.find(option => option.value === editFallbackType)?.hint }}
               </p>
+              <a-select
+                v-if="editFallbackType === 'fixedUsers'"
+                v-model:value="editFallbackUserIds"
+                mode="multiple"
+                style="width: 100%; margin-top: 6px"
+                placeholder="搜索并选择兜底处理人"
+                :options="userOptions"
+                :loading="userSearchLoading"
+                show-search
+                @search="onUserSearch"
+                option-filter-prop="label"
+                :filter-option="filterOption"
+              />
             </div>
           </div>
         </a-tab-pane>

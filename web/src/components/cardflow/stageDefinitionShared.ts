@@ -10,6 +10,26 @@ import type { SchemaFieldDefinition } from '@/types/cardflow'
 /** 人工节点默认允许动作（newStage 与 ensureStageConfigDefaults 共用）。 */
 export const DEFAULT_ACTIONS = ['approve', 'reject', 'returnToStage', 'transfer', 'addSignAfter', 'cc']
 
+/**
+ * 处理人策略归一化（对齐引擎 ApproverResolver.NormalizeStrategy 的宽容语义）：
+ * 存量数据存在 fixedusers/specified/FixedUsers 等变体，UI 选项集只认规范值。
+ */
+export function normalizeAssigneeStrategy(strategy?: string | null): string {
+  switch ((strategy || '').trim().toLowerCase()) {
+    case 'fixed':
+    case 'fixedusers':
+    case 'specified':
+      return 'fixed'
+    case 'role': return 'role'
+    case 'fieldusers': return 'fieldUsers'
+    case 'orgchain': return 'orgChain'
+    case 'amountmatrix': return 'amountMatrix'
+    case 'feetypebp': return 'feeTypeBp'
+    case '': return ''
+    default: return strategy || ''
+  }
+}
+
 /** 解析节点处理人配置 JSON（容错，失败返回 null）。 */
 export function parseAssigneeConfig(stage: StageDefinition) {
   if (!stage.assigneeConfigJson) return null
@@ -38,6 +58,10 @@ export function getStageHealth(stage: StageDefinition, detailSchemaFields?: Sche
       issues.push('固定处理人未选择')
     } else if (stage.assigneeStrategy === 'fieldUsers' && !config?.fieldKey) {
       issues.push('人员字段未选择')
+    }
+    // 空缺兜底=转指定人但未选人（A5 兜底必填语义；failSubmit/flowAdmin 无需附加配置）
+    if (config?.fallback?.type === 'fixedUsers' && !(config.fallback.users || []).length) {
+      issues.push('兜底转交人未选择')
     }
     if (!stage.actionPolicy?.allowedActions?.length) issues.push('允许动作未配置')
     if (!Object.keys(stage.viewProfile?.fieldAccess || {}).length) warnings.push('未单独配置卡片字段权限')
