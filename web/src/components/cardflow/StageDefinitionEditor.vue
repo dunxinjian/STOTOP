@@ -47,8 +47,6 @@ export interface StageViewProfileDraft {
 
 export interface StageActionPolicyDraft {
   allowedActions: string[]
-  /** 需填写处理意见的动作（approve/reject/returnToStage/transfer） */
-  opinionRequiredActions?: string[]
 }
 
 /** 自动裁决：条件命中时自动通过/自动拒绝（无 UI，保存链透传信封 autoDecision） */

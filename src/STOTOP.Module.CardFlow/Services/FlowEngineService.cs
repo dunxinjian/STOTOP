@@ -2570,8 +2570,73 @@ public class FlowEngineService : IFlowEngineService
         return null;
     }
 
+    /// <summary>
+    /// 人工节点激活统一入口的自动裁决：信封 autoDecision 条件命中则跳过分派处理人，
+    /// 直接自动通过（节点完成并继续推进）或自动拒绝（对齐 reject 链卡片/节点终态）。
+    /// 所有人工节点激活路径（提交/重提/批次链/顺序推进/规则路由/退回目标）都经 AssignStageHandlersAsync，
+    /// 故在其开头拦截可同时覆盖规则模式与 legacy 模式；动态加签/替换处理人节点不走此入口，属有意豁免。
+    /// </summary>
+    private async Task<bool> TryApplyAutoDecisionAsync(CfStageInstance stageInstance, CfStageDefinition stageDef, CfCard card)
+    {
+        var envelope = _stageConfigParser.Parse(stageDef.FInputFieldsJson);
+        var autoDecision = envelope.AutoDecision;
+        if (autoDecision == null) return false;
+
+        var isAutoApprove = string.Equals(autoDecision.Mode, "autoApprove", StringComparison.OrdinalIgnoreCase);
+        var isAutoReject = string.Equals(autoDecision.Mode, "autoReject", StringComparison.OrdinalIgnoreCase);
+        if (!isAutoApprove && !isAutoReject) return false;
+
+        // 空条件不触发：ConditionRuleEvaluator 对空 JSON 默认匹配，若放行会让漏配条件的节点无条件自动裁决
+        if (string.IsNullOrWhiteSpace(autoDecision.ConditionJson)) return false;
+
+        var conditionContext = new STOTOP.Module.CardFlow.Models.Rules.ConditionEvaluationContext
+        {
+            CardData = new Dictionary<string, object?>(ParseCardData(card.FDataJson), StringComparer.OrdinalIgnoreCase)
+        };
+        if (!_conditionRuleEvaluator.Evaluate(autoDecision.ConditionJson, conditionContext).Matched)
+            return false;
+
+        var now = DateTime.Now;
+        if (isAutoApprove)
+        {
+            stageInstance.FStatus = "completed";
+            stageInstance.FFinalAction = "approved";
+            stageInstance.FOpinion = "满足条件自动通过";
+            stageInstance.FCompletedTime = now;
+            _dbContext.Entry(stageInstance).State = EntityState.Modified;
+
+            await LogActionAsync(card.FID, stageInstance.FID, "autoApprove", 0, "system", "满足条件自动通过");
+            await _dbContext.SaveChangesAsync();
+
+            await AdvanceToNextStageAsync(card, stageInstance);
+            return true;
+        }
+
+        // autoReject：对齐 RejectAsync 的节点/卡片终态（节点 returned+rejected，卡片 returned）
+        stageInstance.FStatus = "returned";
+        stageInstance.FFinalAction = "rejected";
+        stageInstance.FOpinion = "满足条件自动拒绝";
+        stageInstance.FCompletedTime = now;
+        _dbContext.Entry(stageInstance).State = EntityState.Modified;
+
+        card.FStatus = "returned";
+        card.FCurrentStageInstanceId = null;
+        card.FUpdatedTime = now;
+        _dbContext.Entry(card).State = EntityState.Modified;
+
+        await ReleaseBudgetAsync(card, "reject");
+        await LogActionAsync(card.FID, stageInstance.FID, "autoReject", 0, "system", "满足条件自动拒绝");
+        await _dbContext.SaveChangesAsync();
+
+        TriggerBatchRefreshIfNeeded(card);
+        return true;
+    }
+
     private async Task AssignStageHandlersAsync(CfStageInstance stageInstance, CfStageDefinition stageDef, CfCard card)
     {
+        if (await TryApplyAutoDecisionAsync(stageInstance, stageDef, card))
+            return;
+
         var flowSettingsJson = await _dbContext.Set<CfFlowVersion>()
             .Where(version => version.FID == card.FFlowVersionId)
             .Select(version => version.FFlowSettingsJson)

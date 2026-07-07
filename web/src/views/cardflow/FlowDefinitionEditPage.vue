@@ -1259,6 +1259,7 @@ function mapStageFromDto(s: any): StageDefinition {
     inputFields: stageInputConfig.inputFields,
     viewProfile: stageInputConfig.viewProfile,
     actionPolicy: stageInputConfig.actionPolicy,
+    autoDecision: stageInputConfig.autoDecision,
     ccConfigJson: s.ccConfigJson || undefined,
     timeoutHours: s.timeoutHours || undefined,
     pluginRegistryId: s.pluginRegistryId ?? undefined,
@@ -1289,6 +1290,7 @@ function parseStageInputConfig(inputFieldsJson?: string | null): any {
         viewProfile: parsed.viewProfile || undefined,
         actionPolicy: parsed.actionPolicy || undefined,
         approvalMode: parsed.approvalMode || undefined,
+        autoDecision: parsed.autoDecision || undefined,
       }
     }
   } catch {}
@@ -1302,6 +1304,7 @@ function hasAdvancedStageConfig(stage: StageDefinition) {
     || stage.viewProfile?.componentAccess && Object.keys(stage.viewProfile.componentAccess).length > 0
     || stage.viewProfile?.summary?.fields?.length
     || stage.actionPolicy?.allowedActions?.length
+    || (stage.autoDecision && stage.autoDecision.mode !== 'none')
   )
 }
 
@@ -1318,6 +1321,7 @@ function buildStageInputFieldsJson(stage: StageDefinition): string | null {
     viewProfile: stage.viewProfile || { fieldAccess: {}, detailAccess: {}, summary: { fields: [] } },
     actionPolicy: stage.actionPolicy || { allowedActions: [] },
     approvalMode: { mode: stage.approvalMode || 'single' },
+    ...(stage.autoDecision && stage.autoDecision.mode !== 'none' ? { autoDecision: stage.autoDecision } : {}),
   })
 }
 
