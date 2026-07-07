@@ -79,6 +79,31 @@ const FAILURE_POLICIES = [
   { value: 'retry', label: '重试', hint: '自动重试 3 次，超限后中止' },
 ]
 
+// 审批类型三态（mock A4；引擎 TryApplyAutoDecisionAsync 消费信封 autoDecision）
+const AUTO_DECISION_MODES = [
+  { value: 'none' as const, label: '人工审批', desc: '由处理人手动审批' },
+  { value: 'autoApprove' as const, label: '满足条件时自动通过', desc: '如：报销金额 ≤ 100 时本节点自动通过' },
+  { value: 'autoReject' as const, label: '满足条件时自动拒绝', desc: '如：事假时长 > 15 天时自动拒绝并退回' },
+]
+
+// 意见必填可配动作（引擎 EnsureOpinionProvidedAsync 校验的四动作）
+const OPINION_REQUIRED_OPTIONS = [
+  { value: 'approve', label: '同意' },
+  { value: 'reject', label: '退回发起人' },
+  { value: 'returnToStage', label: '退回节点' },
+  { value: 'transfer', label: '转办' },
+]
+
+/** 意见必填动作双向代理（actionPolicy 可能无此键，就地建） */
+const opinionRequiredActions = computed<string[]>({
+  get: () => selectedStage.value?.actionPolicy?.opinionRequiredActions ?? [],
+  set: (val) => {
+    const stage = selectedManualStage()
+    if (!stage?.actionPolicy) return
+    stage.actionPolicy.opinionRequiredActions = val
+  },
+})
+
 /** viewProfile access（含 required 复合态）→ 权限胶囊四态（required 显示为可编辑，另有必填勾） */
 function triValueOf(access: StageAccessMode): PermissionValue {
   return access === 'required' ? 'editable' : access
@@ -91,10 +116,33 @@ function batchSetFieldAccess(access: PermissionValue) {
   }
 }
 
+function setAutoDecisionMode(mode: 'none' | 'autoApprove' | 'autoReject') {
+  autoDecisionMode.value = mode
+  syncAutoDecision()
+}
+
+function syncAutoDecision() {
+  const stage = selectedManualStage()
+  if (!stage) return
+  if (autoDecisionMode.value === 'none') {
+    stage.autoDecision = undefined
+    return
+  }
+  const hasCond = draftAutoDecisionCondition.value.conditions.length > 0
+  stage.autoDecision = {
+    mode: autoDecisionMode.value,
+    // 空条件不落 conditionJson（引擎侧空条件不触发裁决，防漏配变无条件裁决）
+    conditionJson: hasCond ? JSON.stringify(draftAutoDecisionCondition.value) : undefined,
+  }
+}
+
 // ==================== 选中节点 ====================
 
 const selectedStage = computed(() => props.selectedIndex >= 0 ? props.stages[props.selectedIndex] ?? null : null)
 const draftCondition = ref<ConditionGroup>({ logic: 'and', conditions: [] })
+// 自动裁决（审批类型）编辑态
+const autoDecisionMode = ref<'none' | 'autoApprove' | 'autoReject'>('none')
+const draftAutoDecisionCondition = ref<ConditionGroup>({ logic: 'and', conditions: [] })
 const activeConfigTab = ref<'basic' | 'assignee' | 'fieldPerm' | 'actions' | 'advanced'>('basic')
 
 // ===== 处理人策略配置状态 =====
@@ -473,6 +521,15 @@ function rehydrateSelection(src: StageDefinition | null | undefined) {
   } catch {
     draftCondition.value = { logic: 'and', conditions: [] }
   }
+  // 回显自动裁决（审批类型）
+  autoDecisionMode.value = src.autoDecision?.mode ?? 'none'
+  try {
+    draftAutoDecisionCondition.value = src.autoDecision?.conditionJson
+      ? JSON.parse(src.autoDecision.conditionJson)
+      : { logic: 'and', conditions: [] }
+  } catch {
+    draftAutoDecisionCondition.value = { logic: 'and', conditions: [] }
+  }
   // 预加载当前插件的规则列表
   if (src.type === 'auto' && src.pluginRegistryId) {
     const code = pluginRegistryAll.value.find(p => p.id === src.pluginRegistryId)?.pluginCode
@@ -552,6 +609,12 @@ watch(draftCondition, (val) => {
   if (!stage) return
   const hasCond = val && val.conditions && val.conditions.length > 0
   stage.conditionJson = hasCond ? JSON.stringify(val) : undefined
+}, { deep: true })
+
+// 自动裁决条件变化时写回（回显期间抑制）
+watch(draftAutoDecisionCondition, () => {
+  if (props.selectedIndex < 0 || suppressStrategyReset) return
+  if (autoDecisionMode.value !== 'none') syncAutoDecision()
 }, { deep: true })
 
 // 处理粒度变更时，若已选插件与新粒度不匹配则清空
@@ -646,6 +709,35 @@ function getStageHealth(stage: StageDefinition) {
               <p class="sde-fld__hint">
                 {{ APPROVAL_MODES.find(m => m.value === selectedStage!.approvalMode)?.hint }}
               </p>
+            </div>
+
+            <div v-if="selectedStage.type === 'manual'" class="sde-fld">
+              <label class="sde-fld__label">审批类型</label>
+              <div class="cfd-opts">
+                <div
+                  v-for="opt in AUTO_DECISION_MODES"
+                  :key="opt.value"
+                  class="cfd-opts__item"
+                  :class="{ 'is-active': autoDecisionMode === opt.value }"
+                  role="radio"
+                  :aria-checked="autoDecisionMode === opt.value"
+                  tabindex="0"
+                  @click="setAutoDecisionMode(opt.value)"
+                  @keydown.enter.prevent="setAutoDecisionMode(opt.value)"
+                >
+                  <div>
+                    <div class="cfd-opts__title">{{ opt.label }}</div>
+                    <div class="cfd-opts__desc">{{ opt.desc }}</div>
+                  </div>
+                </div>
+              </div>
+              <div v-if="autoDecisionMode !== 'none'" class="sde-autodecision">
+                <div class="sde-fld__label-row">
+                  <label class="sde-fld__label">{{ autoDecisionMode === 'autoApprove' ? '自动通过条件' : '自动拒绝条件' }} <span class="sde-fld__req">*</span></label>
+                  <span class="sde-fld__hint">不满足条件时仍走人工审批</span>
+                </div>
+                <ConditionBuilder v-model="draftAutoDecisionCondition" :fields="conditionFields" />
+              </div>
             </div>
 
             <div v-if="selectedStage.type === 'auto'" class="sde-fld">
@@ -847,6 +939,18 @@ function getStageHealth(stage: StageDefinition) {
                 <p v-if="selectedStage.actionPolicy!.allowedActions?.includes('returnToStage')" class="sde-fld__hint">
                   「退回节点」的目标由审批人在运行时现场选择（本轮已完成的人工节点），无需在设计器指定。
                 </p>
+              </div>
+
+              <div class="sde-fld">
+                <label class="sde-fld__label">意见必填的动作</label>
+                <a-select
+                  v-model:value="opinionRequiredActions"
+                  mode="multiple"
+                  style="width: 100%"
+                  placeholder="执行以下动作时必须填写处理意见"
+                  :options="OPINION_REQUIRED_OPTIONS.filter(o => selectedStage!.actionPolicy!.allowedActions?.includes(o.value))"
+                />
+                <p class="sde-fld__hint">拒绝/退回类动作建议必填意见，便于审计追溯</p>
               </div>
             </template>
 
