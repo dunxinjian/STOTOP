@@ -3,6 +3,10 @@ import {
   buildFlowTree,
   insertStageAfter,
   insertBranchGroup,
+  deleteBranch,
+  copyBranch,
+  reorderBranch,
+  collectBranchStages,
   type FlowTreeNode,
 } from '@/utils/flowGraphProjection'
 import type { StageDefinition } from '@/components/cardflow/StageDefinitionEditor.vue'
@@ -233,5 +237,80 @@ describe('insertBranchGroup 反向写回', () => {
     expect(aOut).toHaveLength(3)
     expect(aOut.filter((x) => x.isDefault)).toHaveLength(1)
     expect(aOut.every((x) => x.toStageKey === '')).toBe(true)
+  })
+})
+
+describe('分支操作三纯函数 (M1-4)', () => {
+  /** 夹具：a → group(条件 c1→b→x / 兜底 d1→x) → x */
+  function fixture() {
+    const stages = [s('a', 1), s('b', 2), s('x', 3)]
+    const routes = [
+      r('c1', 'a', 'b', { conditionJson: '{}', priority: 1, routeName: '大额' }),
+      r('d1', 'a', 'x', { isDefault: true, priority: 2, routeName: '其他情况' }),
+      r('e1', 'b', 'x', { isDefault: true }),
+    ]
+    return { stages, routes }
+  }
+
+  it('collectBranchStages：列出支内独占节点（汇合点不算）', () => {
+    const { stages, routes } = fixture()
+    expect(collectBranchStages(stages, routes, 'c1')).toEqual(['b'])
+    expect(collectBranchStages(stages, routes, 'd1')).toEqual([])
+  })
+
+  it('deleteBranch：删条件支连带支内独占节点及其边；剩单出边解散分支组', () => {
+    const { stages, routes } = fixture()
+    const out = deleteBranch(stages, routes, 'c1')
+    expect(out.stages.map((x) => x.id)).toEqual(['a', 'x'])
+    expect(out.routes.find((x) => x.edgeKey === 'c1')).toBeUndefined()
+    expect(out.routes.find((x) => x.edgeKey === 'e1')).toBeUndefined()
+    // 只剩兜底 d1：a→x 线性
+    const { tree } = buildFlowTree(out.stages, out.routes)
+    expect(collectStageIds(tree)).toEqual(['a', 'x'])
+    expect(tree.every((n) => n.kind === 'stage')).toBe(true)
+  })
+
+  it('deleteBranch：兜底列拒绝删除（返回原值不变）', () => {
+    const { stages, routes } = fixture()
+    const out = deleteBranch(stages, routes, 'd1')
+    expect(out.stages).toEqual(stages)
+    expect(out.routes).toEqual(routes)
+  })
+
+  it('copyBranch：深拷贝条件与支内节点（新 id/edgeKey），插为下一优先级', () => {
+    const { stages, routes } = fixture()
+    const out = copyBranch(stages, routes, 'c1')
+    const aOut = out.routes.filter((x) => x.fromStageKey === 'a')
+    expect(aOut).toHaveLength(3)
+    const copies = aOut.filter((x) => x.routeName?.includes('大额'))
+    expect(copies).toHaveLength(2)
+    const copy = copies.find((x) => x.edgeKey !== 'c1')!
+    expect(copy.isDefault).toBe(false)
+    // 支内节点被复制：stages 多一个（b 的副本），且副本链到汇合点 x
+    expect(out.stages).toHaveLength(4)
+    const copyStages = collectBranchStages(out.stages, out.routes, copy.edgeKey)
+    expect(copyStages).toHaveLength(1)
+    expect(copyStages[0]).not.toBe('b')
+    // 兜底仍恒最右（priority 最大）
+    const def = aOut.find((x) => x.isDefault)!
+    expect(Math.max(...aOut.map((x) => x.priority))).toBe(def.priority)
+  })
+
+  it('reorderBranch：条件列左移/右移交换 priority；不可越过兜底', () => {
+    const stages = [s('a', 1), s('b', 2), s('c', 3), s('x', 4)]
+    const routes = [
+      r('c1', 'a', 'b', { conditionJson: '{}', priority: 1 }),
+      r('c2', 'a', 'c', { conditionJson: '{}', priority: 2 }),
+      r('d1', 'a', 'x', { isDefault: true, priority: 3 }),
+      r('e1', 'b', 'x', { isDefault: true }),
+      r('e2', 'c', 'x', { isDefault: true }),
+    ]
+    const out = reorderBranch(stages, routes, 'c1', 'right')
+    const p = (k: string) => out.routes.find((x) => x.edgeKey === k)!.priority
+    expect(p('c1')).toBe(2)
+    expect(p('c2')).toBe(1)
+    // c1 再右移撞兜底 → 不变
+    const out2 = reorderBranch(out.stages, out.routes, 'c1', 'right')
+    expect(out2.routes.find((x) => x.edgeKey === 'c1')!.priority).toBe(2)
   })
 })

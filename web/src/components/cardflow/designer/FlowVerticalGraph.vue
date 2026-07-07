@@ -10,6 +10,10 @@ import {
   buildFlowTree,
   insertStageAfter,
   insertBranchGroup,
+  deleteBranch,
+  copyBranch,
+  reorderBranch,
+  collectBranchStages,
   type FlowTreeNode,
   type FlowTreeBranch,
   type InsertAnchor,
@@ -19,6 +23,7 @@ import type { StageRouteRuleRequest } from '@/types/cardflow'
 import type { HealthItem } from '@/utils/cardflowDiagnostics'
 import FlowGraphNode from './FlowGraphNode.vue'
 import ConditionSummary from './ConditionSummary.vue'
+import BranchDeleteConfirm from './BranchDeleteConfirm.vue'
 import type { FieldOption } from '@/components/cardflow/ConditionBuilder.vue'
 
 const props = defineProps<{
@@ -127,6 +132,42 @@ function conditionGroupOf(edgeKey: string) {
     return { logic: 'and' as const, conditions: [] }
   }
 }
+
+// ==================== 分支操作（M1-4）====================
+
+const deleteTarget = ref<{ edgeKey: string; name: string; stageNames: string[] } | null>(null)
+
+function askDeleteBranch(edgeKey: string) {
+  const route = routeByEdge.value.get(edgeKey)
+  if (!route || route.isDefault) return
+  const stageIds = collectBranchStages(props.stages, props.routes, edgeKey)
+  deleteTarget.value = {
+    edgeKey,
+    name: route.routeName || '条件分支',
+    stageNames: stageIds.map((id) => stageById.value.get(id)?.name || id),
+  }
+}
+
+function confirmDeleteBranch() {
+  if (!deleteTarget.value) return
+  emit('update-structure', deleteBranch(props.stages, props.routes, deleteTarget.value.edgeKey))
+  deleteTarget.value = null
+}
+
+function handleCopyBranch(edgeKey: string) {
+  emit('update-structure', copyBranch(props.stages, props.routes, edgeKey))
+}
+
+function handleReorderBranch(edgeKey: string, dir: 'left' | 'right') {
+  emit('update-structure', reorderBranch(props.stages, props.routes, edgeKey, dir))
+}
+
+/** 条件列在同组内的位置（首/末列禁用对应方向按钮） */
+function branchPosition(group: FlowTreeNode, edgeKey: string): { first: boolean; last: boolean } {
+  const conds = (group.branches ?? []).filter((b) => !b.isDefault)
+  const idx = conds.findIndex((b) => b.routeEdgeKey === edgeKey)
+  return { first: idx <= 0, last: idx === conds.length - 1 }
+}
 </script>
 
 <template>
@@ -203,8 +244,28 @@ function conditionGroupOf(edgeKey: string) {
             >
               <div class="cfd-branch-head__row">
                 <span class="cfd-branch-head__name">{{ routeByEdge.get(branch.routeEdgeKey)?.routeName || (branch.isDefault ? '其他情况' : '条件分支') }}</span>
-                <span class="cfd-branch-prio" :class="{ 'is-default': branch.isDefault }">
-                  {{ branch.isDefault ? '兜底' : `优先级 ${branch.priority}` }}
+                <span class="cfd-branch-head__ops">
+                  <template v-if="!branch.isDefault">
+                    <button
+                      class="cfd-branch-op"
+                      :disabled="branchPosition(node, branch.routeEdgeKey).first"
+                      title="左移（提升优先级）"
+                      aria-label="左移分支"
+                      @click.stop="handleReorderBranch(branch.routeEdgeKey, 'left')"
+                    >◂</button>
+                    <button
+                      class="cfd-branch-op"
+                      :disabled="branchPosition(node, branch.routeEdgeKey).last"
+                      title="右移（降低优先级）"
+                      aria-label="右移分支"
+                      @click.stop="handleReorderBranch(branch.routeEdgeKey, 'right')"
+                    >▸</button>
+                    <button class="cfd-branch-op" title="复制分支" aria-label="复制分支" @click.stop="handleCopyBranch(branch.routeEdgeKey)">⧉</button>
+                    <button class="cfd-branch-op is-danger" title="删除分支" aria-label="删除分支" @click.stop="askDeleteBranch(branch.routeEdgeKey)">✕</button>
+                  </template>
+                  <span class="cfd-branch-prio" :class="{ 'is-default': branch.isDefault }">
+                    {{ branch.isDefault ? '兜底' : `优先级 ${branch.priority}` }}
+                  </span>
                 </span>
               </div>
               <div class="cfd-branch-cond">
@@ -296,6 +357,14 @@ function conditionGroupOf(edgeKey: string) {
         <a-tag color="green" :bordered="false">终点</a-tag>
       </div>
     </div>
+
+    <BranchDeleteConfirm
+      :open="!!deleteTarget"
+      :branch-name="deleteTarget?.name ?? ''"
+      :stage-names="deleteTarget?.stageNames ?? []"
+      @update:open="(v: boolean) => { if (!v) deleteTarget = null }"
+      @confirm="confirmDeleteBranch"
+    />
   </div>
 </template>
 
@@ -370,5 +439,41 @@ function conditionGroupOf(edgeKey: string) {
   &.is-appr { background: var(--color-primary); }
   &.is-branch { background: var(--color-warning); }
   &.is-auto { background: var(--color-flow-auto); }
+}
+
+.cfd-branch-head__ops {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+}
+
+.cfd-branch-op {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 11px;
+  color: $text-secondary;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+
+  &:hover:not(:disabled) {
+    color: var(--color-primary);
+    background: $bg-page;
+  }
+
+  &.is-danger:hover:not(:disabled) {
+    color: var(--color-danger);
+  }
+
+  &:disabled {
+    color: $text-placeholder;
+    cursor: not-allowed;
+  }
 }
 </style>

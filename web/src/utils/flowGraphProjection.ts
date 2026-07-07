@@ -286,3 +286,134 @@ export function insertBranchGroup(
   )
   return { stages, routes: nextRoutes }
 }
+
+// ==================== 分支操作（M1-4）====================
+
+/** 支内独占节点：从分支边目标沿链走到汇合点（不含），其余支不经过的节点 */
+export function collectBranchStages(
+  stages: StageDefinition[],
+  routes: StageRouteRuleRequest[],
+  branchEdgeKey: string,
+): string[] {
+  const edge = routes.find((r) => r.edgeKey === branchEdgeKey)
+  if (!edge?.toStageKey) return []
+  const ctx: ProjectionContext = {
+    outgoing: buildOutgoingMap(routes),
+    rendered: new Set(),
+    complex: new Set(),
+    stageById: new Map(stages.map((s) => [s.id, s])),
+  }
+  const siblings = (ctx.outgoing.get(edge.fromStageKey) ?? []).filter((r) => r.edgeKey !== branchEdgeKey)
+  const merge = findMergePoint(ctx.outgoing.get(edge.fromStageKey) ?? [], ctx)
+  // 其余支可达集（含汇合点之后共享段）
+  const shared = new Set<string>()
+  for (const sib of siblings) {
+    if (sib.toStageKey) for (const key of reachableChain(sib.toStageKey, ctx)) shared.add(key)
+  }
+  const chain = reachableChain(edge.toStageKey, ctx)
+  const out: string[] = []
+  for (const key of chain) {
+    if (key === merge || shared.has(key)) break
+    out.push(key)
+  }
+  return out
+}
+
+/**
+ * 删除条件分支：连带支内独占节点及其出边一并删除；兜底列拒绝删除（原样返回）。
+ * 删除后源节点若只剩一条出边，投影自然解散分支组（无需显式操作）。
+ */
+export function deleteBranch(
+  stages: StageDefinition[],
+  routes: StageRouteRuleRequest[],
+  branchEdgeKey: string,
+): { stages: StageDefinition[]; routes: StageRouteRuleRequest[] } {
+  const edge = routes.find((r) => r.edgeKey === branchEdgeKey)
+  if (!edge || edge.isDefault) return { stages, routes }
+  const doomed = new Set(collectBranchStages(stages, routes, branchEdgeKey))
+  return {
+    stages: stages.filter((s) => !doomed.has(s.id)).map((s, i) => ({ ...s, sortOrder: i + 1 })),
+    routes: routes.filter(
+      (r) => r.edgeKey !== branchEdgeKey && !doomed.has(r.fromStageKey) && !doomed.has(r.toStageKey ?? ''),
+    ),
+  }
+}
+
+/**
+ * 复制条件分支：深拷贝条件与支内独占节点（新 id/edgeKey），插为原支下一优先级；
+ * 兜底列 priority 顺延保持恒最右。兜底列不可复制。
+ */
+export function copyBranch(
+  stages: StageDefinition[],
+  routes: StageRouteRuleRequest[],
+  branchEdgeKey: string,
+): { stages: StageDefinition[]; routes: StageRouteRuleRequest[] } {
+  const edge = routes.find((r) => r.edgeKey === branchEdgeKey)
+  if (!edge || edge.isDefault) return { stages, routes }
+
+  const branchStageIds = collectBranchStages(stages, routes, branchEdgeKey)
+  const idMap = new Map<string, string>()
+  const copiedStages: StageDefinition[] = []
+  for (const id of branchStageIds) {
+    const src = stages.find((s) => s.id === id)
+    if (!src) continue
+    const newId = `${id}_copy_${Math.random().toString(36).slice(2, 6)}`
+    idMap.set(id, newId)
+    copiedStages.push({ ...src, id: newId, name: `${src.name}（副本）` })
+  }
+  const mapKey = (key: string | null | undefined): string => (key && idMap.get(key)) || key || ''
+
+  // 支内节点的出边也要复制（终点若在支外/汇合点则保持原 key）
+  const copiedRoutes: StageRouteRuleRequest[] = []
+  for (const r of routes) {
+    if (branchStageIds.includes(r.fromStageKey)) {
+      copiedRoutes.push({ ...r, edgeKey: genEdgeKey(), fromStageKey: mapKey(r.fromStageKey), toStageKey: mapKey(r.toStageKey) })
+    }
+  }
+  const newBranchEdge: StageRouteRuleRequest = {
+    ...edge,
+    edgeKey: genEdgeKey(),
+    toStageKey: mapKey(edge.toStageKey),
+    routeName: `${edge.routeName}（副本）`,
+    priority: edge.priority + 1,
+  }
+  // 同源后续条件列与兜底列 priority 顺延
+  const nextRoutes = routes.map((r) =>
+    r.fromStageKey === edge.fromStageKey && r.priority > edge.priority
+      ? { ...r, priority: r.priority + 1 }
+      : r,
+  )
+  nextRoutes.push(newBranchEdge, ...copiedRoutes)
+
+  // 副本节点插到原支节点之后
+  const nextStages = [...stages]
+  const lastIdx = Math.max(...branchStageIds.map((id) => nextStages.findIndex((s) => s.id === id)), -1)
+  nextStages.splice(lastIdx + 1, 0, ...copiedStages)
+  return { stages: nextStages.map((s, i) => ({ ...s, sortOrder: i + 1 })), routes: nextRoutes }
+}
+
+/** 条件列左右调序（交换相邻 priority）；兜底列不参与、条件列不可越过兜底 */
+export function reorderBranch(
+  stages: StageDefinition[],
+  routes: StageRouteRuleRequest[],
+  branchEdgeKey: string,
+  dir: 'left' | 'right',
+): { stages: StageDefinition[]; routes: StageRouteRuleRequest[] } {
+  const edge = routes.find((r) => r.edgeKey === branchEdgeKey)
+  if (!edge || edge.isDefault) return { stages, routes }
+  const siblings = sortOutgoing(
+    routes.filter((r) => isActive(r) && r.fromStageKey === edge.fromStageKey && !r.isDefault),
+  )
+  const idx = siblings.findIndex((r) => r.edgeKey === branchEdgeKey)
+  const swapIdx = dir === 'left' ? idx - 1 : idx + 1
+  if (idx < 0 || swapIdx < 0 || swapIdx >= siblings.length) return { stages, routes }
+  const other = siblings[swapIdx]
+  return {
+    stages,
+    routes: routes.map((r) => {
+      if (r.edgeKey === edge.edgeKey) return { ...r, priority: other.priority }
+      if (r.edgeKey === other.edgeKey) return { ...r, priority: edge.priority }
+      return r
+    }),
+  }
+}
