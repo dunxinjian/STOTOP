@@ -41,6 +41,7 @@ import StageDefinitionEditor, { type StageDefinition } from '@/components/cardfl
 import StageConfigPanel from '@/components/cardflow/StageConfigPanel.vue'
 import FlowStateCanvas from '@/components/cardflow/designer/FlowStateCanvas.vue'
 import FlowVerticalGraph from '@/components/cardflow/designer/FlowVerticalGraph.vue'
+import FieldPermissionMatrix from '@/components/cardflow/designer/FieldPermissionMatrix.vue'
 import RouteRuleCardEditor from '@/components/cardflow/designer/RouteRuleCardEditor.vue'
 import DynamicApprovalPolicyEditor from '@/components/cardflow/designer/DynamicApprovalPolicyEditor.vue'
 import PathPreviewPanel from '@/components/cardflow/designer/PathPreviewPanel.vue'
@@ -2397,6 +2398,15 @@ function goBack() {
                   </div>
                 </template>
               </StageDefinitionEditor>
+            </a-tab-pane>
+
+            <a-tab-pane key="matrix" tab="字段权限矩阵">
+              <FieldPermissionMatrix
+                :stages="state.stages"
+                :routes="state.routes"
+                :schema-fields="state.cardSchema"
+                @open-stage="selectDesignerNode"
+              />
             </a-tab-pane>
 
             <a-tab-pane key="canvas" tab="只读总览图">

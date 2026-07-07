@@ -274,6 +274,28 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
     return result
   }
 
+  /** 敏感字段漏配（M4-2/mock 屏6）：敏感字段在人工节点未隐藏/脱敏 → 警告级（可发布但有泄漏风险） */
+  function checkSensitiveLeak(): HealthItem[] {
+    const result: HealthItem[] = []
+    const sensitiveFields = fields.filter(field => field.sensitive)
+    if (!sensitiveFields.length) return result
+    stages.filter(stage => stage.type === 'manual').forEach(stage => {
+      sensitiveFields.forEach(field => {
+        const configured = stage.viewProfile?.fieldAccess?.[field.key]?.access
+        const access = configured || (stage.inputFields?.includes(field.key) ? 'editable' : 'readonly')
+        if (access === 'editable' || access === 'readonly' || access === 'required') {
+          result.push({
+            level: 'warning',
+            title: '敏感字段未脱敏',
+            detail: `敏感字段「${field.label}」在节点「${stage.name || stage.id}」为${access === 'readonly' ? '只读' : '可编辑'}，建议改为隐藏或脱敏。`,
+            target: { kind: 'node', key: stage.id },
+          })
+        }
+      })
+    })
+    return result
+  }
+
   const result: HealthItem[] = []
   result.push(...checkDanglingRefs())
   result.push(...checkDefaultRoutes())
@@ -282,6 +304,7 @@ export function runRuleHealthChecks(ctx: RuleHealthContext): HealthItem[] {
   result.push(...checkGraph())
   result.push(...checkHandlers())
   result.push(...checkTypeMismatch())
+  result.push(...checkSensitiveLeak())
   if (!result.length) {
     result.push({ level: 'ok', title: '规则健康', detail: '默认分支、条件完整性、死路节点、循环路径、无法到达节点和处理人策略均未发现明显问题。' })
   }
