@@ -70,8 +70,10 @@ import type {
   CardComponentRuntime, CardHeaderConfig, CardPresentationSnapshot, StageWorkView,
 } from '@/types/cardflow'
 import { useOrgContextStore } from '@/stores/orgContext'
+import { useUserStore } from '@/stores/user'
 import { useUndoRedo, useAutoCommit } from '@/composables/useUndoRedo'
 import { useAutoSave } from '@/composables/useAutoSave'
+import { useDefinitionEditLock } from '@/composables/useDefinitionEditLock'
 import {
   defaultCardHeaderConfig,
   parseCardSchemaPayload,
@@ -258,6 +260,21 @@ const auto = useAutoSave({
 })
 
 watch(() => state, () => { editSeq++; dirty.value = true; auto.markDirty() }, { deep: true })
+
+// ==================== 编辑锁 + 接管协议（M7-1 / 设计 E7）====================
+const userStore = useUserStore()
+// 只有编辑已存在的定义才加锁（新建无 id、无并发编辑对象）
+const lock = flowId.value
+  ? useDefinitionEditLock({
+      definitionId: flowId.value,
+      currentUserId: Number(userStore.userInfo?.id ?? 0),
+      currentUserName: userStore.userInfo?.realName ?? '我',
+      flush: async () => { await auto.flush() },
+      reload: async () => { await loadData() },
+    })
+  : null
+/** 只读态（他人持锁）：驱动全页禁用编辑，仅预览/干跑可用 */
+const editLocked = computed(() => lock?.readOnly.value ?? false)
 
 const previewStageOptions = computed(() =>
   state.stages.map((stage, index) => ({
@@ -1449,6 +1466,8 @@ async function ensureDefinitionId(): Promise<number | null> {
 }
 
 async function doSilentSave(): Promise<number | undefined> {
+  // 只读态（他人持锁）绝不写库——后端保存端点仅 [Authorize] 无锁校验，此守卫是唯一写者不变量的前端执行点
+  if (editLocked.value) return flowId.value || undefined
   // 自动保存：仅当有 ID 时（避免误创建）；新建时仅当填齐 name+code 才创建
   const seqAtStart = editSeq
   let id = flowId.value
@@ -1747,6 +1766,7 @@ onMounted(() => {
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('beforeunload', onBeforeUnload)
   void loadData()
+  void lock?.start()
 })
 
 import { onBeforeUnmount } from 'vue'
@@ -1851,7 +1871,7 @@ function goBack() {
 
         <span class="tb-divider" />
 
-        <a-button @click="handleSaveDraft">
+        <a-button :disabled="editLocked" @click="handleSaveDraft">
           <template #icon><SaveOutlined /></template>
           保存草稿
         </a-button>
@@ -1863,14 +1883,25 @@ function goBack() {
           <template #icon><EyeOutlined /></template>
           {{ previewWorkbenchOpen ? '返回编辑' : '预演' }}
         </a-button>
-        <a-button type="primary" :loading="publishing" @click="handlePublish">
+        <a-button type="primary" :loading="publishing" :disabled="editLocked" @click="handlePublish">
           <template #icon><SendOutlined /></template>
           发布
         </a-button>
 
-        <SaveStateChip :state="auto.saveState.value" :saved-at="auto.lastSavedAt.value" @retry="handleSaveDraft" />
+        <SaveStateChip v-if="!editLocked" :state="auto.saveState.value" :saved-at="auto.lastSavedAt.value" @retry="handleSaveDraft" />
       </template>
     </PageHeader>
+
+    <!-- M7-1 只读横幅（设计 C5②）：他人正在编辑时进入只读查看，可申请接管 -->
+    <div v-if="editLocked && lock" class="fdef-lock-banner" role="status">
+      <span class="fdef-lock-banner__avatar">{{ (lock.holder.value?.name || '?').charAt(0) }}</span>
+      <span class="fdef-lock-banner__who">{{ lock.holder.value?.name || '他人' }}</span>
+      <span class="fdef-lock-banner__msg">正在编辑此流程。你处于<strong>只读查看</strong>模式（可预览/干跑）。</span>
+      <span class="fdef-lock-banner__actions">
+        <a-button size="small" @click="lock.refresh()">刷新状态</a-button>
+        <a-button size="small" class="fdef-lock-banner__takeover" :loading="lock.takeoverPending.value" @click="lock.requestTakeover()">申请接管</a-button>
+      </span>
+    </div>
 
     <a-spin :spinning="loading">
       <!-- 顶部步骤条：自由跳转 + 状态徽章 -->
@@ -2969,6 +3000,23 @@ function goBack() {
       :has-draft="!!draftVersionNumber"
       @rolled-back="reloadFlowDefinition"
     />
+
+    <!-- M7-1 接管请求弹窗（设计 E7）：持锁端收到他人接管申请。弹窗出现时已强制 flush（composable 内） -->
+    <a-modal
+      v-if="lock"
+      :open="!!lock.takeoverIncoming.value"
+      title="接管编辑请求"
+      :closable="false"
+      :mask-closable="false"
+      @cancel="lock.respondTakeover(false)"
+    >
+      <p><strong>{{ lock.takeoverIncoming.value?.requesterName }}</strong> 请求接管此流程的编辑权。</p>
+      <p class="fdef-takeover-hint">你当前的修改已自动保存至草稿。60 秒未响应将自动移交。</p>
+      <template #footer>
+        <a-button @click="lock.respondTakeover(false)">拒绝，我在编辑</a-button>
+        <a-button type="primary" @click="lock.respondTakeover(true)">允许移交</a-button>
+      </template>
+    </a-modal>
   </div>
 </template>
 
@@ -3020,6 +3068,59 @@ function goBack() {
     font-weight: 600;
     text-overflow: ellipsis;
   }
+}
+
+/* M7-1 编辑锁只读横幅（设计 C5②）：金色警告底，头像+持锁人+只读提示+接管操作 */
+.fdef-lock-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 16px 0;
+  padding: 11px 16px;
+  font-size: 13px;
+  background: var(--color-warning-light);
+  border: 1px solid var(--color-warning-border);
+  border-radius: 9px;
+  color: var(--color-warning-text);
+
+  &__avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--color-warning);
+    color: var(--text-on-accent);
+    font-weight: 600;
+    font-size: 13px;
+    flex: 0 0 auto;
+  }
+
+  &__who {
+    font-weight: 600;
+  }
+
+  &__msg strong {
+    font-weight: 700;
+  }
+
+  &__actions {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 8px;
+  }
+
+  &__takeover {
+    color: var(--color-warning-text);
+    border-color: var(--color-warning-border);
+  }
+}
+
+.fdef-takeover-hint {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--text-2);
 }
 
 .tb-version-context {
