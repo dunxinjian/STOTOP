@@ -16,7 +16,7 @@ const props = defineProps<{
   errorCount?: number
 }>()
 
-const emit = defineEmits<{ select: [] }>()
+const emit = defineEmits<{ select: []; remove: [] }>()
 
 /** 节点视觉分类：审/自 两类 + 图标字（设计 D8 色盲冗余：色+字+边框三重编码） */
 const kindClass = computed(() => (props.stage.type === 'auto' ? 'cfd-node--auto is-auto' : 'cfd-node--appr'))
@@ -61,11 +61,15 @@ const assigneeText = computed(() => {
     :class="[kindClass, { 'is-selected': selected }]"
     role="button"
     tabindex="0"
-    :aria-label="`${stage.type === 'auto' ? '自动处理节点' : '审批节点'} ${stage.name || '未命名'}${issueCount ? `，${issueCount} 个问题` : ''}，按 Enter 编辑`"
+    :aria-label="`${stage.type === 'auto' ? '自动处理节点' : '审批节点'} ${stage.name || '未命名'}${issueCount ? `，${issueCount} 个问题` : ''}，按 Enter 编辑，按 Delete 删除`"
     @click="emit('select')"
     @keydown.enter.prevent="emit('select')"
+    @keydown.delete.prevent="emit('remove')"
   >
     <span v-if="issueCount" class="cfd-node__errdot" :class="{ 'is-warn': !errorCount }">{{ issueCount }}</span>
+    <span class="cfd-node__tools" @click.stop>
+      <span role="button" tabindex="-1" title="删除节点" aria-label="删除节点" @click="emit('remove')">🗑</span>
+    </span>
     <div class="cfd-node__head">
       <span class="cfd-node__icon">{{ iconChar }}</span>
       <span class="cfd-node__title">{{ stage.name || '未命名节点' }}</span>
@@ -89,6 +93,16 @@ const assigneeText = computed(() => {
   &:focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
+  }
+
+  // 悬停工具条（设计 C2/C7）：默认隐藏，悬停/聚焦浮现
+  .cfd-node__tools {
+    visibility: hidden;
+  }
+
+  &:hover .cfd-node__tools,
+  &:focus-within .cfd-node__tools {
+    visibility: visible;
   }
 }
 

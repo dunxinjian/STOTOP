@@ -14,10 +14,12 @@ import {
   copyBranch,
   reorderBranch,
   collectBranchStages,
+  deleteStage,
   type FlowTreeNode,
   type FlowTreeBranch,
   type InsertAnchor,
 } from '@/utils/flowGraphProjection'
+import { Modal } from 'ant-design-vue'
 import type { StageDefinition } from '@/components/cardflow/StageDefinitionEditor.vue'
 import type { StageRouteRuleRequest } from '@/types/cardflow'
 import type { HealthItem } from '@/utils/cardflowDiagnostics'
@@ -168,6 +170,50 @@ function branchPosition(group: FlowTreeNode, edgeKey: string): { first: boolean;
   const idx = conds.findIndex((b) => b.routeEdgeKey === edgeKey)
   return { first: idx <= 0, last: idx === conds.length - 1 }
 }
+
+// ==================== 节点删除（E0-D1，设计 C7 分级确认）====================
+
+/** 节点是否"有配置"（决定轻/重确认） */
+function stageHasConfig(stage: StageDefinition): boolean {
+  return Boolean(
+    stage.assigneeConfigJson ||
+    Object.keys(stage.viewProfile?.fieldAccess || {}).length ||
+    stage.conditionJson ||
+    stage.pluginRegistryId,
+  )
+}
+
+function askDeleteStage(stageId: string) {
+  const stage = stageById.value.get(stageId)
+  if (!stage) return
+  const outgoing = props.routes.filter((r) => (r.status ?? 'active') === 'active' && r.fromStageKey === stageId)
+  const isBranchSource = outgoing.length > 1
+  const heavy = stageHasConfig(stage) || isBranchSource
+  const doDelete = () => {
+    emit('update-structure', { ...deleteStage(props.stages, props.routes, stageId), label: `删除节点「${stage.name || stageId}」` })
+    if (props.selectedKey === stageId) emit('select-node', '')
+  }
+  if (!heavy) {
+    Modal.confirm({
+      title: `删除节点「${stage.name || '未命名节点'}」？`,
+      okText: '删除', okType: 'danger', cancelText: '取消',
+      onOk: doDelete,
+    })
+    return
+  }
+  const lost: string[] = []
+  if (stage.assigneeConfigJson) lost.push('处理人策略')
+  const permCount = Object.keys(stage.viewProfile?.fieldAccess || {}).length
+  if (permCount) lost.push(`${permCount} 项字段权限`)
+  if (stage.conditionJson) lost.push('进入条件')
+  if (stage.pluginRegistryId) lost.push('插件配置')
+  Modal.confirm({
+    title: `删除节点「${stage.name || '未命名节点'}」？`,
+    content: `将丢失：${lost.join('、') || '基础配置'}。${isBranchSource ? '该节点是分支源，其条件分支组的全部条件边将一并删除。' : ''}入边将重定向到其后继节点。在途卡片按发布时的在途策略处理。`,
+    okText: '删除节点', okType: 'danger', cancelText: '取消', width: 440,
+    onOk: doDelete,
+  })
+}
 </script>
 
 <template>
@@ -213,6 +259,7 @@ function branchPosition(group: FlowTreeNode, edgeKey: string): { first: boolean;
           :issue-count="issuesByKey.get(node.stageId)?.total"
           :error-count="issuesByKey.get(node.stageId)?.errors"
           @select="emit('select-node', node.stageId!)"
+          @remove="askDeleteStage(node.stageId!)"
         />
         <div class="cfd-connector"></div>
         <div class="cfd-graph__pluswrap">
@@ -320,6 +367,7 @@ function branchPosition(group: FlowTreeNode, edgeKey: string): { first: boolean;
                   :issue-count="issuesByKey.get(child.stageId)?.total"
                   :error-count="issuesByKey.get(child.stageId)?.errors"
                   @select="emit('select-node', child.stageId!)"
+                  @remove="askDeleteStage(child.stageId!)"
                 />
                 <div class="cfd-connector"></div>
                 <div class="cfd-graph__pluswrap">

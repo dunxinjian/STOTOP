@@ -419,9 +419,13 @@ const routeConditionFields = computed<FieldOption[]>(() =>
 
 /** 竖向图结构变更：整体替换 stages/routes，经 state 深监听统一进撤销栈+自动保存 */
 function applyGraphStructure(payload: { stages: StageDefinition[]; routes: StageRouteRuleRequest[]; label?: string }) {
+  // 先落防抖窗内的散编辑（旧标签），再落结构化操作（新标签）——两步各自成栈
+  flushPending()
   if (payload.label) history.setNextLabel(payload.label)
   state.stages = payload.stages
   state.routes = payload.routes
+  // 结构化操作立即入栈：插入后马上按撤销也能命中（不等 500ms 防抖）
+  void nextTick(() => flushPending())
 }
 
 /** 路由引用保护（E0-M2）：fieldKey→引用分支名，供 schema 编辑器拦截删除 */

@@ -452,3 +452,33 @@ export function reorderBranch(
     }),
   }
 }
+
+/**
+ * 删除节点（E0-D1）：
+ * - 入边重定向到该节点的"主后继"（default 出边目标优先，否则首条出边目标；无出边则入边一并删除）；
+ * - 该节点全部出边删除（分支源节点=连带其分支组条件边，确认弹窗须说明）；
+ * - legacy 模式（无 routes）仅移除节点。
+ */
+export function deleteStage(
+  stages: StageDefinition[],
+  routes: StageRouteRuleRequest[],
+  stageId: string,
+): { stages: StageDefinition[]; routes: StageRouteRuleRequest[] } {
+  const nextStages = stages.filter((s) => s.id !== stageId).map((s, i) => ({ ...s, sortOrder: i + 1 }))
+  if (!routes.length) return { stages: nextStages, routes }
+
+  const outgoing = sortOutgoing(routes.filter((r) => isActive(r) && r.fromStageKey === stageId))
+  const successor = outgoing.find((r) => r.isDefault)?.toStageKey || outgoing[0]?.toStageKey || ''
+
+  const nextRoutes: StageRouteRuleRequest[] = []
+  for (const r of routes) {
+    if (r.fromStageKey === stageId) continue // 出边全删
+    if (r.toStageKey === stageId) {
+      if (successor) nextRoutes.push({ ...r, toStageKey: successor })
+      // 无后继：入边随之删除（前驱变尾节点）
+      continue
+    }
+    nextRoutes.push(r)
+  }
+  return { stages: nextStages, routes: nextRoutes }
+}

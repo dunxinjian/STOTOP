@@ -7,6 +7,7 @@ import {
   copyBranch,
   reorderBranch,
   collectBranchStages,
+  deleteStage,
   type FlowTreeNode,
 } from '@/utils/flowGraphProjection'
 import type { StageDefinition } from '@/components/cardflow/StageDefinitionEditor.vue'
@@ -370,5 +371,49 @@ describe('dev 库实测形态夹具 (M1-6)', () => {
     const { tree, orphans } = buildFlowTree(stages, routes)
     expect(orphans).toEqual(['voucher', 'summary', 'confirm'])
     expect(collectStageIds(tree)).toHaveLength(5)
+  })
+})
+
+describe('deleteStage 节点删除 (E0-D1 修复)', () => {
+  it('线性节点：入边重定向到其后继，出边删除', () => {
+    const stages = [s('a', 1), s('n', 2), s('b', 3)]
+    const routes = [
+      r('e1', 'a', 'n', { isDefault: true }),
+      r('e2', 'n', 'b', { isDefault: true }),
+    ]
+    const out = deleteStage(stages, routes, 'n')
+    expect(out.stages.map((x) => x.id)).toEqual(['a', 'b'])
+    const e1 = out.routes.find((x) => x.edgeKey === 'e1')!
+    expect(e1.toStageKey).toBe('b')
+    expect(out.routes.find((x) => x.edgeKey === 'e2')).toBeUndefined()
+    expect(collectStageIds(buildFlowTree(out.stages, out.routes).tree)).toEqual(['a', 'b'])
+  })
+
+  it('尾节点：入边一并删除（前驱变尾）', () => {
+    const stages = [s('a', 1), s('n', 2)]
+    const routes = [r('e1', 'a', 'n', { isDefault: true })]
+    const out = deleteStage(stages, routes, 'n')
+    expect(out.stages.map((x) => x.id)).toEqual(['a'])
+    expect(out.routes).toEqual([])
+  })
+
+  it('分支源节点：入边重定向到兜底目标，全部出边（分支组）删除', () => {
+    const stages = [s('a', 1), s('n', 2), s('b', 3), s('x', 4)]
+    const routes = [
+      r('e0', 'a', 'n', { isDefault: true }),
+      r('c1', 'n', 'b', { conditionJson: '{}', priority: 1 }),
+      r('d1', 'n', 'x', { isDefault: true, priority: 2 }),
+      r('e2', 'b', 'x', { isDefault: true }),
+    ]
+    const out = deleteStage(stages, routes, 'n')
+    // 入边 e0 指向兜底目标 x；n 的出边全删；b 的出边保留（b 成孤儿由投影告警）
+    expect(out.routes.find((x) => x.edgeKey === 'e0')!.toStageKey).toBe('x')
+    expect(out.routes.filter((x) => x.fromStageKey === 'n')).toEqual([])
+  })
+
+  it('legacy 模式（无 routes）：仅移除节点', () => {
+    const out = deleteStage([s('a', 1), s('n', 2), s('b', 3)], [], 'n')
+    expect(out.stages.map((x) => x.id)).toEqual(['a', 'b'])
+    expect(out.routes).toEqual([])
   })
 })
