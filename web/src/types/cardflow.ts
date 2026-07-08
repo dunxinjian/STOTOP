@@ -1125,3 +1125,27 @@ export interface PagedResult<T> {
   page: number
   pageSize: number
 }
+
+// ==================== M6 发布与版本 ====================
+
+/** 在途卡片计数（按版本分组，plan #3） */
+export interface InflightVersionSummaryDto {
+  versionId: number
+  versionNumber: number
+  count: number
+  stuckStageKeys: string[]
+}
+
+export interface InflightSummaryDto {
+  total: number
+  byVersion: InflightVersionSummaryDto[]
+}
+
+/** 发布结果（含在途迁移统计，plan #4） */
+export interface PublishFlowDefinitionResultDto {
+  inflightPolicy: string
+  migratedCount: number
+  skippedCount: number
+  failedCount: number
+  warnings: string[]
+}

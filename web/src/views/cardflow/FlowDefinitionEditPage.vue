@@ -44,6 +44,8 @@ import FlowVerticalGraph from '@/components/cardflow/designer/FlowVerticalGraph.
 import FieldPermissionMatrix from '@/components/cardflow/designer/FieldPermissionMatrix.vue'
 import RouteRuleCardEditor from '@/components/cardflow/designer/RouteRuleCardEditor.vue'
 import DynamicApprovalPolicyEditor from '@/components/cardflow/designer/DynamicApprovalPolicyEditor.vue'
+import PublishConfirmModal from '@/components/cardflow/designer/PublishConfirmModal.vue'
+import type { VersionSnapshot } from '@/utils/flowVersionDiff'
 import PathPreviewPanel from '@/components/cardflow/designer/PathPreviewPanel.vue'
 import RuleHealthPanel from '@/components/cardflow/designer/RuleHealthPanel.vue'
 import CardComponentCatalog from '@/components/cardflow/designer/CardComponentCatalog.vue'
@@ -55,7 +57,8 @@ import CardComponentRenderer from '@/components/cardflow/runtime/CardComponentRe
 import SchemaRenderer from '@/components/cardflow/SchemaRenderer.vue'
 import {
   getFlowDefinition, createFlowDefinition, updateFlowDefinition,
-  publishFlowDefinition, getFlowDraftVersion, saveFlowDraftVersion,
+  publishFlowDefinition, publishFlowDefinitionWithPolicy, getFlowVersions, getFlowVersionDetail,
+  getFlowDraftVersion, saveFlowDraftVersion,
   getFlowGroups, getFlowDefinitions, previewFlowDraftPath, previewPresentation,
 } from '@/api/cardflow'
 import { getRoleList, getUserList, getUserDetail } from '@/api/system'
@@ -1578,30 +1581,69 @@ function validateForPublish(): boolean {
 
 async function handlePublish() {
   if (!validateForPublish()) return
-  Modal.confirm({
-    title: '确认发布？',
-    content: `发布后将生成新版本 v${(publishedVersionNumber.value || 0) + 1} 并立即生效，新发起的卡片将使用该版本。`,
-    okText: '发布',
-    cancelText: '取消',
-    async onOk() {
-      publishing.value = true
-      try {
-        const savedId = await silentSave()
-        if (!savedId) {
-          message.warning('请先填写流程名称和编码')
-          return
-        }
-        await publishFlowDefinition(savedId)
-        message.success('已发布')
-        router.push('/cardflow/definitions')
-      } catch (e) {
-        // 拦截器已弹出后端具体校验错误（环/不可达/默认分支等），此处不再重复弹泛化提示
-        console.error('[FlowDefinition] 发布失败:', e)
-      } finally {
-        publishing.value = false
-      }
-    },
-  })
+  // 拉取已发布版本快照用于变更 diff（首版无历史）
+  publishOldSnapshot.value = await loadPublishedSnapshot()
+  publishModalOpen.value = true
+}
+
+/** 当前草稿快照（发布确认变更清单用） */
+const publishNewSnapshot = computed<VersionSnapshot>(() => ({
+  stages: state.stages.map(s => ({ id: s.id, name: s.name, type: s.type })),
+  routes: state.routes.map(r => ({ edgeKey: r.edgeKey, routeName: r.routeName, conditionJson: r.conditionJson, priority: r.priority, isDefault: r.isDefault })),
+  fields: state.cardSchema.map(f => ({ key: f.key, label: f.label, type: f.type, required: f.required })),
+}))
+
+const publishOldSnapshot = ref<VersionSnapshot | null>(null)
+const publishModalOpen = ref(false)
+
+/** 发布门禁错误/警告计数（错误取自诊断 error 级，警告取自诊断 warning + 发布配置风险项） */
+const publishErrorCount = computed(() => stageDiagnostics.value.filter(i => i.level === 'error').length)
+const publishWarningCount = computed(() =>
+  stageDiagnostics.value.filter(i => i.level === 'warning').length + previewConfigWarnings.value.length,
+)
+
+/** 加载当前已发布版本快照（用于 diff）；无已发布版本返回 null */
+async function loadPublishedSnapshot(): Promise<VersionSnapshot | null> {
+  if (!flowId.value) return null
+  try {
+    const versions = await getFlowVersions(flowId.value)
+    const current = versions.find(v => v.isCurrentVersion && v.status === 'published')
+    if (!current) return null
+    const detail = await getFlowVersionDetail(flowId.value, current.id)
+    const fields = detail.cardSchemaJson ? (JSON.parse(detail.cardSchemaJson).fields || []) : []
+    return {
+      stages: (detail.stages || []).map((s: any) => ({ id: s.stageKey || s.id, name: s.name, type: s.type })),
+      routes: (detail.routes || []).map((r: any) => ({ edgeKey: r.edgeKey, routeName: r.routeName, conditionJson: r.conditionJson, priority: r.priority, isDefault: r.isDefault })),
+      fields: fields.map((f: any) => ({ key: f.key, label: f.label, type: f.type, required: f.required })),
+    }
+  } catch {
+    return null
+  }
+}
+
+/** 发布确认弹窗回调：带在途策略发布 */
+async function doPublish(inflightPolicy: 'keepOld' | 'migrate') {
+  publishing.value = true
+  try {
+    const savedId = await silentSave()
+    if (!savedId) {
+      message.warning('请先填写流程名称和编码')
+      return
+    }
+    if (inflightPolicy === 'migrate') {
+      const result = await publishFlowDefinitionWithPolicy(savedId, 'migrate')
+      message.success(`已发布 · 迁移 ${result.migratedCount} 张、跳过 ${result.skippedCount} 张在途卡片`)
+    } else {
+      await publishFlowDefinition(savedId)
+      message.success('已发布')
+    }
+    publishModalOpen.value = false
+    router.push('/cardflow/definitions')
+  } catch (e) {
+    console.error('[FlowDefinition] 发布失败:', e)
+  } finally {
+    publishing.value = false
+  }
 }
 
 // ==================== 撤销/重做 ====================
@@ -2896,6 +2938,18 @@ function goBack() {
       :detail-schema-fields="state.detailSchema"
       @update:model-value="updateCardComponent"
       @delete="deleteCardComponent"
+    />
+
+    <PublishConfirmModal
+      v-model:open="publishModalOpen"
+      :definition-id="flowId ?? undefined"
+      :next-version="(publishedVersionNumber || 0) + 1"
+      :old-snapshot="publishOldSnapshot"
+      :new-snapshot="publishNewSnapshot"
+      :error-count="publishErrorCount"
+      :warning-count="publishWarningCount"
+      :publishing="publishing"
+      @confirm="doPublish"
     />
   </div>
 </template>

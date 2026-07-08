@@ -1237,3 +1237,21 @@ export interface OrgBindingPreviewResult {
 /** 上传前预检：校验目标组织与账套绑定 */
 export const previewOrgBinding = (targetOrgId: number) =>
   post<OrgBindingPreviewResult>('/cardflow/import/preview-org-binding', { targetOrgId })
+
+// ==================== M6 发布与版本 ====================
+import type { InflightSummaryDto, PublishFlowDefinitionResultDto } from '@/types/cardflow'
+
+/** 发布（带在途卡片策略：keepOld 默认 / migrate 迁移被删节点在途卡片） */
+export function publishFlowDefinitionWithPolicy(id: number, inflightPolicy: 'keepOld' | 'migrate') {
+  return post<PublishFlowDefinitionResultDto>(`/cardflow/definitions/${id}/publish`, { inflightPolicy })
+}
+
+/** 在途卡片计数（按版本分组） */
+export function getInflightSummary(id: number) {
+  return get<InflightSummaryDto>(`/cardflow/definitions/${id}/inflight-summary`)
+}
+
+/** 回滚：以指定历史版本快照新建草稿（不绕发布门禁） */
+export function createDraftFromVersion(id: number, versionId: number) {
+  return post<FlowVersionDetailDto>(`/cardflow/definitions/${id}/versions/${versionId}/create-draft`)
+}
