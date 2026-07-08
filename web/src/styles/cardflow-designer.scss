@@ -459,6 +459,33 @@
   }
 }
 
+// ---------- 节点/分支入场动效（设计 D1 生长 / D9 decelerate；reduced-motion 降级）----------
+@keyframes cfd-node-grow {
+  from { opacity: 0; transform: translateY(-6px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes cfd-branch-expand {
+  from { opacity: 0; transform: scaleX(0.7); }
+  to { opacity: 1; transform: scaleX(1); }
+}
+
+.cfd-graph .cfd-node {
+  animation: cfd-node-grow 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.cfd-graph .cfd-branch-cols {
+  animation: cfd-branch-expand 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform-origin: top center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cfd-graph .cfd-node,
+  .cfd-graph .cfd-branch-cols {
+    animation: none;
+  }
+}
+
 // ---------- 成员胶囊（mock .mem/.av）----------
 .cfd-member {
   display: inline-flex;
