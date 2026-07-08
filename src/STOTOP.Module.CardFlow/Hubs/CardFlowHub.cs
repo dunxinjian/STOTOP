@@ -55,4 +55,12 @@ public class CardFlowHub : Hub
 
     public Task UnsubscribeHomeStats()
         => Groups.RemoveFromGroupAsync(Context.ConnectionId, "home-stats");
+
+    // ===== M7-1 流程定义编辑锁：接管协议事件通道（E7）=====
+    // 持锁端与申请端都订阅 flowdef-{definitionId} 组；服务端推 takeoverRequested/Granted/Rejected
+    public Task SubscribeFlowDef(long definitionId)
+        => Groups.AddToGroupAsync(Context.ConnectionId, $"flowdef-{definitionId}");
+
+    public Task UnsubscribeFlowDef(long definitionId)
+        => Groups.RemoveFromGroupAsync(Context.ConnectionId, $"flowdef-{definitionId}");
 }
