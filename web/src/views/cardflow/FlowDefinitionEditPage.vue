@@ -213,6 +213,8 @@ const STEP_SETTINGS = stepIndexOf('settings')
 const activeStep = ref(0)
 /** 干跑工作台开关（M5-0：替代原 preview 步） */
 const previewWorkbenchOpen = ref(false)
+// 干跑命中路径 stageKey 集合（M5-4 竖向图点亮）
+const previewHitStageKeys = ref<string[]>([])
 
 function handleStepChange(idx: number) {
   activeStep.value = idx
@@ -2466,6 +2468,7 @@ function goBack() {
                   :selected-type="designerSelection.type"
                   :selected-key="designerSelection.key"
                   :condition-fields="routeConditionFields"
+                  :hit-stage-keys="previewHitStageKeys"
                   @select-node="selectDesignerNode"
                   @select-edge="selectDesignerEdge"
                   @update-structure="applyGraphStructure"
@@ -2781,6 +2784,7 @@ function goBack() {
                 :disabled="!previewReady"
                 :fields="state.cardSchema"
                 @step-select="onPreviewStepSelect"
+                @path-updated="(keys) => previewHitStageKeys = keys"
               />
             </BaseCard>
 
@@ -2926,6 +2930,7 @@ function goBack() {
           :preview-api="previewFlowDraftPath"
           :fields="state.cardSchema"
           @step-select="onPreviewStepSelect"
+                @path-updated="(keys) => previewHitStageKeys = keys"
         />
         <RuleHealthPanel
           :stages="state.stages"

@@ -18,6 +18,8 @@ const props = defineProps<{
 // 步骤点击联动：把节点 stageKey 抛给编辑页切预览视角
 const emit = defineEmits<{
   (e: 'step-select', stageKey: string): void
+  // 干跑命中路径：把命中的 stage 序列抛给编辑页，用于竖向图路径点亮（M5-4）
+  (e: 'path-updated', hitStageKeys: string[]): void
 }>()
 
 const STRATEGY_LABELS: Record<string, string> = {
@@ -109,6 +111,11 @@ async function runPreview() {
       orgId: sample.orgId || null,
       maxSteps: 20,
     })
+    // 命中路径点亮（M5-4）：抛出命中的 stage 序列
+    const hitKeys = (result.value?.steps || [])
+      .filter(s => s.stepType === 'stage' && s.stageKey)
+      .map(s => s.stageKey)
+    emit('path-updated', hitKeys)
   } catch (e) {
     // 拦截器已弹出后端具体原因（如"没有可预演的流程版本"），此处不重复弹泛化提示
     console.error('[PathPreview] 预演失败:', e)

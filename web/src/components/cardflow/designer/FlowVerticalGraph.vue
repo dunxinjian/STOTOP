@@ -35,6 +35,8 @@ const props = defineProps<{
   selectedType?: 'blank' | 'node' | 'edge'
   selectedKey?: string | null
   conditionFields?: FieldOption[]
+  /** 干跑命中路径的 stageKey 集合（M5-4 路径点亮） */
+  hitStageKeys?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -61,6 +63,7 @@ const issuesByKey = computed(() => {
 
 const stageById = computed(() => new Map(props.stages.map((s) => [s.id, s])))
 const routeByEdge = computed(() => new Map(props.routes.map((r) => [r.edgeKey, r])))
+const hitSet = computed(() => new Set(props.hitStageKeys ?? []))
 
 // ==================== "+" 插入菜单 ====================
 
@@ -256,6 +259,7 @@ function askDeleteStage(stageId: string) {
         <FlowGraphNode
           :stage="stageById.get(node.stageId)!"
           :selected="selectedType === 'node' && selectedKey === node.stageId"
+          :hit="hitSet.has(node.stageId)"
           :issue-count="issuesByKey.get(node.stageId)?.total"
           :error-count="issuesByKey.get(node.stageId)?.errors"
           @select="emit('select-node', node.stageId!)"
@@ -364,6 +368,7 @@ function askDeleteStage(stageId: string) {
                   class="cfd-graph__branchnode"
                   :stage="stageById.get(child.stageId)!"
                   :selected="selectedType === 'node' && selectedKey === child.stageId"
+                  :hit="hitSet.has(child.stageId)"
                   :issue-count="issuesByKey.get(child.stageId)?.total"
                   :error-count="issuesByKey.get(child.stageId)?.errors"
                   @select="emit('select-node', child.stageId!)"

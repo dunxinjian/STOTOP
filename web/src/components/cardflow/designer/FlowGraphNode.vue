@@ -10,6 +10,8 @@ import { parseAssigneeConfig } from '@/components/cardflow/stageDefinitionShared
 const props = defineProps<{
   stage: StageDefinition
   selected: boolean
+  /** 干跑命中路径高亮（M5-4） */
+  hit?: boolean
   /** 该节点的诊断计数（错误+警告，>0 显示角标） */
   issueCount?: number
   /** 该节点的错误级计数（决定角标色） */
@@ -58,7 +60,7 @@ const assigneeText = computed(() => {
 <template>
   <div
     class="cfd-node"
-    :class="[kindClass, { 'is-selected': selected }]"
+    :class="[kindClass, { 'is-selected': selected, 'is-hit': hit }]"
     role="button"
     tabindex="0"
     :aria-label="`${stage.type === 'auto' ? '自动处理节点' : '审批节点'} ${stage.name || '未命名'}${issueCount ? `，${issueCount} 个问题` : ''}，按 Enter 编辑，按 Delete 删除`"
@@ -108,6 +110,12 @@ const assigneeText = computed(() => {
 
 .cfd-node__errdot.is-warn {
   background: var(--color-warning);
+}
+
+// 干跑命中路径高亮（M5-4，设计 D9 命中态绿）
+.cfd-node.is-hit {
+  border-color: var(--color-success);
+  box-shadow: 0 0 0 3px var(--color-success-light), var(--shadow-card);
 }
 
 .cfd-node__tag {
