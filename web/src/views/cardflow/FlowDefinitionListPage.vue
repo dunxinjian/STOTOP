@@ -16,6 +16,7 @@ import {
   CopyOutlined,
   InboxOutlined,
   DeleteOutlined,
+  RollbackOutlined,
   AppstoreOutlined,
   ExclamationCircleOutlined,
   FileAddOutlined,
@@ -32,6 +33,7 @@ import {
   disableFlowDefinition,
   enableFlowDefinition,
   deleteFlowDefinition,
+  discardFlowDraftVersion,
   getFlowGroups,
   cloneFlowDefinition,
   getFlowTemplates,
@@ -254,8 +256,26 @@ function handleArchive(record: FlowDefinitionDto) {
   })
 }
 
-function handleDeleteDraft(record: FlowDefinitionDto) {
+function handleDiscardDraft(record: FlowDefinitionDto) {
   Modal.confirm({
+    title: `放弃「${record.flowName}」的未发布草稿？`,
+    icon: h(ExclamationCircleOutlined),
+    content: `将丢弃草稿 v${record.draftVersion} 的所有改动，已发布版本 v${record.currentVersion} 不受影响。`,
+    okText: '放弃草稿',
+    okType: 'danger',
+    async onOk() {
+      try {
+        await discardFlowDraftVersion(record.id)
+        message.success('已放弃草稿')
+        loadData()
+      } catch (e) {
+        console.error('[FlowDefinition] 放弃草稿失败:', e)
+      }
+    },
+  })
+}
+
+function handleDeleteDraft(record: FlowDefinitionDto) {  Modal.confirm({
     title: `确认删除「${record.flowName}」？`,
     icon: h(ExclamationCircleOutlined),
     content: '将彻底删除该草稿流程及其版本、节点配置，此操作不可恢复。',
@@ -606,6 +626,14 @@ onMounted(async () => {
                     <InboxOutlined /> 归档
                   </a-menu-item>
                   <a-menu-divider />
+                  <a-menu-item
+                    v-if="(rawRecord as any).hasDraft && statusOf(rawRecord as FlowDefinitionDto) !== 'draft'"
+                    key="discard-draft"
+                    danger
+                    @click="handleDiscardDraft(rawRecord as FlowDefinitionDto)"
+                  >
+                    <RollbackOutlined /> 放弃草稿
+                  </a-menu-item>
                   <a-menu-item
                     key="delete"
                     danger
