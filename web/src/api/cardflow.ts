@@ -1271,3 +1271,26 @@ import type { VoucherPreviewDto, VoucherPreviewRequest } from '@/types/cardflow'
 export function previewVoucher(id: number, data: VoucherPreviewRequest) {
   return post<VoucherPreviewDto>(`/cardflow/definitions/${id}/draft-version/preview-voucher`, data)
 }
+
+// ── M7-1 编辑锁 + 接管协议（append-only，设计 E7） ──
+import type { LockStateDto } from '@/types/cardflow'
+
+/** 获取编辑锁（进入编辑页时调用）。无锁/死锁→抢占成 holder；他人活锁→返回 holder 信息 */
+export function acquireEditLock(id: number) {
+  return post<LockStateDto>(`/cardflow/definitions/${id}/lock/acquire`)
+}
+
+/** 持锁端心跳续期（30s 一次），顺带回传是否有待响应接管请求 */
+export function heartbeatEditLock(id: number) {
+  return post<LockStateDto>(`/cardflow/definitions/${id}/lock/heartbeat`)
+}
+
+/** 只读端申请接管（全局唯一；已有请求处理中会 Fail） */
+export function requestEditLockTakeover(id: number) {
+  return post<LockStateDto>(`/cardflow/definitions/${id}/lock/takeover-request`)
+}
+
+/** 持锁端响应接管请求（accept=true 原子移交 / false 拒绝） */
+export function respondEditLockTakeover(id: number, accept: boolean) {
+  return post<LockStateDto>(`/cardflow/definitions/${id}/lock/takeover-respond`, { accept })
+}

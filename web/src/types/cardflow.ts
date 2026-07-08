@@ -1194,3 +1194,30 @@ export interface VoucherPreviewDto {
   message: string
   entries: VoucherPreviewEntryDto[]
 }
+
+// ==================== M7-1 编辑锁（设计 E7）====================
+
+/** 接管请求段（内嵌在 LockStateDto） */
+export interface LockTakeoverDto {
+  requesterId: number
+  requesterName: string
+  requestedAt: string
+}
+
+/** 编辑锁状态（acquire/heartbeat/takeover-* 统一返回） */
+export interface LockStateDto {
+  /** 是否有人持锁 */
+  held: boolean
+  /** 持锁用户 ID */
+  holderId?: number | null
+  /** 持锁用户姓名 */
+  holderName?: string | null
+  /** 当前调用者是否即为 holder */
+  isSelf: boolean
+  /** 获取锁的时间 */
+  acquiredAt?: string | null
+  /** 最后心跳时间 */
+  heartbeatAt?: string | null
+  /** 待响应的接管请求（null = 无） */
+  takeover?: LockTakeoverDto | null
+}
