@@ -33,6 +33,17 @@ const STRATEGY_LABELS: Record<string, string> = {
   feeTypeBp: '费用类型 BP',
 }
 
+// M5-2 失败态类别 → 展示文案 + 底色档（assigneeUnresolved 走兜底黄，其余红）
+const FAILURE_LABELS: Record<string, string> = {
+  assigneeUnresolved: '处理人解析失败',
+  noBranchMatch: '无分支可走',
+  autoStageError: '自动节点异常',
+}
+
+function failureLabel(kind: string): string {
+  return FAILURE_LABELS[kind] || '推演异常'
+}
+
 function strategyLabel(strategy?: string | null): string {
   if (!strategy) return '未配置'
   return STRATEGY_LABELS[strategy] || strategy
@@ -225,6 +236,21 @@ async function runPreview() {
             :class="{ 'is-error': !!step.approver.error, 'is-fallback': !step.approver.error && !step.approver.approverNames.length }"
           >{{ approverText(step.approver) }}</span>
         </div>
+        <!-- M5-2 失败态推演标注：兜底继续为黄底，硬失败为红底；点"去配置"跳该节点 -->
+        <div
+          v-if="step.failure"
+          class="cf-path-preview__failure"
+          :class="step.failure.fallbackApplied ? 'is-fallback' : 'is-hard'"
+          @click.stop="step.stepType === 'stage' && emit('step-select', step.stageKey)"
+        >
+          <span class="cf-path-preview__failure-tag">{{ failureLabel(step.failure.kind) }}</span>
+          <span class="cf-path-preview__failure-msg">{{ step.failure.message }}</span>
+          <a
+            v-if="step.stepType === 'stage'"
+            class="cf-path-preview__failure-link"
+            @click.stop="emit('step-select', step.stageKey)"
+          >去配置</a>
+        </div>
         <div v-if="step.candidates?.length" class="cf-path-preview__candidates">
           <span
             v-for="candidate in step.candidates"
@@ -374,6 +400,53 @@ async function runPreview() {
     &.is-fallback {
       color: var(--color-warning);
     }
+  }
+}
+
+.cf-path-preview__failure {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+
+  &.is-hard {
+    border: 1px solid var(--color-danger-border);
+    background: var(--color-danger-light);
+  }
+
+  &.is-fallback {
+    border: 1px solid var(--color-warning);
+    background: var(--color-warning-light);
+  }
+
+  &-tag {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 600;
+
+    .is-hard & { color: var(--color-danger-text); }
+    .is-fallback & { color: var(--color-warning-text); }
+  }
+
+  &-msg {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    word-break: break-all;
+
+    .is-hard & { color: var(--color-danger-text); }
+    .is-fallback & { color: var(--color-warning-text); }
+  }
+
+  &-link {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--color-primary);
+    text-decoration: underline;
   }
 }
 

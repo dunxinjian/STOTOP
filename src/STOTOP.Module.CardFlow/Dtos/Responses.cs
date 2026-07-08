@@ -131,6 +131,18 @@ public class CardFlowPathPreviewStepDto
     public List<CardFlowPathPreviewCandidateDto> Candidates { get; set; } = new();
     /// <summary>人工节点处理人干跑结果（该节点将派给谁），非人工节点为 null</summary>
     public CardFlowPathPreviewApproverDto? Approver { get; set; }
+    /// <summary>该步失败态推演结果（处理人解析兜底 / 无分支可走 / 自动节点静态可预判失败），无失败为 null</summary>
+    public StepFailureDto? Failure { get; set; }
+}
+
+/// <summary>失败态推演标注：干跑遇失败不终止，按兜底/失败策略继续并记录此标注</summary>
+public class StepFailureDto
+{
+    /// <summary>失败类别：assigneeUnresolved（处理人解析失败并兜底）/ noBranchMatch（无匹配分支且无兜底）/ autoStageError（自动节点静态可预判失败）</summary>
+    public string Kind { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    /// <summary>是否已应用兜底继续推演</summary>
+    public bool FallbackApplied { get; set; }
 }
 
 /// <summary>路径预演的处理人解析干跑结果（复用运行时 ApproverResolver，样例数据驱动）</summary>

@@ -114,6 +114,22 @@ public sealed class CardFlowPathPreviewService : ICardFlowPathPreviewService
             if (string.Equals(current.FType, "human", StringComparison.OrdinalIgnoreCase))
             {
                 step.Approver = await ResolveApproverPreviewAsync(current, cardData, previewCard, request, version.FFlowSettingsJson, cancellationToken);
+
+                // 失败态推演①：处理人解析失败且触发兜底 → 标注但不终止，继续推演
+                if (step.Approver != null && !string.IsNullOrWhiteSpace(step.Approver.FallbackReason))
+                {
+                    step.Failure = new StepFailureDto
+                    {
+                        Kind = "assigneeUnresolved",
+                        Message = step.Approver.FallbackReason!,
+                        FallbackApplied = true
+                    };
+                }
+            }
+            // 自动节点：失败态推演③——静态可预判失败（未配插件/插件注册缺失/规则缺失或禁用），不真跑插件
+            else if (IsAutoStage(current))
+            {
+                step.Failure = await PredictAutoStageFailureAsync(current, cancellationToken);
             }
 
             var outgoing = routes
@@ -131,6 +147,13 @@ public sealed class CardFlowPathPreviewService : ICardFlowPathPreviewService
                 selectedRoute = SelectRoute(outgoing, context, step);
                 if (selectedRoute == null)
                 {
+                    // 失败态推演②：出边均不命中且无默认兜底 → 无路可走，流程在此结束（终点）
+                    step.Failure = new StepFailureDto
+                    {
+                        Kind = "noBranchMatch",
+                        Message = "无匹配分支且无兜底，流程在此结束",
+                        FallbackApplied = false
+                    };
                     result.Warnings.Add($"节点 {currentKey} 没有命中条件且缺少默认分支");
                     break;
                 }
@@ -165,6 +188,102 @@ public sealed class CardFlowPathPreviewService : ICardFlowPathPreviewService
 
         _ = _auditSnapshotPolicyService;
         return result;
+    }
+
+    // 兼容旧版 FType="batchAuto" 与新版 FType="auto"（口径同 FlowEngineService.IsBatchAutoStage）
+    private static bool IsAutoStage(CfStageDefinition stage)
+        => string.Equals(stage.FType, "auto", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(stage.FType, "batchAuto", StringComparison.OrdinalIgnoreCase);
+
+    // 失败态推演③：自动节点静态可预判失败——只查配置完整性（未配插件/插件注册缺失/规则缺失或禁用），
+    // 不真跑插件（诚实：运行时才知的失败不模拟）。无法静态预判则返回 null。
+    private async Task<StepFailureDto?> PredictAutoStageFailureAsync(
+        CfStageDefinition stage, CancellationToken cancellationToken)
+    {
+        var failurePolicyFallback = HasFailureFallback(stage.FFailurePolicyJson);
+
+        if (!stage.F插件注册ID.HasValue)
+        {
+            return new StepFailureDto
+            {
+                Kind = "autoStageError",
+                Message = "自动节点未配置插件（插件注册ID 为空），运行时将无法执行",
+                FallbackApplied = failurePolicyFallback
+            };
+        }
+
+        var registry = await _dbContext.Set<CfAutoPluginRegistry>()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.FID == stage.F插件注册ID.Value, cancellationToken);
+        if (registry == null)
+        {
+            return new StepFailureDto
+            {
+                Kind = "autoStageError",
+                Message = $"插件注册不存在（ID={stage.F插件注册ID}），运行时将无法执行",
+                FallbackApplied = failurePolicyFallback
+            };
+        }
+        if (registry.F状态 != 1)
+        {
+            return new StepFailureDto
+            {
+                Kind = "autoStageError",
+                Message = $"插件「{registry.F插件名称}」已禁用，运行时将无法执行",
+                FallbackApplied = failurePolicyFallback
+            };
+        }
+
+        if (stage.F插件规则ID.HasValue)
+        {
+            var rule = await _dbContext.Set<CfPluginRule>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(r => r.FID == stage.F插件规则ID.Value, cancellationToken);
+            if (rule == null)
+            {
+                return new StepFailureDto
+                {
+                    Kind = "autoStageError",
+                    Message = $"插件规则不存在（ID={stage.F插件规则ID}），运行时将无匹配规则",
+                    FallbackApplied = failurePolicyFallback
+                };
+            }
+            if (rule.F状态 != 1)
+            {
+                return new StepFailureDto
+                {
+                    Kind = "autoStageError",
+                    Message = $"插件规则「{rule.F规则名称}」已禁用，运行时将无匹配规则",
+                    FallbackApplied = failurePolicyFallback
+                };
+            }
+        }
+
+        // 配置完整，运行时是否成功依赖真实数据/插件执行，无法静态预判 → 不标注
+        return null;
+    }
+
+    // 失败策略是否含兜底：stuckWithNotify=true 或 maxRetry>0 视为已配兜底（口径同运行时 FailurePolicy）
+    private static bool HasFailureFallback(string? failurePolicyJson)
+    {
+        if (string.IsNullOrWhiteSpace(failurePolicyJson)) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(failurePolicyJson);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return false;
+            if (document.RootElement.TryGetProperty("stuckWithNotify", out var stuck)
+                && stuck.ValueKind == JsonValueKind.True)
+                return true;
+            if (document.RootElement.TryGetProperty("maxRetry", out var retry)
+                && retry.ValueKind == JsonValueKind.Number
+                && retry.TryGetInt32(out var maxRetry) && maxRetry > 0)
+                return true;
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private CfStageRouteRule? SelectRoute(

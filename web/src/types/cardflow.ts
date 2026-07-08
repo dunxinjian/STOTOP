@@ -1149,3 +1149,19 @@ export interface PublishFlowDefinitionResultDto {
   failedCount: number
   warnings: string[]
 }
+
+// ── M5-2 失败态推演（append-only，避免与主会话并发编辑冲突） ──
+/** 步骤失败态标注：干跑遇失败不终止，按兜底/失败策略推演继续（或标注为终点） */
+export interface StepFailureDto {
+  /** 失败类别：assigneeUnresolved（处理人解析失败并兜底）/ noBranchMatch（无匹配分支且无兜底）/ autoStageError（自动节点静态可预判失败） */
+  kind: 'assigneeUnresolved' | 'noBranchMatch' | 'autoStageError' | string
+  message: string
+  /** 是否已应用兜底继续推演 */
+  fallbackApplied: boolean
+}
+
+// 声明合并：给 CardFlowPathPreviewStepDto 追加 failure 字段（同模块同名接口自动合并，不改上方原有定义行）
+export interface CardFlowPathPreviewStepDto {
+  /** 该步失败态推演结果，无失败为 null */
+  failure?: StepFailureDto | null
+}
