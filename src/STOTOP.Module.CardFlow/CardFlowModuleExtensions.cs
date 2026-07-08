@@ -39,6 +39,7 @@ public static class CardFlowModuleExtensions
         services.AddScoped<IAuditSnapshotPolicyService, AuditSnapshotPolicyService>();
         services.AddScoped<ICardFlowPathPreviewService, CardFlowPathPreviewService>();
         services.AddScoped<IRouteHitEstimateService, RouteHitEstimateService>();
+        services.AddScoped<ISampleCardService, SampleCardService>();
         services.AddScoped<IFlowVersionMigrationService, FlowVersionMigrationService>();
         services.AddScoped<ICardFlowSourceContextVerifier, CardFlowSourceContextVerifier>();
         services.AddScoped<IApprovalModeHandler, ApprovalModeHandler>();

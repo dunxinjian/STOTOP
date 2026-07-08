@@ -1255,3 +1255,11 @@ export function getInflightSummary(id: number) {
 export function createDraftFromVersion(id: number, versionId: number) {
   return post<FlowVersionDetailDto>(`/cardflow/definitions/${id}/versions/${versionId}/create-draft`)
 }
+
+// ── M5-1 样例卡片（append-only，避免与主会话并发编辑冲突） ──
+import type { SampleCardDto } from '@/types/cardflow'
+
+/** 样例卡片：取该 definition 近 30 天卡片采样（≤20 张）供干跑代入，敏感字段脱敏（路由引用字段保留原值） */
+export function getSampleCards(id: number, keyword?: string) {
+  return get<SampleCardDto[]>(`/cardflow/definitions/${id}/sample-cards`, keyword ? { keyword } : undefined)
+}

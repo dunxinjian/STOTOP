@@ -166,6 +166,14 @@ public class CardFlowPathPreviewCandidateDto
     public List<string> TypeErrors { get; set; } = new();
 }
 
+/// <summary>M5-1 样例卡片：干跑代入用的历史卡片采样。dataJson 已脱敏（路由引用字段保留原值，避免路由推演失真）</summary>
+public class SampleCardDto
+{
+    public long CardId { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string DataJson { get; set; } = string.Empty;
+}
+
 public class AvailableFlowDto
 {
     public long Id { get; set; }

@@ -1165,3 +1165,10 @@ export interface CardFlowPathPreviewStepDto {
   /** 该步失败态推演结果，无失败为 null */
   failure?: StepFailureDto | null
 }
+
+/** M5-1 样例卡片：干跑代入用的历史卡片采样（敏感字段脱敏，路由引用字段保留原值） */
+export interface SampleCardDto {
+  cardId: number
+  title: string
+  dataJson: string
+}

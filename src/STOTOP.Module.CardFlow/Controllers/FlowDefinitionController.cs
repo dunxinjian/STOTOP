@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using STOTOP.Core.Models;
 using STOTOP.Module.CardFlow.Dtos;
 using STOTOP.Module.CardFlow.Services.Interfaces;
+using STOTOP.Module.System.Filters;
 
 namespace STOTOP.Module.CardFlow.Controllers;
 
@@ -15,15 +16,18 @@ public class FlowDefinitionController : ControllerBase
     private readonly IFlowDefinitionService _service;
     private readonly ICardFlowPathPreviewService _pathPreviewService;
     private readonly IFlowVersionMigrationService _migrationService;
+    private readonly ISampleCardService _sampleCardService;
 
     public FlowDefinitionController(
         IFlowDefinitionService service,
         ICardFlowPathPreviewService pathPreviewService,
-        IFlowVersionMigrationService migrationService)
+        IFlowVersionMigrationService migrationService,
+        ISampleCardService sampleCardService)
     {
         _service = service;
         _pathPreviewService = pathPreviewService;
         _migrationService = migrationService;
+        _sampleCardService = sampleCardService;
     }
 
     private long GetUserId() => long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
@@ -250,6 +254,15 @@ public class FlowDefinitionController : ControllerBase
         {
             return ApiResult<CardFlowPathPreviewDto>.Fail(ex.Message);
         }
+    }
+
+    /// <summary>M5-1 样例卡片：取该 definition 近 30 天卡片采样供干跑代入（敏感字段脱敏，路由引用字段保留原值）</summary>
+    [HttpGet("{id}/sample-cards")]
+    [RequirePermission("cardflow:definition:view")]
+    public async Task<ApiResult<List<SampleCardDto>>> GetSampleCards(long id, [FromQuery] string? keyword = null)
+    {
+        var result = await _sampleCardService.GetSampleCardsAsync(id, keyword, HttpContext.RequestAborted);
+        return ApiResult<List<SampleCardDto>>.Success(result);
     }
 
     /// <summary>

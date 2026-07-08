@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { previewFlowDraftPath } from '@/api/cardflow'
+import { previewFlowDraftPath, getSampleCards } from '@/api/cardflow'
 import { normalizeOptionList } from '@/utils/cardflowFieldFormat'
 import UserSelect from '@/components/cardflow/fields/UserSelect.vue'
 import OrgSelect from '@/components/cardflow/fields/OrgSelect.vue'
-import type { CardFlowPathPreviewDto, CardFlowPathPreviewStepDto, SchemaFieldDefinition } from '@/types/cardflow'
+import type { CardFlowPathPreviewDto, CardFlowPathPreviewStepDto, SampleCardDto, SchemaFieldDefinition } from '@/types/cardflow'
 
 const props = defineProps<{
   flowDefinitionId?: number | null
@@ -90,6 +90,73 @@ watch(previewFields, (fields) => {
   }
 }, { immediate: true, deep: true })
 
+// M5-1 样例值三来源：手动填写 / 取历史卡片 / 随机生成
+const sampleSource = ref<'manual' | 'history' | 'random'>('manual')
+
+// —— 取历史卡片 ——
+const historyKeyword = ref('')
+const historyLoading = ref(false)
+const historyCards = ref<SampleCardDto[]>([])
+const missingFieldKeys = ref<string[]>([])
+
+async function searchHistoryCards() {
+  if (!props.flowDefinitionId) {
+    message.warning('请先保存流程草稿后再取历史卡片')
+    return
+  }
+  historyLoading.value = true
+  try {
+    historyCards.value = await getSampleCards(props.flowDefinitionId, historyKeyword.value.trim() || undefined)
+    if (!historyCards.value.length) message.info('近 30 天没有匹配的历史卡片')
+  } catch (e) {
+    console.error('[PathPreview] 取历史卡片失败:', e)
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+// 选一张历史卡片 → dataJson 代入样例字段（跨版本缺字段标黄提示）
+function applyHistoryCard(card: SampleCardDto) {
+  let parsed: Record<string, any> = {}
+  try {
+    parsed = JSON.parse(card.dataJson) || {}
+  } catch {
+    message.warning('该卡片数据格式异常，无法代入')
+    return
+  }
+  const missing: string[] = []
+  for (const field of previewFields.value) {
+    if (field.key in parsed) {
+      sampleData[field.key] = parsed[field.key]
+    } else {
+      missing.push(field.label || field.key)
+    }
+  }
+  missingFieldKeys.value = missing
+  message.success(`已代入「${card.title}」的样例数据`)
+}
+
+// —— 随机生成（前端按字段类型生成合法值，无需后端） ——
+function randomValueOf(field: SchemaFieldDefinition): any {
+  const type = String(field.type)
+  if (field.type === 'money' || type === 'number') return Math.floor(Math.random() * 10000)
+  if (field.type === 'enum') {
+    const opts = normalizeOptionList(field.options)
+    if (opts.length) return opts[Math.floor(Math.random() * opts.length)].value
+    return undefined
+  }
+  if (field.type === 'date') return new Date().toISOString().slice(0, 10)
+  return `样例-${Math.floor(Math.random() * 1000)}`
+}
+
+function generateRandomSample() {
+  for (const field of previewFields.value) {
+    sampleData[field.key] = randomValueOf(field)
+  }
+  missingFieldKeys.value = []
+  message.success('已随机生成样例数据')
+}
+
 const loading = ref(false)
 const result = ref<CardFlowPathPreviewDto | null>(null)
 
@@ -147,6 +214,45 @@ async function runPreview() {
         预演路径
       </a-button>
     </header>
+
+    <!-- M5-1 样例值三来源 -->
+    <div class="cf-path-preview__source">
+      <a-radio-group v-model:value="sampleSource" size="small" button-style="solid" :disabled="disabled">
+        <a-radio-button value="manual">手动填写</a-radio-button>
+        <a-radio-button value="history">取历史卡片</a-radio-button>
+        <a-radio-button value="random">随机生成</a-radio-button>
+      </a-radio-group>
+      <a-button
+        v-if="sampleSource === 'random'"
+        size="small"
+        :disabled="disabled || !previewFields.length"
+        @click="generateRandomSample"
+      >生成一组</a-button>
+    </div>
+
+    <!-- 取历史卡片：搜索 + 列表选取 -->
+    <div v-if="sampleSource === 'history'" class="cf-path-preview__history">
+      <a-input-search
+        v-model:value="historyKeyword"
+        placeholder="按标题 / 单号搜索近 30 天卡片"
+        size="small"
+        :loading="historyLoading"
+        :disabled="disabled"
+        @search="searchHistoryCards"
+      />
+      <div v-if="historyCards.length" class="cf-path-preview__history-list">
+        <button
+          v-for="card in historyCards"
+          :key="card.cardId"
+          type="button"
+          class="cf-path-preview__history-item"
+          @click="applyHistoryCard(card)"
+        >{{ card.title }}</button>
+      </div>
+      <div v-if="missingFieldKeys.length" class="cf-path-preview__history-missing">
+        以下字段在该历史卡片中缺失，未代入：{{ missingFieldKeys.join('、') }}
+      </div>
+    </div>
 
     <div class="cf-path-preview__form">
       <label>
@@ -284,6 +390,51 @@ async function runPreview() {
 
   strong { color: var(--text-1); font-size: 14px; }
   span { margin-top: 2px; color: var(--text-2); font-size: 12px; }
+}
+
+.cf-path-preview__source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cf-path-preview__history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-muted);
+}
+
+.cf-path-preview__history-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.cf-path-preview__history-item {
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-1);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+
+  &:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+  }
+}
+
+.cf-path-preview__history-missing {
+  font-size: 12px;
+  color: var(--color-warning-text);
 }
 
 .cf-path-preview__form {
