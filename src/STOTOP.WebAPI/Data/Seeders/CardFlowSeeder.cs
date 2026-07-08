@@ -91,6 +91,7 @@ public static class CardFlowSeeder
             new(67, "极兔收支双列对齐(照韵达V65): STG极兔总部交易明细 加 F发生额收入/F发生额支出(money) + 导入规则3140 收支派生(columnMapping多映+decimalFields+transformRules符号拆分:加款正=收入/扣款负=支出取绝对值) + 回填存量 (2026-07-04)", MigrateV67),
             new(68, "M2-7 节点超时提醒: CF节点执行实例 加 F超时提醒时间(datetime2 null, StageTimeoutReminderJob 一级提醒幂等标记) (2026-07-08)", MigrateV68),
             new(69, "M6-#4 版本迁移日志: 建 CF版本迁移日志(发布 migrate 策略下被删节点在途卡片逐张迁移台账, ITenantScoped+IOrgScoped) (2026-07-08)", MigrateV69),
+            new(70, "M7-1 编辑锁: 建 CF定义编辑锁(单定义单锁 F定义ID 唯一键, 心跳续期+接管请求内联, ITenantScoped+IOrgScoped) (2026-07-08)", MigrateV70),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -286,6 +287,34 @@ public static class CardFlowSeeder
             CREATE INDEX [IX_CF版本迁移日志_卡片] ON [CF版本迁移日志]([F卡片ID]);
         IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_CF版本迁移日志_租户ID')
             CREATE INDEX [IX_CF版本迁移日志_租户ID] ON [CF版本迁移日志]([F租户ID]);");
+    }
+
+    /// <summary>V70：建 CF定义编辑锁（M7-1 / 设计 E7）。
+    /// 单定义至多一行（F定义ID 唯一键），心跳续期 30s/超时 120s 释放，接管请求内联（全局唯一）。
+    /// ITenantScoped+IOrgScoped：组织/租户归属跟随流程定义，走 DbContext 组合过滤器硬墙。</summary>
+    private static void MigrateV70(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = N'CF定义编辑锁')
+        CREATE TABLE [CF定义编辑锁] (
+            [FID] BIGINT IDENTITY(1,1) PRIMARY KEY,
+            [F租户ID] BIGINT NOT NULL DEFAULT 0,
+            [F组织ID] BIGINT NOT NULL DEFAULT 0,
+            [F定义ID] BIGINT NOT NULL,
+            [F持锁人ID] BIGINT NOT NULL,
+            [F持锁人姓名] NVARCHAR(80) NOT NULL DEFAULT (''),
+            [F获取时间] DATETIME2 NOT NULL DEFAULT GETDATE(),
+            [F心跳时间] DATETIME2 NOT NULL DEFAULT GETDATE(),
+            [F接管申请人ID] BIGINT NULL,
+            [F接管申请人姓名] NVARCHAR(80) NULL,
+            [F接管申请时间] DATETIME2 NULL
+        );
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_CF定义编辑锁_定义')
+            CREATE UNIQUE INDEX [UX_CF定义编辑锁_定义] ON [CF定义编辑锁]([F定义ID]);
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_CF定义编辑锁_租户ID')
+            CREATE INDEX [IX_CF定义编辑锁_租户ID] ON [CF定义编辑锁]([F租户ID]);");
     }
 
     // ══════════════════════════════════════════════════════════════════════
