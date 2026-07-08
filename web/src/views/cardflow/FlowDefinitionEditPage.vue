@@ -45,6 +45,7 @@ import FieldPermissionMatrix from '@/components/cardflow/designer/FieldPermissio
 import RouteRuleCardEditor from '@/components/cardflow/designer/RouteRuleCardEditor.vue'
 import DynamicApprovalPolicyEditor from '@/components/cardflow/designer/DynamicApprovalPolicyEditor.vue'
 import PublishConfirmModal from '@/components/cardflow/designer/PublishConfirmModal.vue'
+import VersionHistoryDrawer from '@/components/cardflow/designer/VersionHistoryDrawer.vue'
 import type { VersionSnapshot } from '@/utils/flowVersionDiff'
 import PathPreviewPanel from '@/components/cardflow/designer/PathPreviewPanel.vue'
 import RuleHealthPanel from '@/components/cardflow/designer/RuleHealthPanel.vue'
@@ -1595,6 +1596,7 @@ const publishNewSnapshot = computed<VersionSnapshot>(() => ({
 
 const publishOldSnapshot = ref<VersionSnapshot | null>(null)
 const publishModalOpen = ref(false)
+const versionHistoryOpen = ref(false)
 
 /** 发布门禁错误/警告计数（错误取自诊断 error 级，警告取自诊断 warning + 发布配置风险项） */
 const publishErrorCount = computed(() => stageDiagnostics.value.filter(i => i.level === 'error').length)
@@ -1850,6 +1852,10 @@ function goBack() {
         <a-button @click="handleSaveDraft">
           <template #icon><SaveOutlined /></template>
           保存草稿
+        </a-button>
+        <a-button v-if="!isNew" @click="versionHistoryOpen = true">
+          <template #icon><RollbackOutlined /></template>
+          版本历史
         </a-button>
         <a-button :type="previewWorkbenchOpen ? 'primary' : 'default'" :ghost="previewWorkbenchOpen" @click="openPreview">
           <template #icon><EyeOutlined /></template>
@@ -2950,6 +2956,13 @@ function goBack() {
       :warning-count="publishWarningCount"
       :publishing="publishing"
       @confirm="doPublish"
+    />
+
+    <VersionHistoryDrawer
+      v-model:open="versionHistoryOpen"
+      :definition-id="flowId ?? undefined"
+      :has-draft="!!draftVersionNumber"
+      @rolled-back="reloadFlowDefinition"
     />
   </div>
 </template>
