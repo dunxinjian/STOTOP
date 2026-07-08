@@ -22,11 +22,9 @@ public class PublishFlowDefinitionRequest
     public string? InflightPolicy { get; set; }
 }
 
-/// <summary>发布结果（含在途迁移统计）</summary>
+/// <summary>发布结果（含在途迁移统计；keepOld 时各计数为 0）</summary>
 public class PublishFlowDefinitionResultDto
 {
-    public long VersionId { get; set; }
-    public int VersionNumber { get; set; }
     public string InflightPolicy { get; set; } = "keepOld";
     public int MigratedCount { get; set; }
     public int SkippedCount { get; set; }

@@ -14,13 +14,16 @@ public class FlowDefinitionController : ControllerBase
 {
     private readonly IFlowDefinitionService _service;
     private readonly ICardFlowPathPreviewService _pathPreviewService;
+    private readonly IFlowVersionMigrationService _migrationService;
 
     public FlowDefinitionController(
         IFlowDefinitionService service,
-        ICardFlowPathPreviewService pathPreviewService)
+        ICardFlowPathPreviewService pathPreviewService,
+        IFlowVersionMigrationService migrationService)
     {
         _service = service;
         _pathPreviewService = pathPreviewService;
+        _migrationService = migrationService;
     }
 
     private long GetUserId() => long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
@@ -84,16 +87,23 @@ public class FlowDefinitionController : ControllerBase
     }
 
     [HttpPost("{id}/publish")]
-    public async Task<ApiResult> Publish(long id)
+    public async Task<ApiResult<PublishFlowDefinitionResultDto>> Publish(long id, [FromBody] PublishFlowDefinitionRequest? request = null)
     {
         try
         {
             await _service.PublishAsync(id, GetUserId());
-            return ApiResult.Ok("发布成功");
+            // 在途卡片策略：keepOld（默认）= 旧版走完；migrate = 迁移被删节点上的在途卡片
+            var policy = request?.InflightPolicy;
+            if (string.Equals(policy, "migrate", StringComparison.OrdinalIgnoreCase))
+            {
+                var migrated = await _migrationService.MigrateInflightCardsAsync(id, GetUserId());
+                return ApiResult<PublishFlowDefinitionResultDto>.Success(migrated);
+            }
+            return ApiResult<PublishFlowDefinitionResultDto>.Success(new PublishFlowDefinitionResultDto { InflightPolicy = "keepOld" });
         }
         catch (InvalidOperationException ex)
         {
-            return ApiResult.Fail(ex.Message);
+            return ApiResult<PublishFlowDefinitionResultDto>.Fail(ex.Message);
         }
     }
 

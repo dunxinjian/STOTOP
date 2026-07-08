@@ -90,6 +90,7 @@ public static class CardFlowSeeder
             new(66, "申通经营单元补齐(修缺陷1): STG申通总部交易明细 加 F归属网点编号列+网点编号→经营单元回填; 导入规则3130 加 网点→经营单元 transformRules; 自动凭证规则3131 164损益行加 business_unit(matchBy contains) — 与极兔/韵达口径统一 (2026-07-04)", MigrateV66),
             new(67, "极兔收支双列对齐(照韵达V65): STG极兔总部交易明细 加 F发生额收入/F发生额支出(money) + 导入规则3140 收支派生(columnMapping多映+decimalFields+transformRules符号拆分:加款正=收入/扣款负=支出取绝对值) + 回填存量 (2026-07-04)", MigrateV67),
             new(68, "M2-7 节点超时提醒: CF节点执行实例 加 F超时提醒时间(datetime2 null, StageTimeoutReminderJob 一级提醒幂等标记) (2026-07-08)", MigrateV68),
+            new(69, "M6-#4 版本迁移日志: 建 CF版本迁移日志(发布 migrate 策略下被删节点在途卡片逐张迁移台账, ITenantScoped+IOrgScoped) (2026-07-08)", MigrateV69),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -255,6 +256,36 @@ public static class CardFlowSeeder
         if (!SeederHelper.IsSqlServer(ctx)) return;
 
         ExecSql(ctx, @"IF COL_LENGTH(N'CF节点执行实例', N'F超时提醒时间') IS NULL ALTER TABLE [CF节点执行实例] ADD [F超时提醒时间] DATETIME2 NULL;");
+    }
+
+    /// <summary>V69：建 CF版本迁移日志（M6 #4）。发布 migrate 策略下逐张记录被删节点在途卡片的迁移结果。
+    /// 列名与 CfVersionMigrationLogConfiguration 映射一致（F组织ID/F租户ID 走组合过滤器）。</summary>
+    private static void MigrateV69(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = N'CF版本迁移日志')
+        CREATE TABLE [CF版本迁移日志] (
+            [FID] BIGINT IDENTITY(1,1) PRIMARY KEY,
+            [F租户ID] BIGINT NOT NULL DEFAULT 0,
+            [F组织ID] BIGINT NOT NULL DEFAULT 0,
+            [F定义ID] BIGINT NOT NULL,
+            [F卡片ID] BIGINT NOT NULL,
+            [F旧版本ID] BIGINT NOT NULL,
+            [F新版本ID] BIGINT NOT NULL,
+            [F旧节点Key] NVARCHAR(80) NULL,
+            [F新节点Key] NVARCHAR(80) NULL,
+            [F结果] NVARCHAR(30) NOT NULL DEFAULT (''),
+            [F消息] NVARCHAR(500) NULL,
+            [F创建时间] DATETIME2 NOT NULL DEFAULT GETDATE()
+        );
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_CF版本迁移日志_定义')
+            CREATE INDEX [IX_CF版本迁移日志_定义] ON [CF版本迁移日志]([F定义ID]);
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_CF版本迁移日志_卡片')
+            CREATE INDEX [IX_CF版本迁移日志_卡片] ON [CF版本迁移日志]([F卡片ID]);
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_CF版本迁移日志_租户ID')
+            CREATE INDEX [IX_CF版本迁移日志_租户ID] ON [CF版本迁移日志]([F租户ID]);");
     }
 
     // ══════════════════════════════════════════════════════════════════════
