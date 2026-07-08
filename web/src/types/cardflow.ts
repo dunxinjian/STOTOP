@@ -1172,3 +1172,25 @@ export interface SampleCardDto {
   title: string
   dataJson: string
 }
+
+/** M5-3 凭证试算请求 */
+export interface VoucherPreviewRequest {
+  stageKey?: string
+  cardDataJson?: string
+  flowVersionId?: number | null
+}
+
+/** M5-3 凭证试算分录 */
+export interface VoucherPreviewEntryDto {
+  accountName: string
+  /** 方向：debit（借）/ credit（贷） */
+  direction: 'debit' | 'credit' | string
+  amount: number
+}
+
+/** M5-3 凭证试算预览：success=false 时为诚实降级（真试算需运行时上下文），entries 为空 */
+export interface VoucherPreviewDto {
+  success: boolean
+  message: string
+  entries: VoucherPreviewEntryDto[]
+}

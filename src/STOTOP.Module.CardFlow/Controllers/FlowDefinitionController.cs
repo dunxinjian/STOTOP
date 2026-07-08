@@ -17,17 +17,20 @@ public class FlowDefinitionController : ControllerBase
     private readonly ICardFlowPathPreviewService _pathPreviewService;
     private readonly IFlowVersionMigrationService _migrationService;
     private readonly ISampleCardService _sampleCardService;
+    private readonly IVoucherPreviewService _voucherPreviewService;
 
     public FlowDefinitionController(
         IFlowDefinitionService service,
         ICardFlowPathPreviewService pathPreviewService,
         IFlowVersionMigrationService migrationService,
-        ISampleCardService sampleCardService)
+        ISampleCardService sampleCardService,
+        IVoucherPreviewService voucherPreviewService)
     {
         _service = service;
         _pathPreviewService = pathPreviewService;
         _migrationService = migrationService;
         _sampleCardService = sampleCardService;
+        _voucherPreviewService = voucherPreviewService;
     }
 
     private long GetUserId() => long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
@@ -263,6 +266,15 @@ public class FlowDefinitionController : ControllerBase
     {
         var result = await _sampleCardService.GetSampleCardsAsync(id, keyword, HttpContext.RequestAborted);
         return ApiResult<List<SampleCardDto>>.Success(result);
+    }
+
+    /// <summary>M5-3 凭证试算：自动凭证节点 + 样例卡片数据 → 借贷分录预览（真试算需运行时上下文时诚实降级 success=false）</summary>
+    [HttpPost("{id}/draft-version/preview-voucher")]
+    [RequirePermission("cardflow:definition:view")]
+    public async Task<ApiResult<VoucherPreviewDto>> PreviewVoucher(long id, [FromBody] VoucherPreviewRequest request)
+    {
+        var result = await _voucherPreviewService.PreviewVoucherAsync(id, request, HttpContext.RequestAborted);
+        return ApiResult<VoucherPreviewDto>.Success(result);
     }
 
     /// <summary>

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { previewFlowDraftPath, getSampleCards } from '@/api/cardflow'
+import { previewFlowDraftPath, getSampleCards, previewVoucher } from '@/api/cardflow'
 import { normalizeOptionList } from '@/utils/cardflowFieldFormat'
 import UserSelect from '@/components/cardflow/fields/UserSelect.vue'
 import OrgSelect from '@/components/cardflow/fields/OrgSelect.vue'
-import type { CardFlowPathPreviewDto, CardFlowPathPreviewStepDto, SampleCardDto, SchemaFieldDefinition } from '@/types/cardflow'
+import type { CardFlowPathPreviewDto, CardFlowPathPreviewStepDto, SampleCardDto, VoucherPreviewDto, SchemaFieldDefinition } from '@/types/cardflow'
 
 const props = defineProps<{
   flowDefinitionId?: number | null
@@ -201,6 +201,42 @@ async function runPreview() {
     loading.value = false
   }
 }
+
+// M5-3 凭证试算：自动节点步骤按需展开试算借贷分录（真试算需运行时上下文时后端诚实降级 success=false）
+const voucherByStageKey = reactive<Record<string, VoucherPreviewDto>>({})
+const voucherLoadingKey = ref('')
+
+// 自动节点（非动态策略步）才可能有凭证试算
+function isAutoVoucherStep(step: CardFlowPathPreviewStepDto): boolean {
+  return step.stepType === 'stage'
+    && (String(step.type) === 'auto' || String(step.type) === 'batchAuto')
+}
+
+async function tryPreviewVoucher(step: CardFlowPathPreviewStepDto) {
+  if (!props.flowDefinitionId) {
+    message.warning('请先保存流程草稿后再试算凭证')
+    return
+  }
+  voucherLoadingKey.value = step.stageKey
+  try {
+    const payload: Record<string, any> = {}
+    for (const [key, value] of Object.entries(sampleData)) {
+      if (value !== undefined && value !== null && value !== '') payload[key] = value
+    }
+    voucherByStageKey[step.stageKey] = await previewVoucher(props.flowDefinitionId, {
+      stageKey: step.stageKey,
+      cardDataJson: JSON.stringify(payload),
+    })
+  } catch (e) {
+    console.error('[PathPreview] 凭证试算失败:', e)
+  } finally {
+    voucherLoadingKey.value = ''
+  }
+}
+
+function directionLabel(direction: string): string {
+  return direction === 'debit' ? '借' : direction === 'credit' ? '贷' : direction
+}
 </script>
 
 <template>
@@ -365,6 +401,33 @@ async function runPreview() {
           >
             {{ candidate.routeName }}：{{ candidate.explanation }}
           </span>
+        </div>
+        <!-- M5-3 凭证试算：自动凭证节点按需展开借贷分录预览 -->
+        <div v-if="isAutoVoucherStep(step)" class="cf-path-preview__voucher">
+          <a-button
+            size="small"
+            :loading="voucherLoadingKey === step.stageKey"
+            @click.stop="tryPreviewVoucher(step)"
+          >试算凭证</a-button>
+          <div v-if="voucherByStageKey[step.stageKey]" class="cf-path-preview__voucher-body">
+            <div
+              v-if="voucherByStageKey[step.stageKey].entries.length"
+              class="cf-path-preview__voucher-entries"
+            >
+              <div
+                v-for="(entry, ei) in voucherByStageKey[step.stageKey].entries"
+                :key="ei"
+                class="cf-path-preview__voucher-entry"
+              >
+                <span class="cf-path-preview__voucher-dir">{{ directionLabel(entry.direction) }}</span>
+                <span class="cf-path-preview__voucher-acct">{{ entry.accountName }}</span>
+                <span class="cf-path-preview__voucher-amt">{{ entry.amount }}</span>
+              </div>
+            </div>
+            <div v-else class="cf-path-preview__voucher-note">
+              {{ voucherByStageKey[step.stageKey].message }}
+            </div>
+          </div>
         </div>
       </article>
     </div>
@@ -633,5 +696,56 @@ async function runPreview() {
     color: var(--color-primary);
     font-weight: 600;
   }
+}
+
+.cf-path-preview__voucher {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cf-path-preview__voucher-body {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-muted);
+}
+
+.cf-path-preview__voucher-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cf-path-preview__voucher-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.cf-path-preview__voucher-dir {
+  flex-shrink: 0;
+  width: 16px;
+  color: var(--text-3);
+}
+
+.cf-path-preview__voucher-acct {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-1);
+  word-break: break-all;
+}
+
+.cf-path-preview__voucher-amt {
+  flex-shrink: 0;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.cf-path-preview__voucher-note {
+  font-size: 12px;
+  color: var(--text-2);
 }
 </style>

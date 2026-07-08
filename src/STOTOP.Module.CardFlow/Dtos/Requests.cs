@@ -200,6 +200,14 @@ public class CardPresentationPreviewRequest
     public string? ViewerMode { get; set; }
 }
 
+/// <summary>M5-3 凭证试算请求：草稿节点 + 样例卡片数据 → 借贷分录预览</summary>
+public class VoucherPreviewRequest
+{
+    public string? StageKey { get; set; }
+    public string? CardDataJson { get; set; }
+    public long? FlowVersionId { get; set; }
+}
+
 // 卡片请求
 public class CardQueryRequest
 {

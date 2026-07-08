@@ -174,6 +174,22 @@ public class SampleCardDto
     public string DataJson { get; set; } = string.Empty;
 }
 
+/// <summary>M5-3 凭证试算预览（设计 E2）：自动凭证节点借贷分录预览。诚实降级时 success=false 且 entries 为空。</summary>
+public class VoucherPreviewDto
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public List<VoucherPreviewEntryDto> Entries { get; set; } = new();
+}
+
+public class VoucherPreviewEntryDto
+{
+    public string AccountName { get; set; } = string.Empty;
+    /// <summary>方向：debit（借）/ credit（贷）</summary>
+    public string Direction { get; set; } = string.Empty;
+    public decimal Amount { get; set; }
+}
+
 public class AvailableFlowDto
 {
     public long Id { get; set; }

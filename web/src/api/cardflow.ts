@@ -1263,3 +1263,11 @@ import type { SampleCardDto } from '@/types/cardflow'
 export function getSampleCards(id: number, keyword?: string) {
   return get<SampleCardDto[]>(`/cardflow/definitions/${id}/sample-cards`, keyword ? { keyword } : undefined)
 }
+
+// ── M5-3 凭证试算（append-only，避免与主会话并发编辑冲突） ──
+import type { VoucherPreviewDto, VoucherPreviewRequest } from '@/types/cardflow'
+
+/** 凭证试算：自动凭证节点 + 样例卡片数据 → 借贷分录预览（真试算需运行时上下文时 success=false 降级） */
+export function previewVoucher(id: number, data: VoucherPreviewRequest) {
+  return post<VoucherPreviewDto>(`/cardflow/definitions/${id}/draft-version/preview-voucher`, data)
+}
