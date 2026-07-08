@@ -61,7 +61,8 @@ const assigneeText = computed(() => {
   <div
     class="cfd-node"
     :class="[kindClass, { 'is-selected': selected, 'is-hit': hit }]"
-    role="button"
+    role="treeitem"
+    :aria-selected="selected"
     tabindex="0"
     :aria-label="`${stage.type === 'auto' ? '自动处理节点' : '审批节点'} ${stage.name || '未命名'}${issueCount ? `，${issueCount} 个问题` : ''}，按 Enter 编辑，按 Delete 删除`"
     @click="emit('select')"

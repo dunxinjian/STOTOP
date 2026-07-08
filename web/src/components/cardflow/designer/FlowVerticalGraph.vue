@@ -65,6 +65,23 @@ const stageById = computed(() => new Map(props.stages.map((s) => [s.id, s])))
 const routeByEdge = computed(() => new Map(props.routes.map((r) => [r.edgeKey, r])))
 const hitSet = computed(() => new Set(props.hitStageKeys ?? []))
 
+/** 键盘导航（M7-4/D8）：↑↓ 在可聚焦节点/分支头间移动 roving focus */
+function onGraphKeydown(e: KeyboardEvent) {
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+  const root = e.currentTarget as HTMLElement
+  const focusables = Array.from(
+    root.querySelectorAll<HTMLElement>('.cfd-node[tabindex="0"], .cfd-branch-head[tabindex="0"]'),
+  )
+  if (!focusables.length) return
+  const active = document.activeElement as HTMLElement
+  const idx = focusables.indexOf(active)
+  e.preventDefault()
+  const next = e.key === 'ArrowDown'
+    ? focusables[Math.min(idx + 1, focusables.length - 1)] ?? focusables[0]
+    : focusables[Math.max(idx - 1, 0)] ?? focusables[0]
+  next.focus()
+}
+
 // ==================== "+" 插入菜单 ====================
 
 const openMenuAnchor = ref<string | null>(null)
@@ -220,7 +237,13 @@ function askDeleteStage(stageId: string) {
 </script>
 
 <template>
-  <div class="cfd-graph" @click.self="openMenuAnchor = null">
+  <div
+    class="cfd-graph"
+    role="tree"
+    aria-label="流程节点树，方向键在节点间移动，Enter 编辑，Delete 删除"
+    @click.self="openMenuAnchor = null"
+    @keydown="onGraphKeydown"
+  >
     <!-- 起点（隐含节点，不在 stages 中；发起范围/代提交/重提走向属二期，诚实呈现不出假配置） -->
     <a-popover placement="right" trigger="click">
       <template #content>
