@@ -245,6 +245,16 @@ export interface CardFlowPathPreviewCandidateDto {
   typeErrors: string[]
 }
 
+/** 路由条件命中率试算结果（近 30 天采样 ≤500 张卡片干跑，设计 B4/E6） */
+export interface RouteHitEstimateDto {
+  /** 采样卡片总数（0 = 无历史冷启动） */
+  total: number
+  /** 条件引用字段全部有值的卡片数（< total 时降级"历史覆盖不全"黄态） */
+  withValue: number
+  /** 命中数 */
+  hit: number
+}
+
 export interface StageDefinitionRequest {
   stageKey?: string | null
   name: string

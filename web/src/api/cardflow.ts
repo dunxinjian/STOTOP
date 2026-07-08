@@ -10,6 +10,7 @@ import type {
   SaveDraftVersionRequest,
   CardFlowPathPreviewRequest,
   CardFlowPathPreviewDto,
+  RouteHitEstimateDto,
   CardPresentationPreviewRequest,
   CardPresentationPreviewDto,
   CardListDto,
@@ -175,6 +176,11 @@ export function discardFlowDraftVersion(id: number) {
 /** 预演草稿流程路径 */
 export function previewFlowDraftPath(id: number, data: CardFlowPathPreviewRequest) {
   return post<CardFlowPathPreviewDto>(`/cardflow/definitions/${id}/draft-version/preview-path`, data)
+}
+
+/** 路由条件命中率试算：近 30 天采样 ≤500 张卡片干跑条件（B4/E6） */
+export function estimateRouteHit(id: number, conditionJson: string) {
+  return post<RouteHitEstimateDto>(`/cardflow/definitions/${id}/route-hit-estimate`, { conditionJson })
 }
 
 /** 设计期呈现预览：草稿定义 + 样例数据 → 后端真值节点工作视图（替代前端复刻 access/脱敏/聚合） */

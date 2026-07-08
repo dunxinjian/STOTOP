@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { PlusOutlined, DeleteOutlined, SubnodeOutlined } from '@ant-design/icons-vue'
-import type { SchemaEnumOption } from '@/types/cardflow'
+import type { RouteHitEstimateDto, SchemaEnumOption } from '@/types/cardflow'
+import { estimateRouteHit } from '@/api/cardflow'
 import { normalizeOptionList } from '@/utils/cardflowFieldFormat'
 import UserSelect from '@/components/cardflow/fields/UserSelect.vue'
 import OrgSelect from '@/components/cardflow/fields/OrgSelect.vue'
@@ -14,6 +15,7 @@ import {
   getDisabledReason,
   isTypeConditionable,
   isGroupNode,
+  sanitizeConditionGroup,
 } from './conditionBuilderShared'
 
 // ==================== 类型定义 ====================
@@ -41,6 +43,8 @@ interface Props {
   modelValue: ConditionGroup
   fields: FieldOption[]
   disabled?: boolean
+  /** 流程定义 ID：传入后条件变化时防抖调用命中率试算端点（B4/E6） */
+  definitionId?: number
   /** 内部使用：嵌套层级 */
   _depth?: number
 }
@@ -305,6 +309,73 @@ const usedTypeHints = computed(() => {
     label: CONDITION_TYPE_LABELS[type] || type,
     ops: getOperatorsForType(type).map((op) => op.label).join(' '),
   }))
+})
+
+// ==================== 命中率试算（B4/E6，仅顶层且传入 definitionId 时启用） ====================
+
+const ESTIMATE_DEBOUNCE_MS = 800
+
+type EstimateState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'ready'; data: RouteHitEstimateDto }
+
+const estimateState = ref<EstimateState>({ kind: 'idle' })
+let estimateTimer: ReturnType<typeof setTimeout> | null = null
+let estimateSeq = 0
+
+const estimateEnabled = computed(() => props._depth === 0 && !!props.definitionId && !props.disabled)
+
+watch(
+  () => (estimateEnabled.value ? JSON.stringify(sanitizeConditionGroup(group.value)) : null),
+  (json) => {
+    if (estimateTimer) clearTimeout(estimateTimer)
+    if (!estimateEnabled.value || !json || json === 'null') {
+      estimateState.value = { kind: 'idle' }
+      return
+    }
+    estimateTimer = setTimeout(() => void runEstimate(json), ESTIMATE_DEBOUNCE_MS)
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  if (estimateTimer) clearTimeout(estimateTimer)
+})
+
+async function runEstimate(conditionJson: string) {
+  const seq = ++estimateSeq
+  estimateState.value = { kind: 'loading' }
+  try {
+    const data = await estimateRouteHit(props.definitionId!, conditionJson)
+    if (seq === estimateSeq) estimateState.value = { kind: 'ready', data }
+  } catch {
+    // 试算是辅助信息，失败静默回 idle 不打扰编辑
+    if (seq === estimateSeq) estimateState.value = { kind: 'idle' }
+  }
+}
+
+/** 三态降级视图模型（E6）：full 青 / partial 黄 / empty 灰；0%/100% 极值标红 */
+const estimateView = computed(() => {
+  if (estimateState.value.kind !== 'ready') return null
+  const { total, withValue, hit } = estimateState.value.data
+  if (total === 0) {
+    return { tone: 'empty' as const, text: '暂无历史数据 · 发布后累积 30 天流量即可显示命中率', extreme: '' }
+  }
+  const base = withValue > 0 ? withValue : total
+  const percent = Math.round((hit / base) * 100)
+  const extreme =
+    percent === 0 ? '本分支可能永不命中，请检查条件'
+    : percent === 100 ? '本分支可能总是命中，请检查条件'
+    : ''
+  if (withValue < total) {
+    return {
+      tone: 'partial' as const,
+      text: `按 ${withValue}/${total} 张有值卡片试算：${percent}% 命中（历史覆盖不全，仅供参考）`,
+      extreme,
+    }
+  }
+  return { tone: 'full' as const, text: `按近 30 天 ${total} 张卡片试算：${percent}% 命中本分支`, extreme }
 })
 
 // ==================== 条件摘要 ====================
@@ -603,13 +674,22 @@ defineExpose({ conditionSummary })
       </a-button>
     </div>
 
-    <!-- 底部算子说明条（B4：算子随字段类型变化） -->
-    <div v-if="_depth === 0 && usedTypeHints.length" class="cb-ophint">
-      <div class="cb-ophint__title">算子随字段类型变化：</div>
-      <div class="cb-ophint__tags">
-        <span v-for="hint in usedTypeHints" :key="hint.type" class="cb-ophint__tag">
-          {{ hint.label }}：{{ hint.ops }}
-        </span>
+    <!-- 底部说明条（B4：左=算子随字段类型变化，右=命中率试算三态 E6） -->
+    <div v-if="_depth === 0 && (usedTypeHints.length || estimateView || estimateState.kind === 'loading')" class="cb-footbar">
+      <div v-if="usedTypeHints.length" class="cb-ophint">
+        <div class="cb-ophint__title">算子随字段类型变化：</div>
+        <div class="cb-ophint__tags">
+          <span v-for="hint in usedTypeHints" :key="hint.type" class="cb-ophint__tag">
+            {{ hint.label }}：{{ hint.ops }}
+          </span>
+        </div>
+      </div>
+      <div v-if="estimateState.kind === 'loading'" class="cb-estimate is-empty">
+        <a-spin size="small" /> 命中率试算中…
+      </div>
+      <div v-else-if="estimateView" class="cb-estimate" :class="`is-${estimateView.tone}`">
+        <div>📊 {{ estimateView.text }}</div>
+        <div v-if="estimateView.extreme" class="cb-estimate__extreme">{{ estimateView.extreme }}</div>
       </div>
     </div>
   </div>
@@ -765,10 +845,18 @@ defineExpose({ conditionSummary })
   margin-top: 10px;
 }
 
-.cb-ophint {
+.cb-footbar {
+  display: flex;
+  gap: 14px;
+  align-items: center;
   margin-top: 16px;
   padding-top: 14px;
   border-top: 1px solid var(--border-faint);
+}
+
+.cb-ophint {
+  flex: 1;
+  min-width: 0;
   color: var(--text-2);
   font-size: 12.5px;
 
@@ -792,6 +880,39 @@ defineExpose({ conditionSummary })
     background: var(--bg-muted);
     border: 1px solid var(--border);
     border-radius: 4px;
+  }
+}
+
+// 命中率试算三态（E6）：full 信息青调→info 令牌 / partial 黄→warning / empty 灰
+.cb-estimate {
+  flex: none;
+  max-width: 60%;
+  padding: 9px 13px;
+  font-size: 12px;
+  border-radius: 8px;
+
+  &.is-full {
+    color: var(--color-info-text);
+    background: var(--color-info-light);
+    border: 1px solid var(--color-info-border);
+  }
+
+  &.is-partial {
+    color: var(--color-warning-text);
+    background: var(--color-warning-light);
+    border: 1px solid var(--color-warning-border);
+  }
+
+  &.is-empty {
+    color: var(--text-3);
+    background: var(--bg-muted);
+    border: 1px solid var(--border);
+  }
+
+  .cb-estimate__extreme {
+    margin-top: 3px;
+    color: var(--color-danger);
+    font-weight: 600;
   }
 }
 </style>
