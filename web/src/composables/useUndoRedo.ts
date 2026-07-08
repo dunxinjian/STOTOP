@@ -23,9 +23,17 @@ export function useUndoRedo<T>(initial: T, options: UseUndoRedoOptions<T> = {}) 
   // 使用 any 避免 Vue 的 UnwrapRefSimple 深展开与泛型 T 不兼容
   const stack = ref<any[]>([clone(initial)]) as Ref<T[]>
   const cursor = ref(0)
+  /** 每步的语义标签（与 stack 同步增删；[0]=初始态；C6 历史下拉消费） */
+  const labels = ref<string[]>(['初始状态'])
+  /** 下一次 commit 使用的标签（结构化操作入口先 setNextLabel 再触发变更） */
+  let pendingLabel: string | null = null
 
   const canUndo = computed(() => cursor.value > 0)
   const canRedo = computed(() => cursor.value < stack.value.length - 1)
+
+  function setNextLabel(label: string) {
+    pendingLabel = label
+  }
 
   /** 提交一次新状态（会丢弃当前 cursor 之后的 redo 分支） */
   function commit(state: T) {
@@ -34,10 +42,14 @@ export function useUndoRedo<T>(initial: T, options: UseUndoRedoOptions<T> = {}) 
     // 丢弃 redo 分支
     if (cursor.value < stack.value.length - 1) {
       stack.value = stack.value.slice(0, cursor.value + 1)
+      labels.value = labels.value.slice(0, cursor.value + 1)
     }
     ;(stack.value as T[]).push(clone(state))
+    labels.value.push(pendingLabel || '编辑')
+    pendingLabel = null
     if (stack.value.length > maxSteps) {
       stack.value.shift()
+      labels.value.shift()
     } else {
       cursor.value++
     }
@@ -46,6 +58,7 @@ export function useUndoRedo<T>(initial: T, options: UseUndoRedoOptions<T> = {}) 
   /** 重置到初始状态（清空历史） */
   function reset(state: T) {
     stack.value = [clone(state)] as T[]
+    labels.value = ['初始状态']
     cursor.value = 0
   }
 
@@ -61,7 +74,14 @@ export function useUndoRedo<T>(initial: T, options: UseUndoRedoOptions<T> = {}) 
     return clone(stack.value[cursor.value] as T)
   }
 
-  return { commit, reset, undo, redo, canUndo, canRedo, stack, cursor }
+  /** 跳回历史任意步（C6 历史下拉）：返回目标状态，调用方负责写回 */
+  function jumpTo(index: number): T | null {
+    if (index < 0 || index >= stack.value.length || index === cursor.value) return null
+    cursor.value = index
+    return clone(stack.value[index] as T)
+  }
+
+  return { commit, reset, undo, redo, jumpTo, setNextLabel, canUndo, canRedo, stack, cursor, labels }
 }
 
 /**

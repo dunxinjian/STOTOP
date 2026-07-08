@@ -39,7 +39,7 @@ const emit = defineEmits<{
   'select-node': [stageKey: string]
   'select-edge': [edgeKey: string]
   /** 结构变更：新 stages/routes 整体上抛（编辑页直接替换 state） */
-  'update-structure': [payload: { stages: StageDefinition[]; routes: StageRouteRuleRequest[] }]
+  'update-structure': [payload: { stages: StageDefinition[]; routes: StageRouteRuleRequest[]; label?: string }]
 }>()
 
 const projection = computed(() => buildFlowTree(props.stages, props.routes))
@@ -105,13 +105,13 @@ function handleInsert(anchor: InsertAnchor, kind: InsertKind) {
   openMenuAnchor.value = null
   if (kind === 'branch') {
     if ('afterStageId' in anchor) {
-      emit('update-structure', insertBranchGroup(props.stages, props.routes, anchor, 2))
+      emit('update-structure', { ...insertBranchGroup(props.stages, props.routes, anchor, 2), label: '添加条件分支' })
     }
     return
   }
   const newStage = buildNewStage(kind)
   const result = insertStageAfter(props.stages, props.routes, anchor, newStage)
-  emit('update-structure', result)
+  emit('update-structure', { ...result, label: `添加节点「${newStage.name}」` })
   // 等 props 更新一拍后再选中（选中即开抽屉，需新节点已在 stages 中）
   requestAnimationFrame(() => emit('select-node', newStage.id))
 }
@@ -150,16 +150,16 @@ function askDeleteBranch(edgeKey: string) {
 
 function confirmDeleteBranch() {
   if (!deleteTarget.value) return
-  emit('update-structure', deleteBranch(props.stages, props.routes, deleteTarget.value.edgeKey))
+  emit('update-structure', { ...deleteBranch(props.stages, props.routes, deleteTarget.value.edgeKey), label: `删除分支「${deleteTarget.value.name}」` })
   deleteTarget.value = null
 }
 
 function handleCopyBranch(edgeKey: string) {
-  emit('update-structure', copyBranch(props.stages, props.routes, edgeKey))
+  emit('update-structure', { ...copyBranch(props.stages, props.routes, edgeKey), label: '复制分支' })
 }
 
 function handleReorderBranch(edgeKey: string, dir: 'left' | 'right') {
-  emit('update-structure', reorderBranch(props.stages, props.routes, edgeKey, dir))
+  emit('update-structure', { ...reorderBranch(props.stages, props.routes, edgeKey, dir), label: '调整分支优先级' })
 }
 
 /** 条件列在同组内的位置（首/末列禁用对应方向按钮） */

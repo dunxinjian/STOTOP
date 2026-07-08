@@ -418,7 +418,8 @@ const routeConditionFields = computed<FieldOption[]>(() =>
 )
 
 /** 竖向图结构变更：整体替换 stages/routes，经 state 深监听统一进撤销栈+自动保存 */
-function applyGraphStructure(payload: { stages: StageDefinition[]; routes: StageRouteRuleRequest[] }) {
+function applyGraphStructure(payload: { stages: StageDefinition[]; routes: StageRouteRuleRequest[]; label?: string }) {
+  if (payload.label) history.setNextLabel(payload.label)
   state.stages = payload.stages
   state.routes = payload.routes
 }
@@ -1629,6 +1630,20 @@ function doRedo() {
   if (s) applyState(s)
 }
 
+/** 历史下拉（C6）：倒序展示最近步骤，点击跳回任意步 */
+const historyItems = computed(() =>
+  history.labels.value
+    .map((label, index) => ({ label, index, current: index === history.cursor.value }))
+    .reverse()
+    .slice(0, 20),
+)
+
+function jumpToHistory(index: number) {
+  flushPending()
+  const s = history.jumpTo(index)
+  if (s) applyState(s)
+}
+
 // ==================== 预览 ====================
 
 // 干跑工作台（M5-0）：顶栏「预演」切换开关，覆盖当前步骤区展示
@@ -1765,6 +1780,23 @@ function goBack() {
               <span>重做</span>
             </button>
           </a-tooltip>
+          <a-dropdown :trigger="['click']" placement="bottomLeft">
+            <button class="tb-history-btn tb-history-btn--list" aria-label="操作历史">▾</button>
+            <template #overlay>
+              <a-menu class="fdef-history-menu">
+                <a-menu-item
+                  v-for="item in historyItems"
+                  :key="item.index"
+                  :class="{ 'is-current-history': item.current }"
+                  @click="jumpToHistory(item.index)"
+                >
+                  <span class="fdef-history-menu__label">{{ item.label }}</span>
+                  <a-tag v-if="item.current" color="blue" :bordered="false">当前</a-tag>
+                  <span v-else class="fdef-history-menu__go">回到此步</span>
+                </a-menu-item>
+              </a-menu>
+            </template>
+          </a-dropdown>
         </span>
 
         <span class="tb-divider" />
@@ -3005,6 +3037,42 @@ function goBack() {
 
 .tb-history-btn--redo svg {
   color: var(--color-success);
+}
+
+.tb-history-btn--list {
+  min-width: 22px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.fdef-history-menu {
+  max-height: 320px;
+  overflow: auto;
+
+  .fdef-history-menu__label {
+    display: inline-block;
+    max-width: 200px;
+    overflow: hidden;
+    font-size: 12.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+
+  .fdef-history-menu__go {
+    margin-left: 8px;
+    font-size: 12px;
+    color: var(--color-primary);
+    visibility: hidden;
+  }
+
+  :deep(.ant-dropdown-menu-item:hover) .fdef-history-menu__go {
+    visibility: visible;
+  }
+
+  :deep(.is-current-history) {
+    background: var(--color-primary-light);
+  }
 }
 
 .tb-history-btn:disabled svg {
