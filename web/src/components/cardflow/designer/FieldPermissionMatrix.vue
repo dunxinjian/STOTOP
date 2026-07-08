@@ -82,7 +82,8 @@ function setAccess(stageKey: string, fieldKey: string, access: PermissionValue) 
   stage.viewProfile.fieldAccess[fieldKey] = {
     ...existing,
     access,
-    required: access === 'hidden' || access === 'masked' ? false : existing.required,
+    // 仅 editable 可保留必填；readonly/hidden/masked 与"必填"矛盾，一律清（终审 bug#3）
+    required: access === 'editable' ? existing.required : false,
   }
   if (access === 'editable') {
     stage.inputFields = Array.from(new Set([...(stage.inputFields || []), fieldKey]))

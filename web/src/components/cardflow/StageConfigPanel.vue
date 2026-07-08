@@ -356,10 +356,10 @@ function setFieldAccess(fieldKey: string, access: StageAccessMode) {
   stage.viewProfile!.fieldAccess![fieldKey] = {
     ...existing,
     access,
-    // 隐藏/脱敏必须清掉 required，否则产生"隐藏且必填"矛盾配置被发布校验拦下
+    // 仅 required/editable 保留必填；readonly/hidden/masked 与"必填"矛盾一律清（终审 bug#3）
     required: access === 'required' ? true
-      : (access === 'hidden' || access === 'masked') ? false
-      : existing.required,
+      : access === 'editable' ? existing.required
+      : false,
   }
   if (access === 'editable' || access === 'required') {
     stage.inputFields = Array.from(new Set([...(stage.inputFields || []), fieldKey]))

@@ -287,9 +287,47 @@ export function insertBranchGroup(
 ): { stages: StageDefinition[]; routes: StageRouteRuleRequest[] } {
   const afterId = anchor.afterStageId
   const existing = sortOutgoing(routes.filter((r) => isActive(r) && r.fromStageKey === afterId))
-  const originalTo = existing.find((r) => r.isDefault)?.toStageKey ?? existing[0]?.toStageKey ?? ''
+  const existingConditions = existing.filter((r) => !r.isDefault)
+  const originalDefault = existing.find((r) => r.isDefault)
+  const originalTo = originalDefault?.toStageKey ?? existing[0]?.toStageKey ?? ''
   const conditionCount = Math.max(1, branchCount - 1)
 
+  // 已是分支源（已有多条条件出边）→ 保留既有分支，仅追加新条件列（不清空兄弟分支）。
+  // 单出边/无出边 → 原节点线性后继变兜底目标，新建条件列。
+  const alreadyBranched = existingConditions.length > 0
+
+  if (alreadyBranched) {
+    // 保留全部既有出边，追加 conditionCount 条空条件列，priority 顺延；兜底若缺则补
+    const maxPriority = Math.max(0, ...existing.map((r) => r.priority))
+    const nextRoutes = [...routes]
+    for (let i = 0; i < conditionCount; i++) {
+      nextRoutes.push({
+        edgeKey: genEdgeKey(),
+        fromStageKey: afterId,
+        toStageKey: originalTo,
+        routeName: `分支 ${existingConditions.length + i + 1}`,
+        conditionJson: JSON.stringify({ logic: 'and', conditions: [] }),
+        priority: maxPriority + i + 1,
+        isDefault: false,
+        status: 'active',
+      })
+    }
+    if (!originalDefault) {
+      nextRoutes.push({
+        edgeKey: genEdgeKey(),
+        fromStageKey: afterId,
+        toStageKey: originalTo,
+        routeName: '其他情况',
+        conditionJson: null,
+        priority: maxPriority + conditionCount + 1,
+        isDefault: true,
+        status: 'active',
+      })
+    }
+    return { stages, routes: nextRoutes }
+  }
+
+  // 未分支：删原单出边，重建条件列 + 兜底列（复用原 default 保 edgeKey 稳定）
   const nextRoutes = routes.filter((r) => !(isActive(r) && r.fromStageKey === afterId))
   for (let i = 0; i < conditionCount; i++) {
     nextRoutes.push({
@@ -303,8 +341,6 @@ export function insertBranchGroup(
       status: 'active',
     })
   }
-  // 兜底列：复用原 default 边（保 edgeKey 稳定）或新建
-  const originalDefault = existing.find((r) => r.isDefault)
   nextRoutes.push(
     originalDefault
       ? { ...originalDefault, routeName: '其他情况', priority: conditionCount + 1 }

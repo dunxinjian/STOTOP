@@ -261,6 +261,27 @@ describe('insertBranchGroup 反向写回', () => {
     expect(aOut.filter((x) => x.isDefault)).toHaveLength(1)
     expect(aOut.every((x) => x.toStageKey === '')).toBe(true)
   })
+
+  it('已分支节点上再插分支组：保留既有兄弟分支，仅追加新条件列（终审 bug#2 回归）', () => {
+    // a 已是分支源：cond1→b / cond2→c / default→x
+    const stages = [s('a', 1), s('b', 2), s('c', 3), s('x', 4)]
+    const routes = [
+      r('c1', 'a', 'b', { conditionJson: '{}', priority: 1, routeName: '大额' }),
+      r('c2', 'a', 'c', { conditionJson: '{}', priority: 2, routeName: '中额' }),
+      r('d1', 'a', 'x', { isDefault: true, priority: 3, routeName: '其他情况' }),
+    ]
+    const out = insertBranchGroup(stages, routes, { afterStageId: 'a' }, 2)
+    const aOut = out.routes.filter((x) => x.fromStageKey === 'a')
+    // 原 2 条件 + 1 兜底 + 新 1 条件 = 4 条，兄弟分支不丢
+    expect(aOut).toHaveLength(4)
+    expect(aOut.filter((x) => !x.isDefault)).toHaveLength(3)
+    expect(aOut.filter((x) => x.isDefault)).toHaveLength(1)
+    // 既有 edgeKey 全保留
+    expect(aOut.map((x) => x.edgeKey)).toEqual(expect.arrayContaining(['c1', 'c2', 'd1']))
+    // 支内节点 b/c 未变孤儿
+    const { orphans } = buildFlowTree(out.stages, out.routes)
+    expect(orphans).toEqual([])
+  })
 })
 
 describe('分支操作三纯函数 (M1-4)', () => {

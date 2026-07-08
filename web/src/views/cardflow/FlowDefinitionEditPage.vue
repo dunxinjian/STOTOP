@@ -1616,7 +1616,7 @@ async function loadPublishedSnapshot(): Promise<VersionSnapshot | null> {
     const detail = await getFlowVersionDetail(flowId.value, current.id)
     const fields = detail.cardSchemaJson ? (JSON.parse(detail.cardSchemaJson).fields || []) : []
     return {
-      stages: (detail.stages || []).map((s: any) => ({ id: s.stageKey || s.id, name: s.name, type: s.type })),
+      stages: (detail.stages || []).map((s: any) => ({ id: s.stageKey || s.id, name: s.stageName, type: s.type })),
       routes: (detail.routes || []).map((r: any) => ({ edgeKey: r.edgeKey, routeName: r.routeName, conditionJson: r.conditionJson, priority: r.priority, isDefault: r.isDefault })),
       fields: fields.map((f: any) => ({ key: f.key, label: f.label, type: f.type, required: f.required })),
     }
