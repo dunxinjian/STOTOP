@@ -191,11 +191,11 @@ const runtimePreviewDetailRows = ref<DetailRow[]>([])
 
 const STEPS = [
   { key: 'basic',    title: '基本信息', desc: '名称 · 编码 · 模板 · 角色' },
-  { key: 'schema',   title: '字段设计', desc: '卡片字段 · 明细行字段' },
+  { key: 'schema',   title: '卡片设计', desc: '卡片字段 · 明细行字段' },
   // V2 冻结：卡片视图低代码编排（简化瘦身桶B 2026-06-16），入口暂下线，数据通道保留
-  { key: 'stages',   title: '节点链',   desc: '流程图 · 节点权限' },
+  { key: 'stages',   title: '流程设计', desc: '流程图 · 节点权限' },
   { key: 'settings', title: '流程配置', desc: '退回 · 重提 · 依赖 · 余额' },
-  { key: 'preview',  title: '预演与校验', desc: '路径 · 卡片视图 · 发布校验' },
+  // M5-0：预演从步骤条摘除（mock 四步向导），顶栏「预演」按钮唤起干跑工作台
 ] as const
 
 // 步骤索引一律按 key 解析，冻结/恢复步骤时不必追改散落的硬编码数字
@@ -205,9 +205,10 @@ const STEP_BASIC = stepIndexOf('basic')
 const STEP_SCHEMA = stepIndexOf('schema')
 const STEP_STAGES = stepIndexOf('stages')
 const STEP_SETTINGS = stepIndexOf('settings')
-const STEP_PREVIEW = stepIndexOf('preview')
 
 const activeStep = ref(0)
+/** 干跑工作台开关（M5-0：替代原 preview 步） */
+const previewWorkbenchOpen = ref(false)
 
 function handleStepChange(idx: number) {
   activeStep.value = idx
@@ -229,8 +230,6 @@ const stepStatus = computed<Array<'finish' | 'error' | 'process' | 'wait'>>(() =
         return state.stages.length > 0 ? 'finish' : 'wait'
       case 'settings':
         return 'finish'
-      case 'preview':
-        return 'wait'
     }
     return 'wait'
   })
@@ -1632,12 +1631,12 @@ function doRedo() {
 
 // ==================== 预览 ====================
 
-// 预览改为末步「预演与校验」内嵌渲染，工具栏「预览」按钮直接跳到该步
+// 干跑工作台（M5-0）：顶栏「预演」切换开关，覆盖当前步骤区展示
 function openPreview() {
   if (!selectedPreviewStageId.value && state.stages.length) {
     selectedPreviewStageId.value = state.stages[0].id
   }
-  activeStep.value = STEP_PREVIEW
+  previewWorkbenchOpen.value = !previewWorkbenchOpen.value
 }
 
 function reloadFlowDefinition() {
@@ -1774,9 +1773,9 @@ function goBack() {
           <template #icon><SaveOutlined /></template>
           保存草稿
         </a-button>
-        <a-button @click="openPreview">
+        <a-button :type="previewWorkbenchOpen ? 'primary' : 'default'" :ghost="previewWorkbenchOpen" @click="openPreview">
           <template #icon><EyeOutlined /></template>
-          预演
+          {{ previewWorkbenchOpen ? '返回编辑' : '预演' }}
         </a-button>
         <a-button type="primary" :loading="publishing" @click="handlePublish">
           <template #icon><SendOutlined /></template>
@@ -1809,7 +1808,7 @@ function goBack() {
       <!-- 步骤内容区：v-show 保留子组件状态，避免切换丢失编辑数据 -->
       <div class="fdef-step-body">
         <!-- 步骤：基本信息 -->
-        <div v-show="activeStep === STEP_BASIC" class="fdef-step" :class="{ 'fdef-step--err': errors.basic }">
+        <div v-show="!previewWorkbenchOpen && activeStep === STEP_BASIC" class="fdef-step" :class="{ 'fdef-step--err': errors.basic }">
           <div class="fdef-basic-config">
             <div class="fdef-fc-item">
               <div class="fdef-fc-item__label">流程名称 <span class="fdef-required-star">*</span></div>
@@ -1868,7 +1867,7 @@ function goBack() {
         </div>
 
         <!-- 步骤：字段设计 -->
-        <div v-show="activeStep === STEP_SCHEMA" class="fdef-step" :class="{ 'fdef-step--err': errors.schema }">
+        <div v-show="!previewWorkbenchOpen && activeStep === STEP_SCHEMA" class="fdef-step" :class="{ 'fdef-step--err': errors.schema }">
           <BaseCard no-padding class="fdef-schema-guide-card">
             <div class="fdef-schema-guide">
               <span class="fdef-schema-guide__item">
@@ -2372,7 +2371,7 @@ function goBack() {
         </div>
 
         <!-- 步骤：节点链 -->
-        <div v-show="activeStep === STEP_STAGES" class="fdef-step fdef-step--nodechain" :class="{ 'fdef-step--err': errors.stages || errors.condition }">
+        <div v-show="!previewWorkbenchOpen && activeStep === STEP_STAGES" class="fdef-step fdef-step--nodechain" :class="{ 'fdef-step--err': errors.stages || errors.condition }">
           <a-tabs class="fdef-designer-tabs" default-active-key="vertical">
             <a-tab-pane key="vertical" tab="流程视图">
               <div class="fdef-designer-layout">
@@ -2439,7 +2438,7 @@ function goBack() {
         </div>
 
         <!-- 步骤：流程配置 -->
-        <div v-show="activeStep === STEP_SETTINGS" class="fdef-step">
+        <div v-show="!previewWorkbenchOpen && activeStep === STEP_SETTINGS" class="fdef-step">
           <div class="fdef-flow-config">
             <BaseCard title="审批规则" class="fdef-flow-config-card">
               <template #extra>
@@ -2562,8 +2561,8 @@ function goBack() {
           </div>
         </div>
 
-        <!-- 步骤：预演与发布校验 -->
-        <div v-show="activeStep === STEP_PREVIEW" class="fdef-step fdef-step--preview">
+        <!-- 干跑工作台（M5-0：从步骤条摘除，顶栏「预演」唤起全屏抽屉——对齐 mock 四步+屏 7） -->
+        <div v-show="previewWorkbenchOpen" class="fdef-step fdef-step--preview fdef-preview-workbench">
           <header class="page-section__title fdef-preview-stephead">
             <strong>节点视图预览</strong>
             <span>预演任意节点的运行态卡片、审批路径与发布前风险。</span>
