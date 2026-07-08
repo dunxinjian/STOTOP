@@ -42,6 +42,7 @@ public static class CardFlowModuleExtensions
         services.AddScoped<ISampleCardService, SampleCardService>();
         services.AddScoped<IVoucherPreviewService, VoucherPreviewService>();
         services.AddScoped<IFlowVersionMigrationService, FlowVersionMigrationService>();
+        services.AddScoped<IDefinitionEditLockService, DefinitionEditLockService>();
         services.AddScoped<ICardFlowSourceContextVerifier, CardFlowSourceContextVerifier>();
         services.AddScoped<IApprovalModeHandler, ApprovalModeHandler>();
         services.AddScoped<IStageConfigParser, StageConfigParser>();
