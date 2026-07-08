@@ -38,7 +38,7 @@ public sealed class DefinitionEditLockService : IDefinitionEditLockService
 
         if (lockRow == null)
         {
-            // 无锁 → 创建并持有
+            // 无锁 → 尝试创建并持有
             lockRow = new CfDefinitionEditLock
             {
                 FFlowDefinitionId = definitionId,
@@ -49,14 +49,33 @@ public sealed class DefinitionEditLockService : IDefinitionEditLockService
             };
             // FOrgId / FTenantId 由 DbContext FillOrgId 自动填充
             _dbContext.Set<CfDefinitionEditLock>().Add(lockRow);
-            await _dbContext.SaveChangesAsync();
-            return BuildDto(lockRow, userId);
+            try
+            {
+                await _dbContext.SaveChangesAsync();
+                return BuildDto(lockRow, userId);
+            }
+            catch (DbUpdateException)
+            {
+                // 唯一索引冲突：并发获取（两端同时读空并插入）——两人同组织时最常见。
+                // 清跟踪器后按当前上下文重读现有行，落到"已有锁"分支处理——不抛 500、唯一写者不变量不破。
+                _dbContext.ChangeTracker.Clear();
+                lockRow = await GetLockRowTracking(definitionId);
+                // 仍读不到（行属他组织/租户，或当前无上下文——不应支持无上下文编辑）：
+                // 返回中性只读态，让前端进只读而非 500；不越过隔离墙去改他人锁。
+                if (lockRow == null)
+                    return new LockStateDto { Held = true, IsSelf = false, HolderName = string.Empty };
+            }
         }
 
-        // 已有锁：判断是否死锁（超时）
+        return await ApplyExistingLockAsync(lockRow, userId, userName);
+    }
+
+    /// <summary>已存在锁行的获取逻辑：死锁抢占 / 自己续期 / 他人只读。</summary>
+    private async Task<LockStateDto> ApplyExistingLockAsync(CfDefinitionEditLock lockRow, long userId, string userName)
+    {
+        // 死锁（超时）→ 抢占
         if (IsStale(lockRow))
         {
-            // 死锁 → 抢占
             lockRow.FHolderId = userId;
             lockRow.FHolderName = userName;
             lockRow.FAcquiredTime = DateTime.Now;
