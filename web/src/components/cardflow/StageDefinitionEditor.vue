@@ -91,6 +91,8 @@ export interface StageDefinition {
   conditionJson?: string
   /** 优先级模板（无编辑 UI，透传保存防止后端全删全建时被置空） */
   priorityTemplate?: number
+  /** 节点说明（设计 A4：审批者看到的提示文案，前端展示为主，引擎不消费） */
+  note?: string
 }
 
 const props = defineProps<{

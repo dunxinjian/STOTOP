@@ -646,6 +646,22 @@ const conditionFields = computed<FieldOption[]>(() =>
 function getStageHealth(stage: StageDefinition) {
   return computeStageHealth(stage, props.detailSchemaFields)
 }
+
+/** 每个 Tab 的诊断计数（用于红点badge，mock A6 dtabs .dotbadge） */
+const tabIssueCounts = computed(() => {
+  if (!selectedStage.value) return { basic: 0, assignee: 0, fieldPerm: 0, actions: 0, advanced: 0 }
+  const h = getStageHealth(selectedStage.value)
+  const all = [...h.issues, ...h.warnings]
+  const counts = { basic: 0, assignee: 0, fieldPerm: 0, actions: 0, advanced: 0 }
+  for (const msg of all) {
+    if (msg.includes('名称') || msg.includes('审批模式') || msg.includes('类型')) counts.basic++
+    else if (msg.includes('处理人') || msg.includes('角色') || msg.includes('兜底')) counts.assignee++
+    else if (msg.includes('字段权限') || msg.includes('明细')) counts.fieldPerm++
+    else if (msg.includes('动作')) counts.actions++
+    else counts.advanced++
+  }
+  return counts
+})
 </script>
 
 <template>
@@ -682,7 +698,10 @@ function getStageHealth(stage: StageDefinition) {
       </div>
 
       <a-tabs v-model:active-key="activeConfigTab" size="small" class="sde-tabs">
-        <a-tab-pane key="basic" tab="基础">
+        <a-tab-pane key="basic">
+          <template #tab>
+            <span class="sde-tab-label">基础<span v-if="tabIssueCounts.basic" class="sde-tab-dot" /></span>
+          </template>
           <div class="sde-tab-panel">
             <div class="sde-fld">
               <label class="sde-fld__label">节点类型</label>
@@ -700,6 +719,17 @@ function getStageHealth(stage: StageDefinition) {
             <div class="sde-fld">
               <label class="sde-fld__label">节点名称 <span class="sde-fld__req">*</span></label>
               <a-input v-model:value="selectedStage.name" placeholder="例：部门主管审批" />
+            </div>
+
+            <div class="sde-fld">
+              <label class="sde-fld__label">节点说明</label>
+              <a-textarea
+                v-model:value="selectedStage.note"
+                placeholder="可填写审批人看到的操作提示，如「请核对发票与明细金额一致后再同意」"
+                :rows="2"
+                :maxlength="200"
+                show-count
+              />
             </div>
 
             <div v-if="selectedStage.type === 'manual'" class="sde-fld">
@@ -753,7 +783,10 @@ function getStageHealth(stage: StageDefinition) {
           </div>
         </a-tab-pane>
 
-        <a-tab-pane key="assignee" tab="处理人" :disabled="selectedStage.type !== 'manual'">
+        <a-tab-pane key="assignee" :disabled="selectedStage.type !== 'manual'">
+          <template #tab>
+            <span class="sde-tab-label">处理人<span v-if="tabIssueCounts.assignee" class="sde-tab-dot" /></span>
+          </template>
           <div v-if="selectedStage.type === 'manual'" class="sde-tab-panel">
             <div class="sde-fld">
               <label class="sde-fld__label">处理人策略</label>
@@ -842,7 +875,10 @@ function getStageHealth(stage: StageDefinition) {
           </div>
         </a-tab-pane>
 
-        <a-tab-pane key="fieldPerm" tab="字段权限" :disabled="selectedStage.type !== 'manual'">
+        <a-tab-pane key="fieldPerm" :disabled="selectedStage.type !== 'manual'">
+          <template #tab>
+            <span class="sde-tab-label">字段权限<span v-if="tabIssueCounts.fieldPerm" class="sde-tab-dot" /></span>
+          </template>
           <div v-if="selectedStage.type === 'manual'" class="sde-tab-panel">
             <div class="sde-fld">
               <label class="sde-fld__label">补充字段</label>
@@ -932,7 +968,10 @@ function getStageHealth(stage: StageDefinition) {
           </div>
         </a-tab-pane>
 
-        <a-tab-pane key="actions" :tab="selectedStage.type === 'manual' ? '动作' : '执行配置'">
+        <a-tab-pane key="actions">
+          <template #tab>
+            <span class="sde-tab-label">{{ selectedStage.type === 'manual' ? '动作' : '执行配置' }}<span v-if="tabIssueCounts.actions" class="sde-tab-dot" /></span>
+          </template>
           <div class="sde-tab-panel">
             <template v-if="selectedStage.type === 'manual'">
               <div class="sde-fld">
@@ -1019,7 +1058,10 @@ function getStageHealth(stage: StageDefinition) {
           </div>
         </a-tab-pane>
 
-        <a-tab-pane key="advanced" tab="高级">
+        <a-tab-pane key="advanced">
+          <template #tab>
+            <span class="sde-tab-label">高级<span v-if="tabIssueCounts.advanced" class="sde-tab-dot" /></span>
+          </template>
           <div class="sde-tab-panel">
             <div v-if="selectedStage.type === 'manual'" class="sde-fld">
               <label class="sde-fld__label">超时提醒（小时）</label>
@@ -1132,12 +1174,32 @@ function getStageHealth(stage: StageDefinition) {
 .sde-tabs {
   :deep(.ant-tabs-nav) {
     margin-bottom: 12px;
+    padding: 0 8px;
   }
 
   :deep(.ant-tabs-tab) {
-    padding: 7px 0;
-    font-size: 12px;
+    padding: 10px 12px;
+    font-size: 13px;
+    position: relative;
   }
+
+  :deep(.ant-tabs-tab-active .ant-tabs-tab-btn) {
+    font-weight: 600;
+  }
+}
+
+.sde-tab-label {
+  position: relative;
+}
+
+.sde-tab-dot {
+  position: absolute;
+  top: -2px;
+  right: -8px;
+  width: 6px;
+  height: 6px;
+  background: var(--color-danger);
+  border-radius: 50%;
 }
 
 .sde-tab-panel {
