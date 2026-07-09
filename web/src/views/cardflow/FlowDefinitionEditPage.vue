@@ -444,6 +444,7 @@ const routeConditionFields = computed<FieldOption[]>(() =>
     label: field.label || field.key,
     type: field.type,
     options: field.options || undefined,
+    required: field.required,
   })),
 )
 
@@ -477,6 +478,14 @@ function focusDiagnosticTarget(target: DiagnosticTarget) {
   if (target.kind === 'node') selectDesignerNode(target.key)
   else selectDesignerEdge(target.key)
   void nextTick(() => pulseGraphSelection())
+}
+
+/** 「去卡片设计设为必填」跳转（mock C8）：关抽屉 → 切到卡片设计步 → 提示定位字段 */
+function focusSchemaField(fieldKey: string) {
+  designerDrawerOpen.value = false
+  activeStep.value = STEP_SCHEMA
+  const field = state.cardSchema.find(f => f.key === fieldKey)
+  message.info(`请在卡片设计中将字段「${field?.label || fieldKey}」设为必填，路由条件才能稳定取值`)
 }
 
 /** 竖向图定位：滚动到选中元素并外环脉冲 2 次（设计 D9；reduced-motion 降级一次性高亮） */
@@ -2991,6 +3000,7 @@ function goBack() {
         :fields="state.cardSchema"
         @update:model-value="updateRoute"
         @delete="deleteRoute"
+        @navigate-field="focusSchemaField"
       />
 
       <section v-else class="fdef-drawer-section">

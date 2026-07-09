@@ -14,6 +14,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:modelValue', value: StageRouteRuleRequest): void
   (e: 'delete', edgeKey: string): void
+  (e: 'navigate-field', fieldKey: string): void
 }>()
 
 const condition = ref<ConditionGroup>({ logic: 'and', conditions: [] })
@@ -25,6 +26,7 @@ const fieldOptions = computed<FieldOption[]>(() =>
     type: field.type,
     // enum 字段的可选值必须透传，否则条件值选择器是零选项死下拉
     options: field.options || undefined,
+    required: field.required,
   })),
 )
 
@@ -177,6 +179,7 @@ function toggleDefault(checked: boolean) {
           v-model="condition"
           :fields="fieldOptions"
           :disabled="modelValue.isDefault"
+          @navigate-field="(k: string) => emit('navigate-field', k)"
         />
       </div>
     </template>

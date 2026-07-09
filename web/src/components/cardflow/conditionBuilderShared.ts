@@ -86,6 +86,18 @@ export const CONDITION_TYPE_LABELS: Record<string, string> = {
   voucherRef: '凭证引用',
 }
 
+/** 字段类型→emoji 图标前缀（mock C8 字段下拉每行左侧类型图标） */
+export const CONDITION_TYPE_ICONS: Record<string, string> = {
+  text: '📝',
+  money: '💰',
+  number: '#️⃣',
+  enum: '◉',
+  date: '📅',
+  user: '👤',
+  org: '🏢',
+  file: '📎',
+}
+
 /** 不可作路由条件的类型 → 禁用原因（C8 灰显说明；按引擎算子支持裁定） */
 const NON_CONDITION_TYPE_REASONS: Record<string, string> = {
   cardRef: '卡片引用不可作条件',

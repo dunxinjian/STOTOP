@@ -9,6 +9,7 @@ import OrgSelect from '@/components/cardflow/fields/OrgSelect.vue'
 import {
   OPERATOR_LABELS,
   CONDITION_TYPE_LABELS,
+  CONDITION_TYPE_ICONS,
   VALUELESS_OPERATORS,
   SYSTEM_CONDITION_FIELDS,
   getOperatorsForType,
@@ -26,6 +27,8 @@ export interface FieldOption {
   type: string
   /** enum 类型字段的可选值（用于渲染值选择器，兼容 string[] 与 {label,value}[]） */
   options?: Array<string | SchemaEnumOption>
+  /** 是否为必填字段（C8：仅当父级显式提供时，非必填字段禁选并给"去设为必填"链接） */
+  required?: boolean
 }
 
 export interface ConditionItem {
@@ -58,6 +61,8 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:modelValue': [val: ConditionGroup]
+  /** 跳转请求：去卡片设计设为必填（mock C8 "去卡片设计设为必填 →"链接） */
+  'navigate-field': [fieldKey: string]
 }>()
 
 // ==================== 响应式数据 ====================
@@ -115,11 +120,21 @@ const blocks = computed<DisplayBlock[]>(() => {
 interface FieldChoice extends FieldOption {
   disabled: boolean
   disabledReason: string
+  /** 禁用原因类型：type=类型不支持，required=非必填可去修复 */
+  disabledKind?: 'type' | 'required'
 }
 
 function toChoice(f: FieldOption): FieldChoice {
-  const ok = isTypeConditionable(f.type)
-  return { ...f, disabled: !ok, disabledReason: ok ? '' : getDisabledReason(f.type) }
+  const typeOk = isTypeConditionable(f.type)
+  if (!typeOk) return { ...f, disabled: true, disabledReason: getDisabledReason(f.type), disabledKind: 'type' }
+  // 非必填字段（父级传 required=false 时）：灰显+可去修复链接；required 未提供时不限制
+  if (f.required === false) return { ...f, disabled: true, disabledReason: '非必填字段不可作路由条件', disabledKind: 'required' }
+  return { ...f, disabled: false, disabledReason: '' }
+}
+
+/** 字段类型 emoji 图标（mock C8 每行左侧） */
+function fieldTypeIcon(type: string): string {
+  return CONDITION_TYPE_ICONS[type] || '·'
 }
 
 const formFieldChoices = computed<FieldChoice[]>(() => props.fields.map(toChoice))
@@ -479,8 +494,10 @@ defineExpose({ conditionSummary })
                     :disabled="f.disabled"
                   >
                     <span class="cb-field-opt">
+                      <span class="cb-field-opt__icon">{{ fieldTypeIcon(f.type) }}</span>
                       <span class="cb-field-opt__label">{{ f.label }}</span>
-                      <span v-if="f.disabled" class="cb-field-opt__reason">{{ f.disabledReason }}</span>
+                      <span v-if="f.disabled && f.disabledKind === 'required'" class="cb-field-opt__link" @click.stop="emit('navigate-field', f.key)">去设为必填 →</span>
+                      <span v-else-if="f.disabled" class="cb-field-opt__reason">{{ f.disabledReason }}</span>
                       <span v-else class="cb-field-opt__type">{{ fieldTypeTag(f.type) }}</span>
                     </span>
                   </a-select-option>
@@ -493,6 +510,7 @@ defineExpose({ conditionSummary })
                     :title="f.label"
                   >
                     <span class="cb-field-opt">
+                      <span class="cb-field-opt__icon">{{ fieldTypeIcon(f.type) }}</span>
                       <span class="cb-field-opt__label">{{ f.label }}</span>
                       <span class="cb-field-opt__type">{{ fieldTypeTag(f.type) }}</span>
                     </span>
@@ -766,6 +784,13 @@ defineExpose({ conditionSummary })
   gap: 8px;
   align-items: center;
 
+  .cb-field-opt__icon {
+    flex: none;
+    width: 18px;
+    text-align: center;
+    font-size: 13px;
+  }
+
   .cb-field-opt__label {
     flex: 1;
     min-width: 0;
@@ -788,6 +813,15 @@ defineExpose({ conditionSummary })
     flex: none;
     color: var(--text-disabled);
     font-size: 10px;
+  }
+
+  .cb-field-opt__link {
+    flex: none;
+    color: var(--color-primary);
+    font-size: 10px;
+    cursor: pointer;
+
+    &:hover { text-decoration: underline; }
   }
 }
 
