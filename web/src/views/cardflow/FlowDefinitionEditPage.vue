@@ -2744,12 +2744,61 @@ function goBack() {
           </EmptyState>
 
           <div v-else class="fdef-preview-workbench">
-            <BaseCard title="节点卡片工作视图" no-padding class="fdef-preview-card-pane">
-              <template #extra>
-                <a-tag>{{ previewVisibleComponentCount }} 个可见{{ previewRuntimeComponents.length ? '组件' : '字段' }}</a-tag>
-              </template>
+            <!-- 左栏：① 样例表单值（mock 屏7 左） -->
+            <div class="fdef-preview-inputs-pane">
+              <PathPreviewPanel
+                :flow-definition-id="flowId"
+                :preview-api="previewFlowDraftPath"
+                :disabled="!previewReady"
+                :fields="state.cardSchema"
+                @step-select="onPreviewStepSelect"
+                @path-updated="(keys) => previewHitStageKeys = keys"
+              />
+              <!-- 发布校验（mock 无独立栏，并入左栏底部保留信息） -->
+              <div class="fdef-preview-check-inline">
+                <div class="fdef-preview-check-list">
+                  <div
+                    v-for="item in previewReadinessItems"
+                    :key="item.key"
+                    class="fdef-preview-check-list__item"
+                    :class="{ 'is-ready': item.ready }"
+                  >
+                    <CheckCircleFilled v-if="item.ready" />
+                    <CloseCircleFilled v-else />
+                    <span>{{ item.title }}</span>
+                  </div>
+                </div>
+                <div v-if="previewConfigWarnings.length" class="fdef-preview-warning-list">
+                  <strong>规则风险</strong>
+                  <span
+                    v-for="warning in previewConfigWarnings"
+                    :key="warning.message"
+                    :class="{ 'fdef-preview-warning--clickable': warning.target }"
+                    :role="warning.target ? 'button' : undefined"
+                    :tabindex="warning.target ? 0 : undefined"
+                    @click="warning.target && focusDiagnosticTarget(warning.target)"
+                    @keydown.enter.prevent="warning.target && focusDiagnosticTarget(warning.target)"
+                  >
+                    {{ warning.message }}
+                    <em v-if="warning.target" class="fdef-preview-warning__locate">定位 →</em>
+                  </span>
+                </div>
+              </div>
+            </div>
 
-              <!-- 节点 × 视角 × 设备：三视角双设备切换，端点按视角取真值 -->
+            <!-- 中栏：② 路径推演——竖向流程图+命中路径高亮（mock 屏7 中） -->
+            <div class="fdef-preview-graph-pane">
+              <FlowVerticalGraph
+                :stages="state.stages"
+                :routes="state.routes"
+                :diagnostics="stageDiagnostics"
+                :hit-stage-keys="previewHitStageKeys"
+                @select-node="onPreviewStepSelect"
+              />
+            </div>
+
+            <!-- 右栏：③ 卡片呈现（mock 屏7 右） -->
+            <div class="fdef-preview-card-pane">
               <div class="fdef-preview-toolbar">
                 <a-select
                   v-model:value="selectedPreviewStageId"
@@ -2775,7 +2824,6 @@ function goBack() {
                     <span v-if="cardHeaderShowSubtitle" class="fdef-preview-card__code">{{ cardHeaderSubtitle }}</span>
                     <a-tag v-if="cardHeaderShowStatus" size="small">{{ state.basic.status || 'draft' }}</a-tag>
                   </div>
-                  <!-- 统一走 SchemaRenderer 装配层：有组件→CardComponentRenderer，无组件→扁平字段回退（与运行时一字不差，消灭伪组件漂移） -->
                   <div v-if="previewHasVisibleContent" class="fdef-preview-card__body">
                     <SchemaRenderer
                       :components="previewRuntimeComponents"
@@ -2789,82 +2837,17 @@ function goBack() {
                   <EmptyState
                     v-else
                     size="small"
-                    title="当前节点无可见组件。请到节点链中配置该节点的组件可见、可编辑或脱敏权限。"
+                    title="当前节点无可见组件。请到流程视图中配置该节点的字段权限。"
                     class="fdef-preview-card__empty"
                   >
-                    <a-button size="small" type="link" @click="activeStep = STEP_STAGES">去节点链</a-button>
+                    <a-button size="small" type="link" @click="activeStep = STEP_STAGES">去流程设计</a-button>
                   </EmptyState>
                 </div>
               </div>
-            </BaseCard>
-
-            <BaseCard no-padding class="fdef-preview-path-pane">
-              <PathPreviewPanel
-                :flow-definition-id="flowId"
-                :preview-api="previewFlowDraftPath"
-                :disabled="!previewReady"
-                :fields="state.cardSchema"
-                @step-select="onPreviewStepSelect"
-                @path-updated="(keys) => previewHitStageKeys = keys"
-              />
-            </BaseCard>
-
-            <BaseCard title="发布校验" class="fdef-preview-check-pane">
-              <template #extra>
-                <StatusTag :type="previewConfigWarnings.length ? 'warning' : 'success'">
-                  {{ previewConfigWarnings.length ? `${previewConfigWarnings.length} 项风险` : '可发布' }}
-                </StatusTag>
-              </template>
-
-              <div class="fdef-preview-check-list">
-                <div
-                  v-for="item in previewReadinessItems"
-                  :key="item.key"
-                  class="fdef-preview-check-list__item"
-                  :class="{ 'is-ready': item.ready }"
-                >
-                  <CheckCircleFilled v-if="item.ready" />
-                  <CloseCircleFilled v-else />
-                  <span>{{ item.title }}</span>
-                </div>
+              <div class="fdef-preview-card-hint">
+                字段按该节点字段权限脱敏（对应字段权限矩阵配置）
               </div>
-
-              <div v-if="previewConfigWarnings.length" class="fdef-preview-warning-list">
-                <strong>规则风险</strong>
-                <span
-                  v-for="warning in previewConfigWarnings"
-                  :key="warning.message"
-                  :class="{ 'fdef-preview-warning--clickable': warning.target }"
-                  :role="warning.target ? 'button' : undefined"
-                  :tabindex="warning.target ? 0 : undefined"
-                  @click="warning.target && focusDiagnosticTarget(warning.target)"
-                  @keydown.enter.prevent="warning.target && focusDiagnosticTarget(warning.target)"
-                >
-                  {{ warning.message }}
-                  <em v-if="warning.target" class="fdef-preview-warning__locate">定位 →</em>
-                </span>
-              </div>
-              <div v-else class="fdef-preview-good-state">
-                <CheckCircleFilled />
-                <span>默认分支、动态节点和处理人兜底已通过当前静态检查。</span>
-              </div>
-
-              <div class="fdef-preview-node-summary">
-                <strong>当前节点权限</strong>
-                <div>
-                  <span>可见字段</span><b>{{ stagePreviewFields.length }}</b>
-                </div>
-                <div>
-                  <span>可见明细列</span><b>{{ stagePreviewDetailSchema.length }}</b>
-                </div>
-                <div>
-                  <span>节点链</span><b>{{ state.stages.length }}</b>
-                </div>
-                <div>
-                  <span>条件边</span><b>{{ state.routes.length }}</b>
-                </div>
-              </div>
-            </BaseCard>
+            </div>
           </div>
         </div>
       </div>
@@ -4411,15 +4394,56 @@ function goBack() {
 
 .fdef-preview-workbench {
   display: grid;
-  grid-template-columns: minmax(420px, 1.05fr) minmax(360px, .95fr) 340px;
+  grid-template-columns: minmax(280px, .9fr) minmax(0, 1.4fr) 340px;
   gap: 14px;
   min-height: 640px;
 }
 
-.fdef-preview-card-pane,
-.fdef-preview-path-pane,
-.fdef-preview-check-pane {
+.fdef-preview-inputs-pane,
+.fdef-preview-graph-pane,
+.fdef-preview-card-pane {
   min-width: 0;
+}
+
+.fdef-preview-inputs-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: calc(100vh - 210px);
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.fdef-preview-graph-pane {
+  max-height: calc(100vh - 210px);
+  overflow: auto;
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.fdef-preview-card-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.fdef-preview-check-inline {
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.fdef-preview-card-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+  text-align: center;
 }
 
 .fdef-preview-card-stage {
