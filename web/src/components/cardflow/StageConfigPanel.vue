@@ -37,6 +37,8 @@ const props = defineProps<{
   schemaFields?: SchemaFieldDefinition[]
   detailSchemaFields?: SchemaFieldDefinition[]
   cardComponents?: CardComponentDefinition[]
+  /** 被路由条件引用的字段 key 集合（字段权限 Tab 锁只读：路由字段不可 hidden） */
+  routeReferencedFieldKeys?: Set<string>
 }>()
 
 // ==================== 选项常量 ====================
@@ -104,9 +106,51 @@ const opinionRequiredActions = computed<string[]>({
   },
 })
 
+/** 动作 Tab 逐行启用/禁用（mock A7 toggle 式） */
+function toggleAction(action: string, enabled: boolean) {
+  const stage = selectedManualStage()
+  if (!stage?.actionPolicy) return
+  const arr = stage.actionPolicy.allowedActions || []
+  if (enabled && !arr.includes(action)) {
+    stage.actionPolicy.allowedActions = [...arr, action]
+  } else if (!enabled) {
+    stage.actionPolicy.allowedActions = arr.filter(a => a !== action)
+    // 同步移除意见必填中已禁用的动作
+    if (stage.actionPolicy.opinionRequiredActions?.includes(action)) {
+      stage.actionPolicy.opinionRequiredActions = stage.actionPolicy.opinionRequiredActions.filter(a => a !== action)
+    }
+  }
+}
+
+function toggleOpinionRequired(action: string, required: boolean) {
+  const stage = selectedManualStage()
+  if (!stage?.actionPolicy) return
+  const arr = stage.actionPolicy.opinionRequiredActions || []
+  if (required && !arr.includes(action)) {
+    stage.actionPolicy.opinionRequiredActions = [...arr, action]
+  } else if (!required) {
+    stage.actionPolicy.opinionRequiredActions = arr.filter(a => a !== action)
+  }
+}
+
 /** viewProfile access（含 required 复合态）→ 权限胶囊四态（required 显示为可编辑，另有必填勾） */
 function triValueOf(access: StageAccessMode): PermissionValue {
   return access === 'required' ? 'editable' : access
+}
+
+/** 字段权限锁定状态：敏感字段不可 editable、路由引用字段不可 hidden（mock A6/E3） */
+function fieldLockedStates(field: SchemaFieldDefinition): PermissionValue[] {
+  const locked: PermissionValue[] = []
+  if (field.sensitive) locked.push('editable')
+  if (props.routeReferencedFieldKeys?.has(field.key)) locked.push('hidden')
+  return locked
+}
+
+function fieldLockReason(field: SchemaFieldDefinition): string {
+  const reasons: string[] = []
+  if (field.sensitive) reasons.push('敏感字段不可设为「可编辑」')
+  if (props.routeReferencedFieldKeys?.has(field.key)) reasons.push('该字段被路由条件引用，不可隐藏')
+  return reasons.join('；') || '该项被锁定'
 }
 
 /** 字段权限批量设置（mock A6 表头批量；hidden/masked 锁定字段不受影响由 setFieldAccess 语义保证） */
@@ -901,10 +945,21 @@ const tabIssueCounts = computed(() => {
                 </span>
               </div>
               <div class="cfd-list">
-                <div v-for="field in (schemaFields || [])" :key="field.key" class="cfd-list__row">
-                  <span class="cfd-list__label" :title="field.label">{{ field.label }}</span>
+                <div
+                  v-for="field in (schemaFields || [])"
+                  :key="field.key"
+                  class="cfd-list__row"
+                  :class="{ 'is-sensitive': field.sensitive }"
+                >
+                  <span class="cfd-list__label" :title="field.label">
+                    <span v-if="field.sensitive" class="cfd-list__lock" title="敏感字段">🔒</span>
+                    <span v-if="routeReferencedFieldKeys?.has(field.key)" class="cfd-list__lock" title="路由条件引用">🔗</span>
+                    {{ field.label }}
+                  </span>
                   <PermissionTri
                     :value="triValueOf(getFieldAccess(field.key))"
+                    :locked-states="fieldLockedStates(field)"
+                    :lock-reason="fieldLockReason(field)"
                     @update:value="(v: PermissionValue) => setFieldAccess(field.key, v)"
                   />
                   <a-checkbox
@@ -975,30 +1030,39 @@ const tabIssueCounts = computed(() => {
           <div class="sde-tab-panel">
             <template v-if="selectedStage.type === 'manual'">
               <div class="sde-fld">
-                <label class="sde-fld__label">允许动作</label>
-                <a-select
-                  v-model:value="selectedStage.actionPolicy!.allowedActions"
-                  mode="multiple"
-                  style="width: 100%"
-                  placeholder="当前节点可执行的审批动作"
-                  :options="ACTION_OPTIONS"
-                />
-                <p v-if="selectedStage.actionPolicy!.allowedActions?.includes('returnToStage')" class="sde-fld__hint">
-                  「退回节点」的目标由审批人在运行时现场选择（本轮已完成的人工节点），无需在设计器指定。
-                </p>
+                <label class="sde-fld__label">动作配置</label>
+                <p class="sde-fld__hint">逐动作启用/禁用，并配置是否必须填写处理意见。</p>
+                <div class="cfd-list">
+                  <div class="cfd-list__row is-head">
+                    <span class="cfd-list__label">动作</span>
+                    <span class="sde-action__col">启用</span>
+                    <span class="sde-action__col">意见必填</span>
+                  </div>
+                  <div v-for="act in ACTION_OPTIONS" :key="act.value" class="cfd-list__row">
+                    <span class="cfd-list__label">{{ act.label }}</span>
+                    <span class="sde-action__col">
+                      <a-switch
+                        size="small"
+                        :checked="selectedStage.actionPolicy!.allowedActions?.includes(act.value)"
+                        @change="(v: string | number | boolean) => toggleAction(act.value, !!v)"
+                      />
+                    </span>
+                    <span class="sde-action__col">
+                      <a-segmented
+                        v-if="selectedStage.actionPolicy!.allowedActions?.includes(act.value) && OPINION_REQUIRED_OPTIONS.some(o => o.value === act.value)"
+                        size="small"
+                        :value="opinionRequiredActions.includes(act.value) ? 'required' : 'optional'"
+                        :options="[{ value: 'optional', label: '选填' }, { value: 'required', label: '必填' }]"
+                        @change="(v: string | number | boolean) => toggleOpinionRequired(act.value, v === 'required')"
+                      />
+                      <span v-else class="sde-action__na">—</span>
+                    </span>
+                  </div>
+                </div>
               </div>
-
-              <div class="sde-fld">
-                <label class="sde-fld__label">意见必填的动作</label>
-                <a-select
-                  v-model:value="opinionRequiredActions"
-                  mode="multiple"
-                  style="width: 100%"
-                  placeholder="执行以下动作时必须填写处理意见"
-                  :options="OPINION_REQUIRED_OPTIONS.filter(o => selectedStage!.actionPolicy!.allowedActions?.includes(o.value))"
-                />
-                <p class="sde-fld__hint">拒绝/退回类动作建议必填意见，便于审计追溯</p>
-              </div>
+              <p v-if="selectedStage.actionPolicy!.allowedActions?.includes('returnToStage')" class="sde-fld__hint">
+                「退回节点」的目标由审批人在运行时现场选择（本轮已完成的人工节点），无需在设计器指定。
+              </p>
             </template>
 
             <template v-else>
@@ -1200,6 +1264,17 @@ const tabIssueCounts = computed(() => {
   height: 6px;
   background: var(--color-danger);
   border-radius: 50%;
+}
+
+.sde-action__col {
+  flex: none;
+  width: 72px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.sde-action__na {
+  color: var(--text-3);
 }
 
 .sde-tab-panel {

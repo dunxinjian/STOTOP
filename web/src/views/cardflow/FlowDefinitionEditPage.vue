@@ -468,6 +468,9 @@ const routeFieldRefNames = computed<Map<string, string[]>>(() => {
   return out
 })
 
+/** 被路由条件引用的字段 key 集合（传给 StageConfigPanel 用于字段权限锁） */
+const routeReferencedFieldKeys = computed(() => new Set(routeFieldRefNames.value.keys()))
+
 // 诊断"点击直达现场"：切到节点链步骤 + 选中对应节点/边并打开配置抽屉 + 竖向图滚动定位脉冲
 function focusDiagnosticTarget(target: DiagnosticTarget) {
   activeStep.value = STEP_STAGES
@@ -2941,6 +2944,7 @@ function goBack() {
           :schema-fields="state.cardSchema"
           :detail-schema-fields="state.detailSchema"
           :card-components="state.cardComponents"
+          :route-referenced-field-keys="routeReferencedFieldKeys"
         />
 
         <!-- 出边列表兜底：画布上平行/重叠边点不到时，从这里选任一条出边（含停用边）编辑 -->
