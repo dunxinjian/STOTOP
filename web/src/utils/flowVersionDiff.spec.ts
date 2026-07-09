@@ -39,19 +39,23 @@ describe('diffFlowVersions', () => {
     expect(diff).toContainEqual({ kind: 'remove', scope: 'stage', label: '节点「自动凭证」' })
   })
 
-  it('节点改名+改类型 → modify 内联', () => {
+  it('节点改名+改类型 → modify 内联 + 结构化 changes', () => {
     const next = clone(base)
     next.stages[0] = { id: 's1', name: '部门主管审批', type: 'auto' }
     const diff = diffFlowVersions(base, next).find((d) => d.scope === 'stage' && d.kind === 'modify')
     expect(diff?.detail).toContain('名称 部门审批 → 部门主管审批')
     expect(diff?.detail).toContain('类型 人工 → 自动')
+    // 结构化 changes（富文本 diff：旧删除线→新加粗）
+    expect(diff?.changes).toContainEqual({ label: '名称', before: '部门审批', after: '部门主管审批' })
+    expect(diff?.changes).toContainEqual({ label: '类型', before: '人工', after: '自动' })
   })
 
-  it('条件值级 diff：阈值变化「旧 → 新」内联', () => {
+  it('条件值级 diff：阈值变化「旧 → 新」内联 + 结构化', () => {
     const next = clone(base)
     next.routes[0].conditionJson = '{"logic":"and","conditions":[{"field":"amount","operator":"gte","value":10000}]}'
     const diff = diffFlowVersions(base, next).find((d) => d.scope === 'route' && d.kind === 'modify')
-    expect(diff?.detail).toBe('amount gte 5000 → amount gte 10000')
+    expect(diff?.detail).toBe('条件 amount gte 5000 → amount gte 10000')
+    expect(diff?.changes).toContainEqual({ label: '条件', before: 'amount gte 5000', after: 'amount gte 10000' })
   })
 
   it('分支优先级变化', () => {
@@ -73,7 +77,9 @@ describe('diffFlowVersions', () => {
     next.fields[1] = { key: 'reason', label: '事由', type: 'text', required: true }
     next.fields = next.fields.filter((f) => f.key !== 'amount')
     const diff = diffFlowVersions(base, next)
-    expect(diff.find((d) => d.scope === 'field' && d.kind === 'modify')?.detail).toContain('改为必填')
+    const modify = diff.find((d) => d.scope === 'field' && d.kind === 'modify')
+    expect(modify?.detail).toContain('必填 非必填 → 必填')
+    expect(modify?.changes).toContainEqual({ label: '必填', before: '非必填', after: '必填' })
     expect(diff).toContainEqual({ kind: 'remove', scope: 'field', label: '字段「报销金额」' })
   })
 })

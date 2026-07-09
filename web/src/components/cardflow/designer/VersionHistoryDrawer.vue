@@ -86,7 +86,7 @@ function fmtTime(t: string | null): string {
     :open="props.open"
     title="版本历史"
     placement="right"
-    :width="420"
+    :width="400"
     @update:open="emit('update:open', $event)"
   >
     <a-spin :spinning="loading">

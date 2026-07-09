@@ -30,12 +30,23 @@ export interface VersionSnapshot {
   fields: DiffField[]
 }
 
+export interface DiffChange {
+  /** 变更维度标签，如「名称」「类型」「条件」「优先级」 */
+  label: string
+  /** 旧值（渲染为删除线） */
+  before: string
+  /** 新值（渲染为加粗） */
+  after: string
+}
+
 export interface ChangeItem {
   kind: 'add' | 'modify' | 'remove'
   scope: 'stage' | 'route' | 'field'
   label: string
-  /** 修改类的「旧 → 新」内联说明 */
+  /** 修改类的「旧 → 新」内联说明（纯文本，向后兼容） */
   detail?: string
+  /** 修改类的结构化变更（条件值级 diff：旧删除线→新加粗，E1/P-2） */
+  changes?: DiffChange[]
 }
 
 /** 条件表达式简写：取 conditionJson 内首条叶子条件的 `字段 算子 值`（diff 展示用，不追求完整） */
@@ -72,6 +83,11 @@ function typeLabel(type?: string): string {
   return type === 'auto' ? '自动' : type === 'manual' ? '人工' : (type ?? '')
 }
 
+/** 结构化变更 → 纯文本 detail（向后兼容旧渲染） */
+function joinDetail(changes: DiffChange[]): string {
+  return changes.map((c) => `${c.label} ${c.before} → ${c.after}`).join('；')
+}
+
 /** 两版本快照结构 diff：stage 按 id / route 按 edgeKey / field 按 key 匹配 */
 export function diffFlowVersions(oldVer: VersionSnapshot, newVer: VersionSnapshot): ChangeItem[] {
   const out: ChangeItem[] = []
@@ -84,10 +100,10 @@ export function diffFlowVersions(oldVer: VersionSnapshot, newVer: VersionSnapsho
     if (!prev) {
       out.push({ kind: 'add', scope: 'stage', label: `节点「${s.name || s.id}」` })
     } else {
-      const changes: string[] = []
-      if ((prev.name || '') !== (s.name || '')) changes.push(`名称 ${prev.name || '—'} → ${s.name || '—'}`)
-      if ((prev.type || '') !== (s.type || '')) changes.push(`类型 ${typeLabel(prev.type)} → ${typeLabel(s.type)}`)
-      if (changes.length) out.push({ kind: 'modify', scope: 'stage', label: `节点「${s.name || s.id}」`, detail: changes.join('；') })
+      const changes: DiffChange[] = []
+      if ((prev.name || '') !== (s.name || '')) changes.push({ label: '名称', before: prev.name || '—', after: s.name || '—' })
+      if ((prev.type || '') !== (s.type || '')) changes.push({ label: '类型', before: typeLabel(prev.type), after: typeLabel(s.type) })
+      if (changes.length) out.push({ kind: 'modify', scope: 'stage', label: `节点「${s.name || s.id}」`, changes, detail: joinDetail(changes) })
     }
   }
   for (const s of oldVer.stages) {
@@ -103,12 +119,12 @@ export function diffFlowVersions(oldVer: VersionSnapshot, newVer: VersionSnapsho
     if (!prev) {
       out.push({ kind: 'add', scope: 'route', label: `分支「${name}」` })
     } else {
-      const changes: string[] = []
+      const changes: DiffChange[] = []
       if ((prev.conditionJson || '') !== (r.conditionJson || '')) {
-        changes.push(`${briefCondition(prev.conditionJson)} → ${briefCondition(r.conditionJson)}`)
+        changes.push({ label: '条件', before: briefCondition(prev.conditionJson), after: briefCondition(r.conditionJson) })
       }
-      if ((prev.priority ?? 0) !== (r.priority ?? 0)) changes.push(`优先级 ${prev.priority ?? '—'} → ${r.priority ?? '—'}`)
-      if (changes.length) out.push({ kind: 'modify', scope: 'route', label: `分支「${name}」`, detail: changes.join('；') })
+      if ((prev.priority ?? 0) !== (r.priority ?? 0)) changes.push({ label: '优先级', before: String(prev.priority ?? '—'), after: String(r.priority ?? '—') })
+      if (changes.length) out.push({ kind: 'modify', scope: 'route', label: `分支「${name}」`, changes, detail: joinDetail(changes) })
     }
   }
   for (const r of oldVer.routes) {
@@ -125,11 +141,11 @@ export function diffFlowVersions(oldVer: VersionSnapshot, newVer: VersionSnapsho
     if (!prev) {
       out.push({ kind: 'add', scope: 'field', label: `字段「${f.label || f.key}」` })
     } else {
-      const changes: string[] = []
-      if ((prev.label || '') !== (f.label || '')) changes.push(`名称 ${prev.label || '—'} → ${f.label || '—'}`)
-      if ((prev.type || '') !== (f.type || '')) changes.push(`类型 ${prev.type || '—'} → ${f.type || '—'}`)
-      if (!!prev.required !== !!f.required) changes.push(f.required ? '改为必填' : '取消必填')
-      if (changes.length) out.push({ kind: 'modify', scope: 'field', label: `字段「${f.label || f.key}」`, detail: changes.join('；') })
+      const changes: DiffChange[] = []
+      if ((prev.label || '') !== (f.label || '')) changes.push({ label: '名称', before: prev.label || '—', after: f.label || '—' })
+      if ((prev.type || '') !== (f.type || '')) changes.push({ label: '类型', before: prev.type || '—', after: f.type || '—' })
+      if (!!prev.required !== !!f.required) changes.push({ label: '必填', before: prev.required ? '必填' : '非必填', after: f.required ? '必填' : '非必填' })
+      if (changes.length) out.push({ kind: 'modify', scope: 'field', label: `字段「${f.label || f.key}」`, changes, detail: joinDetail(changes) })
     }
   }
   for (const f of oldVer.fields) {

@@ -96,7 +96,18 @@ function onOk() {
         <div class="cfd-list">
           <div v-for="(c, i) in changes" :key="i" class="cfd-list__row">
             <a-tag :color="KIND_TAG[c.kind].color" :bordered="false">{{ KIND_TAG[c.kind].text }}</a-tag>
-            <span class="cfd-list__label">{{ c.label }}<span v-if="c.detail" class="pcm-detail"> · {{ c.detail }}</span></span>
+            <span class="cfd-list__label">
+              {{ c.label }}
+              <span v-if="c.changes?.length" class="pcm-detail">
+                <span v-for="(ch, ci) in c.changes" :key="ci" class="pcm-change">
+                  · {{ ch.label }}
+                  <del class="pcm-change__before">{{ ch.before }}</del>
+                  →
+                  <strong class="pcm-change__after">{{ ch.after }}</strong>
+                </span>
+              </span>
+              <span v-else-if="c.detail" class="pcm-detail"> · {{ c.detail }}</span>
+            </span>
           </div>
         </div>
       </div>
@@ -145,6 +156,20 @@ function onOk() {
 .pcm-section__title { margin-bottom: 8px; font-size: $font-size-sm2; font-weight: 600; }
 
 .pcm-detail { font-family: $font-family-mono; font-size: $font-size-sm; color: $text-secondary; }
+
+.pcm-change {
+  margin-right: 6px;
+
+  .pcm-change__before {
+    color: $text-placeholder;
+    text-decoration: line-through;
+  }
+
+  .pcm-change__after {
+    font-weight: 600;
+    color: $text-primary;
+  }
+}
 
 .pcm-muted { font-size: $font-size-sm2; color: $text-secondary; }
 
