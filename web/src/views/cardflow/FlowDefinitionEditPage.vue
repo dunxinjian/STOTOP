@@ -37,7 +37,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import SaveStateChip from '@/components/common/SaveStateChip.vue'
 import SchemaFieldEditor from '@/components/cardflow/SchemaFieldEditor.vue'
 import type { DetailRow } from '@/components/cardflow/CardDetailTable.vue'
-import StageDefinitionEditor, { type StageDefinition } from '@/components/cardflow/StageDefinitionEditor.vue'
+import { type StageDefinition } from '@/components/cardflow/StageDefinitionEditor.vue'
 import StageConfigPanel from '@/components/cardflow/StageConfigPanel.vue'
 import FlowStateCanvas from '@/components/cardflow/designer/FlowStateCanvas.vue'
 import FlowVerticalGraph from '@/components/cardflow/designer/FlowVerticalGraph.vue'
@@ -183,6 +183,13 @@ const designerSelection = reactive<{ type: 'blank' | 'node' | 'edge'; key: strin
   type: 'blank',
   key: null,
 })
+/** 流程设计视图切换（mock 屏3/6：segmented 三项——流程视图/只读总览图/字段权限矩阵） */
+const stageViewMode = ref<'vertical' | 'canvas' | 'matrix'>('vertical')
+const stageViewOptions = [
+  { label: '流程视图', value: 'vertical' },
+  { label: '只读总览图', value: 'canvas' },
+  { label: '字段权限矩阵', value: 'matrix' },
+]
 const designerDrawerOpen = ref(false)
 const componentDrawerOpen = ref(false)
 const editingComponentId = ref<string | null>(null)
@@ -2489,70 +2496,53 @@ function goBack() {
 
         <!-- 步骤：节点链 -->
         <div v-show="!previewWorkbenchOpen && activeStep === STEP_STAGES" class="fdef-step fdef-step--nodechain" :class="{ 'fdef-step--err': errors.stages || errors.condition }">
-          <a-tabs class="fdef-designer-tabs" default-active-key="vertical">
-            <a-tab-pane key="vertical" tab="流程视图">
-              <div class="fdef-designer-layout">
-                <FlowVerticalGraph
-                  :stages="state.stages"
-                  :routes="state.routes"
-                  :diagnostics="stageDiagnostics"
-                  :selected-type="designerSelection.type"
-                  :selected-key="designerSelection.key"
-                  :condition-fields="routeConditionFields"
-                  :hit-stage-keys="previewHitStageKeys"
-                  @select-node="selectDesignerNode"
-                  @select-edge="selectDesignerEdge"
-                  @update-structure="applyGraphStructure"
-                />
-                <RuleHealthPanel
-                  :stages="state.stages"
-                  :routes="state.routes"
-                  :dynamic-policies="state.dynamicPolicies"
-                  :fields="state.cardSchema"
-                  @navigate="focusDiagnosticTarget"
-                />
-              </div>
-            </a-tab-pane>
+          <div class="fdef-designer-viewbar">
+            <a-segmented v-model:value="stageViewMode" :options="stageViewOptions" size="small" />
+          </div>
 
-            <a-tab-pane key="nodechain" tab="节点链">
-              <StageDefinitionEditor
-                v-model="state.stages"
-                :schema-fields="state.cardSchema"
-                :detail-schema-fields="state.detailSchema"
-                :card-components="state.cardComponents"
-              >
-                <template #left-header>
-                  <div class="fdef-step__dep-bar">
-                    已配置 <strong>{{ state.cardSchema.length }}</strong> 个卡片字段、<strong>{{ state.detailSchema.length }}</strong> 个明细字段、<strong>{{ state.cardComponents.length }}</strong> 个展示组件。
-                  </div>
-                </template>
-              </StageDefinitionEditor>
-            </a-tab-pane>
+          <div v-show="stageViewMode === 'vertical'" class="fdef-designer-layout">
+            <FlowVerticalGraph
+              :stages="state.stages"
+              :routes="state.routes"
+              :diagnostics="stageDiagnostics"
+              :selected-type="designerSelection.type"
+              :selected-key="designerSelection.key"
+              :condition-fields="routeConditionFields"
+              :hit-stage-keys="previewHitStageKeys"
+              @select-node="selectDesignerNode"
+              @select-edge="selectDesignerEdge"
+              @update-structure="applyGraphStructure"
+            />
+            <RuleHealthPanel
+              :stages="state.stages"
+              :routes="state.routes"
+              :dynamic-policies="state.dynamicPolicies"
+              :fields="state.cardSchema"
+              @navigate="focusDiagnosticTarget"
+            />
+          </div>
 
-            <a-tab-pane key="matrix" tab="字段权限矩阵">
-              <FieldPermissionMatrix
-                :stages="state.stages"
-                :routes="state.routes"
-                :schema-fields="state.cardSchema"
-                @open-stage="selectDesignerNode"
-              />
-            </a-tab-pane>
+          <div v-show="stageViewMode === 'canvas'" class="fdef-designer-layout">
+            <FlowStateCanvas
+              :stages="state.stages"
+              :routes="state.routes"
+              :dynamic-policies="state.dynamicPolicies"
+              :selected-type="designerSelection.type"
+              :selected-key="designerSelection.key"
+              @select-node="selectDesignerNode"
+              @select-edge="selectDesignerEdge"
+              @select-blank="selectDesignerBlank"
+            />
+          </div>
 
-            <a-tab-pane key="canvas" tab="只读总览图">
-              <div class="fdef-designer-layout">
-                <FlowStateCanvas
-                  :stages="state.stages"
-                  :routes="state.routes"
-                  :dynamic-policies="state.dynamicPolicies"
-                  :selected-type="designerSelection.type"
-                  :selected-key="designerSelection.key"
-                  @select-node="selectDesignerNode"
-                  @select-edge="selectDesignerEdge"
-                  @select-blank="selectDesignerBlank"
-                />
-              </div>
-            </a-tab-pane>
-          </a-tabs>
+          <div v-show="stageViewMode === 'matrix'">
+            <FieldPermissionMatrix
+              :stages="state.stages"
+              :routes="state.routes"
+              :schema-fields="state.cardSchema"
+              @open-stage="selectDesignerNode"
+            />
+          </div>
         </div>
 
         <!-- 步骤：流程配置 -->
@@ -4050,25 +4040,10 @@ function goBack() {
 }
 
 
-.fdef-designer-tabs {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-
-  :deep(.ant-tabs-content-holder),
-  :deep(.ant-tabs-content),
-  :deep(.ant-tabs-tabpane) {
-    flex: 1;
-    min-height: 0;
-  }
-
-  :deep(.ant-tabs-nav) {
-    margin: 0;
-    padding: 0 16px;
-    background: var(--bg-card);
-    border-bottom: 1px solid var(--border);
-  }
+.fdef-designer-viewbar {
+  padding: 10px 16px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
 }
 
 .fdef-designer-layout {
