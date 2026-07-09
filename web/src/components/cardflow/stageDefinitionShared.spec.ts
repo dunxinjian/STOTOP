@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { StageDefinition } from './StageDefinitionEditor.vue'
 import type { SchemaFieldDefinition } from '@/types/cardflow'
-import { DEFAULT_ACTIONS, parseAssigneeConfig, getStageHealth } from './stageDefinitionShared'
+import { DEFAULT_ACTIONS, parseAssigneeConfig, getStageHealth, stageVisualKind, isCcStage, NOTIFY_PLUGIN_REGISTRY_ID } from './stageDefinitionShared'
 
 /**
  * stageDefinitionShared 纯逻辑门禁（B9 StageConfigPanel 抽取的共享助手）。
@@ -85,5 +85,27 @@ describe('getStageHealth', () => {
 
   it('DEFAULT_ACTIONS 稳定（newStage / ensureStageConfigDefaults 共用）', () => {
     expect(DEFAULT_ACTIONS).toEqual(['approve', 'reject', 'returnToStage', 'transfer', 'addSignAfter', 'cc'])
+  })
+})
+
+describe('stageVisualKind / isCcStage（竖向图节点五类视觉）', () => {
+  it('人工节点 → appr', () => {
+    expect(stageVisualKind(stage({ type: 'manual' }))).toBe('appr')
+    expect(isCcStage(stage({ type: 'manual' }))).toBe(false)
+  })
+
+  it('普通 auto 节点（非通知插件）→ auto', () => {
+    expect(stageVisualKind(stage({ type: 'auto', pluginRegistryId: 5 }))).toBe('auto')
+    expect(isCcStage(stage({ type: 'auto', pluginRegistryId: 5 }))).toBe(false)
+  })
+
+  it('auto + 通知插件 → cc（抄送节点）', () => {
+    const cc = stage({ type: 'auto', pluginRegistryId: NOTIFY_PLUGIN_REGISTRY_ID })
+    expect(stageVisualKind(cc)).toBe('cc')
+    expect(isCcStage(cc)).toBe(true)
+  })
+
+  it('人工节点即便误挂通知插件 ID 也不算抄送（cc 必须 auto）', () => {
+    expect(isCcStage(stage({ type: 'manual', pluginRegistryId: NOTIFY_PLUGIN_REGISTRY_ID }))).toBe(false)
   })
 })

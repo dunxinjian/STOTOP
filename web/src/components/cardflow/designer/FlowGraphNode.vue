@@ -5,7 +5,7 @@
  */
 import { computed } from 'vue'
 import type { StageDefinition } from '@/components/cardflow/StageDefinitionEditor.vue'
-import { parseAssigneeConfig } from '@/components/cardflow/stageDefinitionShared'
+import { parseAssigneeConfig, stageVisualKind } from '@/components/cardflow/stageDefinitionShared'
 
 const props = defineProps<{
   stage: StageDefinition
@@ -20,9 +20,22 @@ const props = defineProps<{
 
 const emit = defineEmits<{ select: []; remove: [] }>()
 
-/** 节点视觉分类：审/自 两类 + 图标字（设计 D8 色盲冗余：色+字+边框三重编码） */
-const kindClass = computed(() => (props.stage.type === 'auto' ? 'cfd-node--auto is-auto' : 'cfd-node--appr'))
-const iconChar = computed(() => (props.stage.type === 'auto' ? '自' : '审'))
+/** 节点视觉分类：审/自/抄 三类（起/终由竖向图外层渲染）+ 图标字（设计 D8 色盲冗余：色+字+边框三重编码） */
+const visualKind = computed(() => stageVisualKind(props.stage))
+const kindClass = computed(() => {
+  switch (visualKind.value) {
+    case 'cc': return 'cfd-node--cc'
+    case 'auto': return 'cfd-node--auto is-auto'
+    default: return 'cfd-node--appr'
+  }
+})
+const iconChar = computed(() => {
+  switch (visualKind.value) {
+    case 'cc': return '抄'
+    case 'auto': return '自'
+    default: return '审'
+  }
+})
 
 const approvalModeText = computed(() => {
   switch (props.stage.approvalMode) {
@@ -55,6 +68,33 @@ const assigneeText = computed(() => {
   if (strategy === 'fieldUsers' && config?.fieldKey) return `${label}·${config.fieldKey}`
   return label
 })
+
+/** 抄送节点摘要（抄送给谁；解析 ccConfigJson，容错） */
+const ccText = computed(() => {
+  if (visualKind.value !== 'cc') return ''
+  if (!props.stage.ccConfigJson) return '未配置抄送对象'
+  try {
+    const cfg = JSON.parse(props.stage.ccConfigJson)
+    const users: Array<{ name?: string; id?: unknown }> = Array.isArray(cfg?.users) ? cfg.users : []
+    if (users.length) {
+      const names = users.map((u) => u.name || `#${u.id}`)
+      return names.length > 2 ? `${names.slice(0, 2).join('、')} 等 ${names.length} 人` : names.join('、')
+    }
+    if (cfg?.roleName || cfg?.roleCode) return `角色·${cfg.roleName || cfg.roleCode}`
+    return '未配置抄送对象'
+  } catch {
+    return '未配置抄送对象'
+  }
+})
+
+/** 节点类型文案（无障碍播报） */
+const kindLabel = computed(() => {
+  switch (visualKind.value) {
+    case 'cc': return '抄送节点'
+    case 'auto': return '自动处理节点'
+    default: return '审批节点'
+  }
+})
 </script>
 
 <template>
@@ -64,7 +104,7 @@ const assigneeText = computed(() => {
     role="treeitem"
     :aria-selected="selected"
     tabindex="0"
-    :aria-label="`${stage.type === 'auto' ? '自动处理节点' : '审批节点'} ${stage.name || '未命名'}${issueCount ? `，${issueCount} 个问题` : ''}，按 Enter 编辑，按 Delete 删除`"
+    :aria-label="`${kindLabel} ${stage.name || '未命名'}${issueCount ? `，${issueCount} 个问题` : ''}，按 Enter 编辑，按 Delete 删除`"
     @click="emit('select')"
     @keydown.enter.prevent="emit('select')"
     @keydown.delete.prevent="emit('remove')"
@@ -76,10 +116,17 @@ const assigneeText = computed(() => {
     <div class="cfd-node__head">
       <span class="cfd-node__icon">{{ iconChar }}</span>
       <span class="cfd-node__title">{{ stage.name || '未命名节点' }}</span>
-      <a-tag v-if="stage.type === 'auto'" class="cfd-node__tag" :bordered="false">自动</a-tag>
+      <a-tag v-if="visualKind === 'cc'" class="cfd-node__tag" :bordered="false">抄送</a-tag>
+      <a-tag v-else-if="stage.type === 'auto'" class="cfd-node__tag" :bordered="false">自动</a-tag>
       <a-tag v-else-if="approvalModeText" class="cfd-node__tag" color="blue" :bordered="false">{{ approvalModeText }}</a-tag>
     </div>
-    <div v-if="assigneeText" class="cfd-node__body">
+    <div v-if="visualKind === 'cc'" class="cfd-node__body">
+      <div class="cfd-node__kv">
+        <span class="cfd-node__kk">抄送给</span>
+        <span class="cfd-node__vv">{{ ccText }}</span>
+      </div>
+    </div>
+    <div v-else-if="assigneeText" class="cfd-node__body">
       <div class="cfd-node__kv">
         <span class="cfd-node__kk">处理人</span>
         <span class="cfd-node__vv">{{ assigneeText }}</span>

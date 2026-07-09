@@ -21,6 +21,7 @@ import {
 } from '@/utils/flowGraphProjection'
 import { Modal } from 'ant-design-vue'
 import type { StageDefinition } from '@/components/cardflow/StageDefinitionEditor.vue'
+import { NOTIFY_PLUGIN_REGISTRY_ID } from '@/components/cardflow/stageDefinitionShared'
 import type { StageRouteRuleRequest } from '@/types/cardflow'
 import type { HealthItem } from '@/utils/cardflowDiagnostics'
 import FlowGraphNode from './FlowGraphNode.vue'
@@ -105,6 +106,7 @@ type InsertKind = 'approval' | 'cc' | 'branch' | 'auto'
 
 const MENU_ITEMS: Array<{ kind: InsertKind; label: string; icon: string; iconClass: string }> = [
   { kind: 'approval', label: '审批人', icon: '审', iconClass: 'is-appr' },
+  { kind: 'cc', label: '抄送人', icon: '抄', iconClass: 'is-cc' },
   { kind: 'branch', label: '条件分支', icon: '分', iconClass: 'is-branch' },
   { kind: 'auto', label: '自动处理', icon: '自', iconClass: 'is-auto' },
 ]
@@ -113,6 +115,18 @@ function buildNewStage(kind: InsertKind): StageDefinition {
   const id = genStageId()
   if (kind === 'auto') {
     return { id, name: '新自动节点', type: 'auto', sortOrder: 0, failurePolicy: 'halt' }
+  }
+  if (kind === 'cc') {
+    // 抄送 = auto 节点 + 通知插件（AlertNotify）预设——引擎按 auto 执行通知，不新增 cc FType。
+    return {
+      id,
+      name: '新抄送节点',
+      type: 'auto',
+      sortOrder: 0,
+      pluginRegistryId: NOTIFY_PLUGIN_REGISTRY_ID,
+      ccConfigJson: JSON.stringify({ users: [], timing: 'onEnter' }),
+      failurePolicy: 'skip',
+    }
   }
   return {
     id,
@@ -550,6 +564,7 @@ function askDeleteStage(stageId: string) {
 
 .cfd-pmenu__icon {
   &.is-appr { background: var(--color-primary); }
+  &.is-cc { background: var(--color-flow-cc); }
   &.is-branch { background: var(--color-warning); }
   &.is-auto { background: var(--color-flow-auto); }
 }

@@ -11,6 +11,27 @@ import type { SchemaFieldDefinition } from '@/types/cardflow'
 export const DEFAULT_ACTIONS = ['approve', 'reject', 'returnToStage', 'transfer', 'addSignAfter', 'cc']
 
 /**
+ * 通知/抄送插件注册 FID（CF自动插件注册「AlertNotify · 预警通知」，card 粒度，baseline FID=8）。
+ * 抄送节点 = auto 节点 + 该插件预设——引擎按 auto 节点执行 AlertNotify（FlowEngineService 已支持），
+ * 不新增独立 cc FType（引擎节点分派为 auto/human 二元，cc FType 会被当人工待办卡死）。
+ */
+export const NOTIFY_PLUGIN_REGISTRY_ID = 8
+
+/** 竖向图/矩阵节点视觉分类：起点/审批/自动/抄送/结束五类（mock 屏3 .n-start/.n-appr/.n-auto/.n-cc/.n-end）。 */
+export type StageVisualKind = 'start' | 'appr' | 'auto' | 'cc' | 'end'
+
+/** 节点是否为抄送（auto + 通知插件）。 */
+export function isCcStage(stage: Pick<StageDefinition, 'type' | 'pluginRegistryId'>): boolean {
+  return stage.type === 'auto' && stage.pluginRegistryId === NOTIFY_PLUGIN_REGISTRY_ID
+}
+
+/** 派生节点视觉分类（起点/终点由竖向图外层处理，此处只判 stage 内 appr/auto/cc）。 */
+export function stageVisualKind(stage: Pick<StageDefinition, 'type' | 'pluginRegistryId'>): StageVisualKind {
+  if (isCcStage(stage)) return 'cc'
+  return stage.type === 'auto' ? 'auto' : 'appr'
+}
+
+/**
  * 处理人策略归一化（对齐引擎 ApproverResolver.NormalizeStrategy 的宽容语义）：
  * 存量数据存在 fixedusers/specified/FixedUsers 等变体，UI 选项集只认规范值。
  */
