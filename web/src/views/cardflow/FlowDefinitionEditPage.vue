@@ -207,7 +207,7 @@ const STEPS = [
   { key: 'schema',   title: '卡片设计', desc: '卡片字段 · 明细行字段' },
   // V2 冻结：卡片视图低代码编排（简化瘦身桶B 2026-06-16），入口暂下线，数据通道保留
   { key: 'stages',   title: '流程设计', desc: '流程图 · 节点权限' },
-  { key: 'settings', title: '流程配置', desc: '退回 · 重提 · 依赖 · 余额' },
+  { key: 'settings', title: '发布设置', desc: '超时 · 失败策略 · 退回 · 重提' },
   // M5-0：预演从步骤条摘除（mock 四步向导），顶栏「预演」按钮唤起干跑工作台
 ] as const
 
@@ -1054,6 +1054,9 @@ const previewCoverageStats = computed(() => [
 const flowGroups = ref<FlowGroupDto[]>([])
 const roleOptions = ref<{ value: string; label: string }[]>([])
 const availableFlows = ref<{ code: string; name: string }[]>([])
+
+/** 发布设置：新建节点默认超时（小时）。前端预填值，非全局引擎开关（引擎无全局默认字段）。 */
+const settingsDefaultTimeout = ref(0)
 
 interface UserOption {
   label: string
@@ -2509,6 +2512,7 @@ function goBack() {
               :selected-key="designerSelection.key"
               :condition-fields="routeConditionFields"
               :hit-stage-keys="previewHitStageKeys"
+              :default-timeout-hours="settingsDefaultTimeout"
               @select-node="selectDesignerNode"
               @select-edge="selectDesignerEdge"
               @update-structure="applyGraphStructure"
@@ -2545,127 +2549,184 @@ function goBack() {
           </div>
         </div>
 
-        <!-- 步骤：流程配置 -->
+        <!-- 步骤：发布设置（mock 屏8 开关式布局） -->
         <div v-show="!previewWorkbenchOpen && activeStep === STEP_SETTINGS" class="fdef-step">
-          <div class="fdef-flow-config">
-            <BaseCard title="审批规则" class="fdef-flow-config-card">
-              <template #extra>
-                <small>控制退回、重提、兜底管理员和流程依赖</small>
-              </template>
-
-              <div class="fdef-flow-config-body">
-                <div class="fdef-fc-item">
-                  <div class="fdef-fc-item__label">退回策略</div>
-                  <a-radio-group
-                    v-model:value="state.settings.rejectStrategy"
-                    class="fdef-fc-item__control"
-                  >
-                    <a-radio value="toInitiator">退至发起人</a-radio>
-                    <a-radio value="toPrevious">退至上一节点</a-radio>
-                    <a-radio value="toSpecified">指定节点</a-radio>
-                  </a-radio-group>
+          <div class="fdef-settings-panel">
+            <div class="fdef-settings-panel__head">发布设置</div>
+            <div class="fdef-settings-panel__body">
+              <!-- 节点超时提醒（引擎真消费：CardFlowTimeoutJob per-stage FTimeoutHours） -->
+              <div class="cfd-setrow">
+                <a-switch :checked="!!settingsDefaultTimeout" size="small" @change="(v: string | number | boolean) => settingsDefaultTimeout = v ? 24 : 0" />
+                <div class="cfd-setrow__text">
+                  <div class="cfd-setrow__title">节点超时提醒</div>
+                  <div class="cfd-setrow__desc">超过设定时长未处理自动提醒处理人及其上级。新建节点将默认使用此值。</div>
                 </div>
+                <a-input-number
+                  v-if="settingsDefaultTimeout"
+                  v-model:value="settingsDefaultTimeout"
+                  :min="1"
+                  :max="720"
+                  size="small"
+                  style="width: 110px"
+                  :addon-after="'小时'"
+                />
+              </div>
 
-                <div class="fdef-fc-item">
-                  <div class="fdef-fc-item__label">重提策略</div>
-                  <a-radio-group
-                    v-model:value="state.settings.resubmitStrategy"
-                    class="fdef-fc-item__control"
-                  >
-                    <a-radio value="fromStart">从头开始</a-radio>
-                    <a-radio value="fromRejected">从退回节点</a-radio>
-                  </a-radio-group>
+              <!-- 退回策略（引擎真消费） -->
+              <div class="cfd-setrow">
+                <a-switch :checked="true" size="small" disabled />
+                <div class="cfd-setrow__text">
+                  <div class="cfd-setrow__title">退回策略</div>
+                  <div class="cfd-setrow__desc">处理人退回时的目标节点规则。</div>
                 </div>
+                <a-radio-group
+                  v-model:value="state.settings.rejectStrategy"
+                  size="small"
+                >
+                  <a-radio value="toInitiator">退至发起人</a-radio>
+                  <a-radio value="toPrevious">退至上一节点</a-radio>
+                  <a-radio value="toSpecified">指定节点</a-radio>
+                </a-radio-group>
+              </div>
 
-                <div class="fdef-fc-item">
-                  <div class="fdef-fc-item__label">
-                    审批管理员
-                    <span class="fdef-fc-item__hint">用于人工节点处理人为空时的兜底处理</span>
-                  </div>
-                  <a-select
-                    v-model:value="state.settings.approvalAdminUserIds"
-                    mode="multiple"
-                    style="width: 100%"
-                    placeholder="搜索并选择审批管理员"
-                    :options="approvalAdminUserOptions"
-                    :loading="approvalAdminSearchLoading"
-                    show-search
-                    option-filter-prop="label"
-                    :filter-option="filterOption"
-                    @search="onApprovalAdminSearch"
-                  />
+              <!-- 重提策略（引擎真消费） -->
+              <div class="cfd-setrow">
+                <a-switch :checked="true" size="small" disabled />
+                <div class="cfd-setrow__text">
+                  <div class="cfd-setrow__title">重提策略</div>
+                  <div class="cfd-setrow__desc">被退回后重新提交的走向。</div>
                 </div>
+                <a-radio-group
+                  v-model:value="state.settings.resubmitStrategy"
+                  size="small"
+                >
+                  <a-radio value="fromStart">从头开始</a-radio>
+                  <a-radio value="fromRejected">从退回节点</a-radio>
+                </a-radio-group>
+              </div>
 
-                <div class="fdef-fc-item">
-                  <div class="fdef-fc-item__label">
-                    前置依赖
-                    <span class="fdef-fc-item__hint">流程发布前必须满足的依赖项</span>
-                  </div>
-                  <div class="fdef-prereq">
-                    <div
-                      v-for="(p, i) in state.settings.prerequisites"
-                      :key="i"
-                      class="fdef-prereq__row"
-                    >
-                      <a-select
-                        v-model:value="p.flowCode"
-                        placeholder="选择依赖流程"
-                        style="flex:1"
-                        :options="availableFlows.map(f => ({ value: f.code, label: f.name }))"
-                      />
-                      <a-checkbox v-model:checked="p.required">必需</a-checkbox>
-                      <a-button danger type="text" size="small" @click="removePrerequisite(i)">移除</a-button>
-                    </div>
-                    <a-button type="dashed" block @click="addPrerequisite">+ 添加前置依赖</a-button>
-                  </div>
+              <!-- 审批管理员（引擎真消费：兜底 fallback=flowAdmin） -->
+              <div class="cfd-setrow cfd-setrow--expand">
+                <a-switch :checked="true" size="small" disabled />
+                <div class="cfd-setrow__text">
+                  <div class="cfd-setrow__title">审批管理员</div>
+                  <div class="cfd-setrow__desc">人工节点处理人为空时的兜底处理人。</div>
+                </div>
+                <a-select
+                  v-model:value="state.settings.approvalAdminUserIds"
+                  mode="multiple"
+                  style="width: 100%"
+                  size="small"
+                  placeholder="搜索并选择审批管理员"
+                  :options="approvalAdminUserOptions"
+                  :loading="approvalAdminSearchLoading"
+                  show-search
+                  option-filter-prop="label"
+                  :filter-option="filterOption"
+                  @search="onApprovalAdminSearch"
+                />
+              </div>
+
+              <!-- 启用冲销（引擎真消费） -->
+              <div class="cfd-setrow">
+                <a-switch v-model:checked="state.settings.offsetEnabled" size="small" />
+                <div class="cfd-setrow__text">
+                  <div class="cfd-setrow__title">启用冲销</div>
+                  <div class="cfd-setrow__desc">允许后续流程冲销本流程的已完成卡片。</div>
                 </div>
               </div>
-            </BaseCard>
 
-            <BaseCard title="业务扩展" class="fdef-flow-config-card">
-              <template #extra>
-                <small>保留财务冲销、余额生成和清算等业务插件配置</small>
-              </template>
-
-              <div class="fdef-flow-config-body">
-                <div class="fdef-switch-item">
-                  <span class="fdef-switch-item__label">启用冲销</span>
-                  <a-switch v-model:checked="state.settings.offsetEnabled" />
+              <!-- 冲销来源流程（条件展开） -->
+              <div v-if="state.settings.offsetEnabled" class="cfd-setrow cfd-setrow--expand cfd-setrow--inset">
+                <div class="cfd-setrow__text">
+                  <div class="cfd-setrow__title">冲销来源流程</div>
                 </div>
+                <a-select
+                  v-model:value="state.settings.offsetSourceFlowCodes"
+                  mode="multiple"
+                  placeholder="选择可冲销的源流程"
+                  size="small"
+                  style="width: 100%"
+                  :options="availableFlows.map(f => ({ value: f.code, label: f.name }))"
+                />
+              </div>
 
-                <div
-                  v-if="state.settings.offsetEnabled"
-                  class="fdef-fc-item fdef-fc-item--inset"
-                >
-                  <div class="fdef-fc-item__label">冲销来源流程</div>
-                  <a-select
-                    v-model:value="state.settings.offsetSourceFlowCodes"
-                    mode="multiple"
-                    placeholder="选择可冲销的源流程"
-                    style="width:100%"
-                    :options="availableFlows.map(f => ({ value: f.code, label: f.name }))"
-                  />
-                </div>
-
-                <div class="fdef-switch-item">
-                  <span class="fdef-switch-item__label">完成后生成余额</span>
-                  <a-switch v-model:checked="state.settings.generateBalance" />
-                </div>
-
-                <div class="fdef-switch-item">
-                  <span class="fdef-switch-item__label">完成后清算余额</span>
-                  <a-switch v-model:checked="state.settings.settleBalance" />
-                </div>
-
-                <div
-                  v-if="state.settings.settleBalance"
-                  class="fdef-fc-item fdef-fc-item--inset"
-                >
-                  <div class="fdef-fc-item__label">清算来源流程编码</div>
-                  <a-input v-model:value="state.settings.settleSourceFlowCode" placeholder="例：expense_apply" />
+              <!-- 完成后生成/清算余额（引擎真消费） -->
+              <div class="cfd-setrow">
+                <a-switch v-model:checked="state.settings.generateBalance" size="small" />
+                <div class="cfd-setrow__text">
+                  <div class="cfd-setrow__title">完成后生成余额</div>
+                  <div class="cfd-setrow__desc">卡片审批通过后生成余额记录。</div>
                 </div>
               </div>
-            </BaseCard>
+
+              <div class="cfd-setrow">
+                <a-switch v-model:checked="state.settings.settleBalance" size="small" />
+                <div class="cfd-setrow__text">
+                  <div class="cfd-setrow__title">完成后清算余额</div>
+                  <div class="cfd-setrow__desc">卡片审批通过后自动清算匹配余额。</div>
+                </div>
+              </div>
+
+              <div v-if="state.settings.settleBalance" class="cfd-setrow cfd-setrow--expand cfd-setrow--inset">
+                <div class="cfd-setrow__text">
+                  <div class="cfd-setrow__title">清算来源流程编码</div>
+                </div>
+                <a-input v-model:value="state.settings.settleSourceFlowCode" size="small" placeholder="例：expense_apply" />
+              </div>
+
+              <!-- 前置依赖 -->
+              <div class="cfd-setrow cfd-setrow--expand">
+                <a-switch :checked="!!state.settings.prerequisites.length" size="small" disabled />
+                <div class="cfd-setrow__text">
+                  <div class="cfd-setrow__title">前置依赖</div>
+                  <div class="cfd-setrow__desc">流程发布前必须满足的依赖项。</div>
+                </div>
+                <div class="fdef-prereq">
+                  <div
+                    v-for="(p, i) in state.settings.prerequisites"
+                    :key="i"
+                    class="fdef-prereq__row"
+                  >
+                    <a-select
+                      v-model:value="p.flowCode"
+                      placeholder="选择依赖流程"
+                      size="small"
+                      style="flex:1"
+                      :options="availableFlows.map(f => ({ value: f.code, label: f.name }))"
+                    />
+                    <a-checkbox v-model:checked="p.required">必需</a-checkbox>
+                    <a-button danger type="text" size="small" @click="removePrerequisite(i)">移除</a-button>
+                  </div>
+                  <a-button type="dashed" size="small" block @click="addPrerequisite">+ 添加前置依赖</a-button>
+                </div>
+              </div>
+
+              <!-- === 二期占位（引擎无消费，灰置 + 标签说明） === -->
+              <div class="cfd-setrow is-deferred">
+                <a-switch :checked="false" size="small" disabled />
+                <div class="cfd-setrow__text">
+                  <div class="cfd-setrow__title">审批人去重 <a-tag size="small">二期</a-tag></div>
+                  <div class="cfd-setrow__desc">同一人在多个连续环节只需审批一次（引擎暂未消费，规划中）。</div>
+                </div>
+              </div>
+
+              <div class="cfd-setrow is-deferred">
+                <a-switch :checked="false" size="small" disabled />
+                <div class="cfd-setrow__text">
+                  <div class="cfd-setrow__title">允许加签 / 转交 <a-tag size="small">二期</a-tag></div>
+                  <div class="cfd-setrow__desc">审批人可临时加签他人或转交（实例级动作已支持，定义级开关暂未消费）。</div>
+                </div>
+              </div>
+
+              <div class="cfd-setrow is-deferred">
+                <a-switch :checked="false" size="small" disabled />
+                <div class="cfd-setrow__text">
+                  <div class="cfd-setrow__title">允许发起人撤回 <a-tag size="small">二期</a-tag></div>
+                  <div class="cfd-setrow__desc">流程进行中允许发起人撤回，撤回后回到草稿（引擎暂未消费，规划中）。</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -4149,6 +4210,25 @@ function goBack() {
 }
 
 /* ============ 流程配置：垂直单列排列 ============ */
+.fdef-settings-panel {
+  max-width: 720px;
+  margin: 0 auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.fdef-settings-panel__head {
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+
+.fdef-settings-panel__body {
+  padding: 4px 16px;
+}
+
 .fdef-flow-config {
   display: flex;
   flex-direction: column;

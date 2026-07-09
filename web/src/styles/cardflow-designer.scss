@@ -514,3 +514,48 @@
     cursor: pointer;
   }
 }
+
+// ---------- 发布设置行（mock .setrow，屏8 开关式布局）----------
+.cfd-setrow {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 13px 4px;
+  border-bottom: 1px solid $border-color-faint;
+
+  &:last-child { border-bottom: 0; }
+
+  &.is-deferred {
+    opacity: 0.55;
+  }
+
+  &.cfd-setrow--expand {
+    flex-wrap: wrap;
+
+    > :last-child {
+      flex-basis: 100%;
+      margin-top: 6px;
+    }
+  }
+
+  &.cfd-setrow--inset {
+    padding-left: 52px;
+  }
+}
+
+.cfd-setrow__text {
+  flex: 1;
+  min-width: 0;
+
+  .cfd-setrow__title {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: $text-primary;
+  }
+
+  .cfd-setrow__desc {
+    margin-top: 2px;
+    font-size: 12px;
+    color: $text-secondary;
+  }
+}

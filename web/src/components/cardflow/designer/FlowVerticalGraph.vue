@@ -38,6 +38,8 @@ const props = defineProps<{
   conditionFields?: FieldOption[]
   /** 干跑命中路径的 stageKey 集合（M5-4 路径点亮） */
   hitStageKeys?: string[]
+  /** 发布设置里的默认超时（小时）——新建审批节点预填（F4） */
+  defaultTimeoutHours?: number
 }>()
 
 const emit = defineEmits<{
@@ -134,6 +136,7 @@ function buildNewStage(kind: InsertKind): StageDefinition {
     type: 'manual',
     sortOrder: 0,
     approvalMode: 'orsign',
+    ...(props.defaultTimeoutHours ? { timeoutHours: props.defaultTimeoutHours } : {}),
   }
 }
 
