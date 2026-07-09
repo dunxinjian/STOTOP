@@ -5,6 +5,7 @@
  * 权限数据只存 stages 上（viewProfile），矩阵是视图无副本；列头下拉批量（E3/P-1）。
  */
 import { computed } from 'vue'
+import { message } from 'ant-design-vue'
 import { buildFlowTree, type FlowTreeNode } from '@/utils/flowGraphProjection'
 import { buildRouteFieldIndex } from '@/utils/routeFieldIndex'
 import PermissionTri from './PermissionTri.vue'
@@ -123,6 +124,27 @@ function batchColumn(stageKey: string, access: PermissionValue) {
   }
   return skipped
 }
+
+/** 批量 + toast 计数（mock E3：「N 个锁定字段未变更」） */
+function batchColumnWithToast(stageKey: string, access: PermissionValue) {
+  const skipped = batchColumn(stageKey, access)
+  if (skipped) message.info(`${skipped} 个锁定字段未变更`)
+}
+
+/** 复制左侧列的设置（mock E3 列头下拉第三项） */
+function copyFromLeftColumn(stageKey: string) {
+  const idx = columns.value.findIndex((c) => c.stageKey === stageKey)
+  if (idx <= 0) { message.warning('当前列已是第一列，无左侧可复制'); return }
+  const leftKey = columns.value[idx - 1].stageKey
+  let skipped = 0
+  for (const field of props.schemaFields) {
+    const leftAccess = accessOf(leftKey, field.key)
+    if (lockedStatesOf(field.key).includes(leftAccess)) { skipped++; continue }
+    setAccess(stageKey, field.key, leftAccess)
+  }
+  if (skipped) message.info(`已复制左列设置（${skipped} 个锁定字段未变更）`)
+  else message.success('已复制左列设置')
+}
 </script>
 
 <template>
@@ -143,8 +165,9 @@ function batchColumn(stageKey: string, access: PermissionValue) {
                   <span class="cfd-matrix__col-menu" role="button" tabindex="0" aria-label="列批量操作">▾</span>
                   <template #overlay>
                     <a-menu>
-                      <a-menu-item @click="batchColumn(col.stageKey, 'readonly')">整列 → 全部只读</a-menu-item>
-                      <a-menu-item @click="batchColumn(col.stageKey, 'hidden')">整列 → 全部隐藏</a-menu-item>
+                      <a-menu-item @click="batchColumnWithToast(col.stageKey, 'readonly')">整列 → 全部只读</a-menu-item>
+                      <a-menu-item @click="batchColumnWithToast(col.stageKey, 'hidden')">整列 → 全部隐藏</a-menu-item>
+                      <a-menu-item @click="copyFromLeftColumn(col.stageKey)">复制左侧列的设置</a-menu-item>
                       <a-menu-item @click="emit('open-stage', col.stageKey)">打开该节点抽屉</a-menu-item>
                     </a-menu>
                   </template>
@@ -212,7 +235,7 @@ function batchColumn(stageKey: string, access: PermissionValue) {
 
   th,
   td {
-    padding: 7px 10px;
+    padding: 7px 11px;
     text-align: center;
     white-space: nowrap;
     border: 1px solid $border-color-faint;
