@@ -11,6 +11,7 @@ export interface FlowDefinitionDto {
   numberTemplate: string | null
   titleTemplate: string | null
   allowedRolesJson: string | null
+  startPolicyJson?: string | null
   flowGroupId: number | null
   orgId: number
   createdTime: string
@@ -44,6 +45,7 @@ export interface CreateFlowDefinitionRequest {
   numberTemplate?: string | null
   titleTemplate?: string | null
   allowedRolesJson?: string | null
+  startPolicyJson?: string | null
   flowGroupId?: number | null
   matchPattern?: string | null
   orgId?: number
@@ -55,6 +57,7 @@ export interface UpdateFlowDefinitionRequest {
   numberTemplate?: string | null
   titleTemplate?: string | null
   allowedRolesJson?: string | null
+  startPolicyJson?: string | null
   flowGroupId?: number | null
   matchPattern?: string | null
 }

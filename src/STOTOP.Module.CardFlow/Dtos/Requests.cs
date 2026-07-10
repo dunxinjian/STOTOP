@@ -83,6 +83,7 @@ public class CreateFlowDefinitionRequest
     public string? NumberTemplate { get; set; }
     public string? TitleTemplate { get; set; }
     public string? AllowedRolesJson { get; set; }
+    public string? StartPolicyJson { get; set; }
     public long? FlowGroupId { get; set; }
     public string? MatchPattern { get; set; }
     public long OrgId { get; set; }
@@ -95,6 +96,7 @@ public class UpdateFlowDefinitionRequest
     public string? NumberTemplate { get; set; }
     public string? TitleTemplate { get; set; }
     public string? AllowedRolesJson { get; set; }
+    public string? StartPolicyJson { get; set; }
     public long? FlowGroupId { get; set; }
     public string? MatchPattern { get; set; }
 }

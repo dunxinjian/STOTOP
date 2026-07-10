@@ -12,6 +12,7 @@ public class FlowDefinitionDto
     public string? NumberTemplate { get; set; }
     public string? TitleTemplate { get; set; }
     public string? AllowedRolesJson { get; set; }
+    public string? StartPolicyJson { get; set; }
     public long? FlowGroupId { get; set; }
     public long OrgId { get; set; }
     public DateTime CreatedTime { get; set; }

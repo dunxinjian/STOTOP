@@ -100,6 +100,7 @@ public class FlowDefinitionService : IFlowDefinitionService
                 NumberTemplate = x.FNumberTemplate,
                 TitleTemplate = x.FTitleTemplate,
                 AllowedRolesJson = x.FAllowedRolesJson,
+                StartPolicyJson = x.FStartPolicyJson,
                 FlowGroupId = x.FFlowGroupId,
                 OrgId = x.FOrgId,
                 CreatedTime = x.FCreatedTime,
@@ -146,6 +147,7 @@ public class FlowDefinitionService : IFlowDefinitionService
             NumberTemplate = entity.FNumberTemplate,
             TitleTemplate = entity.FTitleTemplate,
             AllowedRolesJson = entity.FAllowedRolesJson,
+            StartPolicyJson = entity.FStartPolicyJson,
             FlowGroupId = entity.FFlowGroupId,
             OrgId = entity.FOrgId,
             CreatedTime = entity.FCreatedTime,
@@ -167,6 +169,7 @@ public class FlowDefinitionService : IFlowDefinitionService
             FNumberTemplate = request.NumberTemplate,
             FTitleTemplate = request.TitleTemplate,
             FAllowedRolesJson = request.AllowedRolesJson,
+            FStartPolicyJson = request.StartPolicyJson,
             FFlowGroupId = request.FlowGroupId,
             FMatchPattern = request.MatchPattern,
             FOrgId = 0, // 让 DbContext 的 FillOrgIdForNewEntities 自动填充当前组织
@@ -188,6 +191,7 @@ public class FlowDefinitionService : IFlowDefinitionService
             NumberTemplate = entity.FNumberTemplate,
             TitleTemplate = entity.FTitleTemplate,
             AllowedRolesJson = entity.FAllowedRolesJson,
+            StartPolicyJson = entity.FStartPolicyJson,
             FlowGroupId = entity.FFlowGroupId,
             OrgId = entity.FOrgId,
             CreatedTime = entity.FCreatedTime
@@ -210,6 +214,8 @@ public class FlowDefinitionService : IFlowDefinitionService
             entity.FTitleTemplate = request.TitleTemplate;
         if (request.AllowedRolesJson != null)
             entity.FAllowedRolesJson = request.AllowedRolesJson;
+        if (request.StartPolicyJson != null)
+            entity.FStartPolicyJson = request.StartPolicyJson;
         if (request.FlowGroupId.HasValue)
             entity.FFlowGroupId = request.FlowGroupId;
         if (request.MatchPattern != null)
@@ -228,6 +234,7 @@ public class FlowDefinitionService : IFlowDefinitionService
             NumberTemplate = entity.FNumberTemplate,
             TitleTemplate = entity.FTitleTemplate,
             AllowedRolesJson = entity.FAllowedRolesJson,
+            StartPolicyJson = entity.FStartPolicyJson,
             FlowGroupId = entity.FFlowGroupId,
             OrgId = entity.FOrgId,
             CreatedTime = entity.FCreatedTime
@@ -1181,6 +1188,7 @@ public class FlowDefinitionService : IFlowDefinitionService
             FNumberTemplate = sourceDefinition.FNumberTemplate,
             FTitleTemplate = sourceDefinition.FTitleTemplate,
             FAllowedRolesJson = sourceDefinition.FAllowedRolesJson,
+            FStartPolicyJson = sourceDefinition.FStartPolicyJson,
             FFlowGroupId = null,
             FTriggerConfigJson = sourceDefinition.FTriggerConfigJson,
             FAccountSetId = sourceDefinition.FAccountSetId,
@@ -1274,6 +1282,7 @@ public class FlowDefinitionService : IFlowDefinitionService
                 NumberTemplate = x.FNumberTemplate,
                 TitleTemplate = x.FTitleTemplate,
                 AllowedRolesJson = x.FAllowedRolesJson,
+                StartPolicyJson = x.FStartPolicyJson,
                 FlowGroupId = x.FFlowGroupId,
                 OrgId = x.FOrgId,
                 CreatedTime = x.FCreatedTime,
@@ -1333,6 +1342,7 @@ public class FlowDefinitionService : IFlowDefinitionService
             existingTemplate.FNumberTemplate = source.FNumberTemplate;
             existingTemplate.FTitleTemplate = source.FTitleTemplate;
             existingTemplate.FAllowedRolesJson = source.FAllowedRolesJson;
+            existingTemplate.FStartPolicyJson = source.FStartPolicyJson;
             existingTemplate.FTriggerConfigJson = source.FTriggerConfigJson;
             existingTemplate.FAccountSetId = source.FAccountSetId;
             existingTemplate.FStatus = "published";
@@ -1447,6 +1457,7 @@ public class FlowDefinitionService : IFlowDefinitionService
             NumberTemplate = entity.FNumberTemplate,
             TitleTemplate = entity.FTitleTemplate,
             AllowedRolesJson = entity.FAllowedRolesJson,
+            StartPolicyJson = entity.FStartPolicyJson,
             FlowGroupId = entity.FFlowGroupId,
             OrgId = entity.FOrgId,
             CreatedTime = entity.FCreatedTime,
