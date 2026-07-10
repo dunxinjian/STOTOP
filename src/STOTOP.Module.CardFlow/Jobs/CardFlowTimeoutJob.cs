@@ -1,3 +1,4 @@
+using Hangfire;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -42,6 +43,8 @@ public class CardFlowTimeoutJob
         _logger = logger;
     }
 
+    /// <summary>并发守卫：同一时刻只允许一个实例执行，避免多 Hangfire worker 或调度重叠导致同一节点被重复处理。</summary>
+    [DisableConcurrentExecution(timeoutInSeconds: 300)]
     public async Task ExecuteAsync()
     {
         _logger.LogInformation("CardFlow 节点超时检查开始");
@@ -187,9 +190,14 @@ public class CardFlowTimeoutJob
                                 $"节点「{instance.FStageName}」超时{applicableLevel.Multiplier}倍未处理，升级至上级");
                             break;
                         default:
+                            // 未知动作类型：仍需推进高水位标记并落库，否则每个 tick 都会重新命中同一级别，
+                            // 导致无限重试与日志刷屏（与 remind/autoApprove/autoReject/escalate 一致，记录一次后跳过）。
                             _logger.LogWarning(
-                                "超时升级链未知动作类型，已忽略: StageInstanceId={StageId}, Action={Action}",
+                                "超时升级链未知动作类型，已记录级别并跳过: StageInstanceId={StageId}, Action={Action}",
                                 instance.FID, applicableLevel.Action);
+                            _dbContext.Attach(instance);
+                            instance.FTimeoutActionLevel = applicableLevel.Multiplier;
+                            await _dbContext.SaveChangesAsync();
                             break;
                     }
                 }

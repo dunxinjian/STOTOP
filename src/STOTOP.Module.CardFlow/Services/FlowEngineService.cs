@@ -909,7 +909,8 @@ public class FlowEngineService : IFlowEngineService
                     _dbContext.Entry(a).State = EntityState.Modified;
                 }
 
-                await CompleteStageTodosAsync(stageInstance.FID);
+                // 注：CompleteStageApprovedTransitionAsync 内部已调用 CompleteStageTodosAsync，
+                // 此处不再重复调用，避免 DispatchCompleteTodoAsync 重复触发（同一批待办被通知两次）。
                 await CompleteStageApprovedTransitionAsync(card, stageInstance, reason);
 
                 stageInstance.FTimeoutActionLevel = timeoutLevel;
@@ -961,18 +962,11 @@ public class FlowEngineService : IFlowEngineService
                     _dbContext.Entry(a).State = EntityState.Modified;
                 }
 
-                if (string.Equals(stageInstance.FApprovalMode, "sequential", StringComparison.OrdinalIgnoreCase))
-                {
-                    var allAssignees = await _dbContext.Set<CfStageAssignee>()
-                        .Where(a => a.FStageInstanceId == stageInstance.FID)
-                        .ToListAsync();
-                    _sequentialRuntime.CancelOpenAssignees(allAssignees);
-                    foreach (var cancelled in allAssignees.Where(a => a.FStatus == "cancelled"))
-                    {
-                        _dbContext.Entry(cancelled).State = EntityState.Modified;
-                    }
-                }
-
+                // 注：系统路径已在上方将本节点全部 pending/waiting 处理人强制标记为 rejected，
+                // 不存在遗留的"open/waiting"处理人，故无需（也不能）像人工 RejectAsync 那样再对
+                // sequential 模式重查并 CancelOpenAssignees——重查得到的是与上方同主键的不同实例，
+                // 对其 Entry().State=Modified 会与已跟踪实例冲突（InvalidOperationException），
+                // 曾导致该路径整体回滚、autoReject 永不生效。
                 await CompleteStageReturnedTransitionAsync(card, stageInstance, reason);
 
                 stageInstance.FTimeoutActionLevel = timeoutLevel;

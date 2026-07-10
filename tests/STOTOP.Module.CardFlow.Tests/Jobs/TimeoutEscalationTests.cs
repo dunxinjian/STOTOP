@@ -27,6 +27,7 @@ public class TimeoutEscalationTests
     private const long FlowVersionId = 3501;
     private const long ApproverId = 71;
     private const long SuperiorId = 72;
+    private const long SecondApproverId = 73;
     private const long InitiatorId = 88;
 
     [Fact]
@@ -99,6 +100,52 @@ public class TimeoutEscalationTests
             .SingleAsync(l => l.FStageInstanceId == stageInstanceId && l.FActionType == "autoReject");
         Assert.Equal(0, log.FOperatorId);
         Assert.Equal("system", log.FOperatorName);
+    }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task 超时达2倍_autoReject动作_顺签模式_节点退回卡片退回_不抛异常()
+    {
+        // 回归 Fix1：SystemAutoRejectStageAsync 已将全部 pending/waiting 处理人强制标记 rejected 后，
+        // 修复前的 sequential 分支仍重查全部处理人并对同主键再次 Entry().State=Modified，撞
+        // "another instance with the same key value is already being tracked"；该异常被方法自身 catch
+        // 吞掉（记日志+事务回滚，不上抛），故不可靠断言处判定——真正可观测症状是节点/卡片停留 active、
+        // FTimeoutActionLevel 不落库，autoReject 静默失效、每 tick 重试。本用例断言修复后正常流转到 returned。
+        // 注：须显式切 NoTrackingWithIdentityResolution 复现生产查询跟踪行为——默认 TrackAll 下第二次重查会
+        // 命中已跟踪的同一实例（identity map 生效），不会触发该 bug（见 ApprovalRatioTests.CreateNoTrackingDb 同类注释）。
+        const long stageDefId = 6506;
+        const long cardId = 9606;
+        const long stageInstanceId = 9706;
+        const long assignee1Fid = 9806;
+        const long assignee2Fid = 9807;
+        using var db = TestDbContextFactory.Create(nameof(超时达2倍_autoReject动作_顺签模式_节点退回卡片退回_不抛异常));
+        db.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTrackingWithIdentityResolution;
+        await SeedSequentialTwoAssigneeStageAsync(db, stageDefId, timeoutHours: 2,
+            timeoutActionJson: """{"levels":[{"multiplier":2,"action":"autoReject"}]}""",
+            cardId: cardId, stageInstanceId: stageInstanceId,
+            activatedTime: DateTime.Now.AddHours(-5),
+            assignee1Fid: assignee1Fid, assignee2Fid: assignee2Fid);
+        db.ChangeTracker.Clear();
+
+        var engine = CreateEngine(db);
+        var job = CreateJob(db, engine, new FakeNotificationDispatcher());
+
+        var exception = await Record.ExceptionAsync(() => job.ExecuteAsync());
+        Assert.Null(exception); // Job 本身不应向外抛异常（每节点独立事务隔离）
+
+        db.ChangeTracker.Clear();
+        var stage = await db.Set<CfStageInstance>().AsNoTracking().SingleAsync(s => s.FID == stageInstanceId);
+        Assert.Equal("returned", stage.FStatus); // 修复前：撞冲突回滚后仍为 "active"（RED）
+        Assert.Equal("rejected", stage.FFinalAction);
+        Assert.Equal(2, stage.FTimeoutActionLevel); // 修复前：回滚未落库，此处为 null（RED）
+
+        var card = await db.Set<CfCard>().AsNoTracking().SingleAsync(c => c.FID == cardId);
+        Assert.Equal("returned", card.FStatus);
+        Assert.Null(card.FCurrentStageInstanceId);
+
+        var assignees = await db.Set<CfStageAssignee>().AsNoTracking()
+            .Where(a => a.FStageInstanceId == stageInstanceId).ToListAsync();
+        Assert.Equal(2, assignees.Count);
+        Assert.All(assignees, a => Assert.Equal("rejected", a.FStatus)); // 含原 waiting 的处理人2（修复前：仍 pending/waiting，RED）
     }
 
     [Fact]
@@ -260,6 +307,58 @@ public class TimeoutEscalationTests
             FID = superiorAssigneeFid, FUserId = ApproverId, FOrgId = 500, FDirectSuperiorId = SuperiorId,
             FIsPrimaryOrg = 1, FStatus = 1, F是否当前 = true
         });
+    }
+
+    /// <summary>顺签（sequential）双处理人节点：处理人1 pending（FSortOrder=1）+ 处理人2 waiting（FSortOrder=2）。
+    /// 用于回归 Fix1（SystemAutoRejectStageAsync 顺签路径同主键双实例跟踪冲突）。</summary>
+    private static async global::System.Threading.Tasks.Task SeedSequentialTwoAssigneeStageAsync(
+        STOTOPDbContext db, long stageDefId, int timeoutHours, string? timeoutActionJson,
+        long cardId, long stageInstanceId, DateTime activatedTime, long assignee1Fid, long assignee2Fid)
+    {
+        db.Set<SysUser>().Add(new SysUser { FID = ApproverId, FName = "处理人1" });
+        db.Set<SysUser>().Add(new SysUser { FID = SecondApproverId, FName = "处理人2" });
+        if (!await db.Set<CfFlowDefinition>().AnyAsync(f => f.FID == FlowDefId))
+        {
+            db.Set<CfFlowDefinition>().Add(new CfFlowDefinition
+            {
+                FID = FlowDefId, FFlowName = "超时升级链回归", FFlowCode = "timeout-escalation-regression", FOrgId = 1,
+                FStatus = "published", FCreatorId = 1, FCreatedTime = DateTime.Now
+            });
+            db.Set<CfFlowVersion>().Add(new CfFlowVersion
+            {
+                FID = FlowVersionId, FFlowDefinitionId = FlowDefId, FStatus = "published", FIsCurrentVersion = true
+            });
+        }
+        db.Set<CfStageDefinition>().Add(new CfStageDefinition
+        {
+            FID = stageDefId, FFlowVersionId = FlowVersionId, FSortOrder = 1, FStageName = "顺签审批",
+            FType = "human", FApprovalMode = "sequential", FAssigneeStrategy = "fixedUsers",
+            FTimeoutHours = timeoutHours, FTimeoutActionJson = timeoutActionJson,
+            FAssigneeConfigJson = """{"users":[{"userId":71,"userName":"处理人1"},{"userId":73,"userName":"处理人2"}]}"""
+        });
+        db.Set<CfCard>().Add(new CfCard
+        {
+            FID = cardId, FFlowDefinitionId = FlowDefId, FFlowVersionId = FlowVersionId,
+            FTitle = "超时升级链顺签用例", FStatus = "active", FInitiatorId = InitiatorId, FInitiatorName = "发起人",
+            FCurrentStageInstanceId = stageInstanceId, FCurrentRound = 1, FOrgId = 1, FDataJson = "{}"
+        });
+        db.Set<CfStageInstance>().Add(new CfStageInstance
+        {
+            FID = stageInstanceId, FCardId = cardId, FStageDefinitionId = stageDefId, FStageName = "顺签审批",
+            FType = "human", FApprovalMode = "sequential", FRound = 1, FStatus = "active",
+            FActivatedTime = activatedTime, FStartTime = activatedTime
+        });
+        db.Set<CfStageAssignee>().Add(new CfStageAssignee
+        {
+            FID = assignee1Fid, FStageInstanceId = stageInstanceId, FUserId = ApproverId, FUserName = "处理人1",
+            FSortOrder = 1, FStatus = "pending", FAssignedTime = activatedTime
+        });
+        db.Set<CfStageAssignee>().Add(new CfStageAssignee
+        {
+            FID = assignee2Fid, FStageInstanceId = stageInstanceId, FUserId = SecondApproverId, FUserName = "处理人2",
+            FSortOrder = 2, FStatus = "waiting", FAssignedTime = activatedTime
+        });
+        await db.SaveChangesAsync();
     }
 
     private static CardFlowTimeoutJob CreateJob(
