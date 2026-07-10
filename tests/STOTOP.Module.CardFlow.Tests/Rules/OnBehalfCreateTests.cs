@@ -85,4 +85,54 @@ public class OnBehalfCreateTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             svc.CreateAsync(new CreateCardRequest { FlowDefinitionId = 3620, OrgId = 1, DataJson = "{}", ActualInitiatorId = 901 }, userId: 900));
     }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task onBehalf开启但agentScope为空_任何人代提交都被拒()
+    {
+        using var db = TestDbContextFactory.Create(nameof(onBehalf开启但agentScope为空_任何人代提交都被拒));
+        db.Set<CfFlowDefinition>().Add(new CfFlowDefinition
+        {
+            FID = 3630,
+            FFlowName = "代提交流程-空范围",
+            FFlowCode = "onbehalf-flow-empty-scope",
+            FOrgId = 1,
+            FStatus = "published",
+            FCreatorId = 1,
+            FCreatedTime = DateTime.Now,
+            FStartPolicyJson = """{"onBehalf":{"enabled":true}}""" // 未填 agentScope → 空范围，应等于"无人可代提交"
+        });
+        db.Set<CfFlowVersion>().Add(new CfFlowVersion { FID = 3631, FFlowDefinitionId = 3630, FStatus = "published", FIsCurrentVersion = true });
+        db.Set<SysUser>().Add(new SysUser { FID = 901, FName = "被代理人" });
+        await db.SaveChangesAsync();
+
+        var svc = BuildCardService(db);
+        // 任意操作人（903）尝试代 901 提交：agentScope 为空须 fail-closed 拒绝，而非放行
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            svc.CreateAsync(new CreateCardRequest { FlowDefinitionId = 3630, OrgId = 1, DataJson = "{}", ActualInitiatorId = 901 }, userId: 903));
+    }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task 被代理发起人不存在_被拒()
+    {
+        using var db = TestDbContextFactory.Create(nameof(被代理发起人不存在_被拒));
+        db.Set<CfFlowDefinition>().Add(new CfFlowDefinition
+        {
+            FID = 3640,
+            FFlowName = "代提交流程",
+            FFlowCode = "onbehalf-flow-noexist",
+            FOrgId = 1,
+            FStatus = "published",
+            FCreatorId = 1,
+            FCreatedTime = DateTime.Now,
+            FStartPolicyJson = """{"onBehalf":{"enabled":true,"agentScope":{"users":[900]}}}"""
+        });
+        db.Set<CfFlowVersion>().Add(new CfFlowVersion { FID = 3641, FFlowDefinitionId = 3640, FStatus = "published", FIsCurrentVersion = true });
+        db.Set<SysUser>().Add(new SysUser { FID = 900, FName = "代理人" });
+        // 901（被代理人）不存在
+        await db.SaveChangesAsync();
+
+        var svc = BuildCardService(db);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            svc.CreateAsync(new CreateCardRequest { FlowDefinitionId = 3640, OrgId = 1, DataJson = "{}", ActualInitiatorId = 901 }, userId: 900));
+    }
 }

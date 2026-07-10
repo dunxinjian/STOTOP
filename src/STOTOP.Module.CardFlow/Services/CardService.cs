@@ -781,14 +781,16 @@ public class CardService : ICardService
             throw new InvalidOperationException(sourceVerification.ErrorMessage);
 
         var startPolicy = StartPolicyCodec.Parse(flowDef.FStartPolicyJson, flowDef.FAllowedRolesJson);
+        UserMemberships? operatorMemberships = null;
         if (startPolicy.InitiatorScope is { IsEmpty: false } scope)
         {
-            var memberships = await _initiatorScopeResolver.GetUserMembershipsAsync(userId);
-            if (!_initiatorScopeResolver.IsInScope(memberships, userId, scope))
+            operatorMemberships ??= await _initiatorScopeResolver.GetUserMembershipsAsync(userId);
+            if (!_initiatorScopeResolver.IsInScope(operatorMemberships, userId, scope))
                 throw new InvalidOperationException("您不在该流程的可发起范围内，无法发起");
         }
 
         // 代提交解析：ActualInitiatorId 有值时校验代提交范围，落被代理人+代理人留痕
+        // AgentScope 语义与 InitiatorScope 相反：空 = 无人可代提交（fail-closed），而非不限制
         long initiatorId = userId;
         long? agentId = null;
         if (request.ActualInitiatorId is { } actualId && actualId != userId)
@@ -796,9 +798,13 @@ public class CardService : ICardService
             var onBehalf = startPolicy.OnBehalf;
             if (onBehalf is not { Enabled: true })
                 throw new InvalidOperationException("该流程未开启代提交");
-            var agentMemberships = await _initiatorScopeResolver.GetUserMembershipsAsync(userId);
-            if (!_initiatorScopeResolver.IsInScope(agentMemberships, userId, onBehalf.AgentScope))
+            operatorMemberships ??= await _initiatorScopeResolver.GetUserMembershipsAsync(userId);
+            if (onBehalf.AgentScope.IsEmpty
+                || !_initiatorScopeResolver.IsInScope(operatorMemberships, userId, onBehalf.AgentScope))
                 throw new InvalidOperationException("您不在该流程的可代提交范围内");
+            var actualExists = await _dbContext.Set<SysUser>().AnyAsync(u => u.FID == actualId);
+            if (!actualExists)
+                throw new InvalidOperationException("被代理发起人不存在");
             initiatorId = actualId;
             agentId = userId;
         }
