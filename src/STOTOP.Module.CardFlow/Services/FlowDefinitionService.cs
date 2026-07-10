@@ -534,7 +534,8 @@ public class FlowDefinitionService : IFlowDefinitionService
                 FailurePolicyJson = s.FFailurePolicyJson,
                 CcConfigJson = s.FCcConfigJson,
                 TimeoutHours = s.FTimeoutHours,
-                PriorityTemplate = s.FPriorityTemplate
+                PriorityTemplate = s.FPriorityTemplate,
+                SkipDuplicateApprover = s.FSkipDuplicateApprover
             })
             .ToListAsync();
 
@@ -680,7 +681,8 @@ public class FlowDefinitionService : IFlowDefinitionService
                 FFailurePolicyJson = stageReq.FailurePolicyJson,
                 FCcConfigJson = stageReq.CcConfigJson,
                 FTimeoutHours = stageReq.TimeoutHours,
-                FPriorityTemplate = stageReq.PriorityTemplate
+                FPriorityTemplate = stageReq.PriorityTemplate,
+                FSkipDuplicateApprover = stageReq.SkipDuplicateApprover
             };
             _dbContext.Set<CfStageDefinition>().Add(stage);
         }
@@ -1142,7 +1144,8 @@ public class FlowDefinitionService : IFlowDefinitionService
                 FFailurePolicyJson = src.FFailurePolicyJson,
                 FCcConfigJson = src.FCcConfigJson,
                 FTimeoutHours = src.FTimeoutHours,
-                FPriorityTemplate = src.FPriorityTemplate
+                FPriorityTemplate = src.FPriorityTemplate,
+                FSkipDuplicateApprover = src.FSkipDuplicateApprover
             };
             _dbContext.Set<CfStageDefinition>().Add(clone);
         }
@@ -1259,7 +1262,8 @@ public class FlowDefinitionService : IFlowDefinitionService
                     FFailurePolicyJson = src.FFailurePolicyJson,
                     FCcConfigJson = src.FCcConfigJson,
                     FTimeoutHours = src.FTimeoutHours,
-                    FPriorityTemplate = src.FPriorityTemplate
+                    FPriorityTemplate = src.FPriorityTemplate,
+                    FSkipDuplicateApprover = src.FSkipDuplicateApprover
                 });
             }
             await _dbContext.SaveChangesAsync();
@@ -1441,7 +1445,8 @@ public class FlowDefinitionService : IFlowDefinitionService
                 FFailurePolicyJson = src.FFailurePolicyJson,
                 FCcConfigJson = src.FCcConfigJson,
                 FTimeoutHours = src.FTimeoutHours,
-                FPriorityTemplate = src.FPriorityTemplate
+                FPriorityTemplate = src.FPriorityTemplate,
+                FSkipDuplicateApprover = src.FSkipDuplicateApprover
             };
             _dbContext.Set<CfStageDefinition>().Add(newStage);
         }

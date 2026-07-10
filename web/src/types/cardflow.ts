@@ -114,6 +114,8 @@ export interface StageDefinitionDto {
   timeoutHours: number | null
   priorityTemplate: number | null
   processingGranularity?: 'card' | 'batch'
+  /** 跨节点审批人去重：分派处理人前剔除本卡在更早节点已 approved/rejected 过的用户；默认 false */
+  skipDuplicateApprover?: boolean
 }
 
 export interface StageRouteRuleRequest {
@@ -280,6 +282,8 @@ export interface StageDefinitionRequest {
   timeoutHours?: number | null
   priorityTemplate?: number | null
   processingGranularity?: 'card' | 'batch'
+  /** 跨节点审批人去重：分派处理人前剔除本卡在更早节点已 approved/rejected 过的用户；默认 false */
+  skipDuplicateApprover?: boolean
 }
 
 // ==================== 自动插件注册与规则 ====================

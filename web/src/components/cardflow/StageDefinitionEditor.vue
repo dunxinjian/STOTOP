@@ -81,6 +81,8 @@ export interface StageDefinition {
   autoDecision?: StageAutoDecisionDraft
   ccConfigJson?: string
   timeoutHours?: number
+  /** 跨节点审批人去重：分派处理人前剔除本卡在更早节点已 approved/rejected 过的用户；默认 false（UI 开关为 Task 4） */
+  skipDuplicateApprover?: boolean
 
   // ===== 自动 =====
   /** 插件注册引用的 FID（CF自动插件注册.FID） */

@@ -2787,6 +2787,40 @@ public class FlowEngineService : IFlowEngineService
                 SortOrder = index + 1
             })
             .ToList();
+
+        if (stageDef.FSkipDuplicateApprover)
+        {
+            // 跨节点去重：剔除本卡在更早节点已 approved/rejected 过的用户（同一用户重复审同一张卡意义不大）。
+            var actedUserIds = await (
+                from a in _dbContext.Set<CfStageAssignee>()
+                join si in _dbContext.Set<CfStageInstance>() on a.FStageInstanceId equals si.FID
+                where si.FCardId == card.FID && (a.FStatus == "approved" || a.FStatus == "rejected")
+                select a.FUserId)
+                .Distinct()
+                .ToListAsync();
+
+            if (actedUserIds.Count > 0)
+                assignees = assignees.Where(a => !actedUserIds.Contains(a.UserId)).ToList();
+
+            if (assignees.Count == 0)
+            {
+                // 去重后无处理人可分派：镜像 TryApplyAutoDecisionAsync 的自动通过路径直接推进，
+                // 避免节点因"处理人与已审批人完全重复"而无人可审、永久卡死。
+                var now = DateTime.Now;
+                stageInstance.FStatus = "completed";
+                stageInstance.FFinalAction = "approved";
+                stageInstance.FOpinion = "处理人与本卡已审批人重复，自动通过";
+                stageInstance.FCompletedTime = now;
+                _dbContext.Entry(stageInstance).State = EntityState.Modified;
+
+                await LogActionAsync(card.FID, stageInstance.FID, "autoApprove", 0, "system", "跨节点去重后无可分派处理人，自动通过");
+                await _dbContext.SaveChangesAsync();
+
+                await AdvanceToNextStageAsync(card, stageInstance);
+                return;
+            }
+        }
+
         var assignments = _sequentialRuntime.BuildInitialAssignments(stageDef.FApprovalMode, assignees);
 
         foreach (var assignment in assignments)

@@ -40,4 +40,8 @@ public class CfStageDefinition : BaseEntity
 
     /// <summary>比例(ratio)审批模式的通过阈值，1-99 百分比；null=不适用（非 ratio 模式或未配置，运行时回退 100%）。</summary>
     public int? FApprovalThreshold { get; set; }
+
+    /// <summary>跨节点审批人去重：true=分派处理人前剔除本卡在更早节点已 approved/rejected 过的用户；
+    /// 剔除后处理人为空则视为节点自动通过直接推进。默认 false（不去重，向后兼容）。</summary>
+    public bool FSkipDuplicateApprover { get; set; }
 }

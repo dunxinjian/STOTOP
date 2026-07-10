@@ -33,6 +33,7 @@ public class CfStageDefinitionConfiguration : IEntityTypeConfiguration<CfStageDe
         builder.Property(e => e.FTimeoutHours).HasColumnName("F超时小时数");
         builder.Property(e => e.FPriorityTemplate).HasColumnName("F优先级模板");
         builder.Property(e => e.FApprovalThreshold).HasColumnName("F通过比例");
+        builder.Property(e => e.FSkipDuplicateApprover).HasColumnName("F跳过重复审批人").HasDefaultValue(false);
 
         builder.HasIndex(e => new { e.FFlowVersionId, e.FSortOrder }).HasDatabaseName("IX_CF流程节点_版本排序");
         builder.HasIndex(e => new { e.FFlowVersionId, e.FStageKey })

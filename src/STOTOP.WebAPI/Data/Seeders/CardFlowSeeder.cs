@@ -95,6 +95,7 @@ public static class CardFlowSeeder
             new(71, "M8-A 发起范围: CF卡片流程 加 F发起策略JSON 列(nvarchar max null, 结构化发起范围+代提交范围) (2026-07-10)", MigrateV71),
             new(72, "M8-A 代提交: CF流程实例 加 F代理人ID/F代理人姓名 列(onBehalf 真实操作人留痕) (2026-07-10)", MigrateV72),
             new(73, "M8-C 会签比例(ratio): CF流程节点 加 F通过比例 列(int null, 1-99百分比, ratio审批模式通过阈值) (2026-07-10)", MigrateV73),
+            new(74, "M8-C 跨节点去重: CF流程节点 加 F跳过重复审批人 列(bit not null default 0, 分派处理人前剔除本卡已审批用户) (2026-07-10)", MigrateV74),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -344,6 +345,15 @@ public static class CardFlowSeeder
         if (!SeederHelper.IsSqlServer(ctx)) return;
         ExecSql(ctx, @"IF COL_LENGTH(N'CF流程节点', N'F通过比例') IS NULL
             ALTER TABLE [CF流程节点] ADD [F通过比例] INT NULL;");
+    }
+
+    /// <summary>V74：CF流程节点 加 F跳过重复审批人（M8-C 跨节点审批人去重，分派处理人前剔除本卡在更早节点
+    /// 已 approved/rejected 过的用户，剔除后处理人为空则自动通过；默认 false 向后兼容）。</summary>
+    private static void MigrateV74(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        ExecSql(ctx, @"IF COL_LENGTH(N'CF流程节点', N'F跳过重复审批人') IS NULL
+            ALTER TABLE [CF流程节点] ADD [F跳过重复审批人] BIT NOT NULL DEFAULT 0;");
     }
 
     // ══════════════════════════════════════════════════════════════════════
