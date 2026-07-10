@@ -426,8 +426,8 @@ public class FlowEngineService : IFlowEngineService
                 if (card == null) return CardOperationResult.Fail("卡片不存在");
                 if (card.FStatus != "draft" && card.FStatus != "returned")
                     return CardOperationResult.Fail($"当前状态[{card.FStatus}]不允许提交");
-                if (card.FInitiatorId != operatorId)
-                    return CardOperationResult.Fail("只有发起人可以提交");
+                if (card.FInitiatorId != operatorId && card.FAgentId != operatorId)
+                    return CardOperationResult.Fail("只有发起人或代提交人可以提交");
 
                 // 2. 查询流程定义
                 var flowDef = await _dbContext.Set<CfFlowDefinition>().FirstOrDefaultAsync(f => f.FID == card.FFlowDefinitionId);
@@ -515,7 +515,8 @@ public class FlowEngineService : IFlowEngineService
                 }
 
                 // 12. 记录ActionLog
-                await LogActionAsync(card.FID, stageInstance.FID, "submit", operatorId, card.FInitiatorName, null);
+                var submitName = operatorId == card.FAgentId ? (card.FAgentName ?? "") : card.FInitiatorName;
+                await LogActionAsync(card.FID, stageInstance.FID, "submit", operatorId, submitName, null);
 
                 await _dbContext.SaveChangesAsync();
                 await transaction.CommitAsync();
@@ -1029,7 +1030,8 @@ public class FlowEngineService : IFlowEngineService
                 var card = await _dbContext.Set<CfCard>().FirstOrDefaultAsync(c => c.FID == cardId);
                 if (card == null) return CardOperationResult.Fail("卡片不存在");
                 if (card.FStatus != "returned") return CardOperationResult.Fail("只有退回状态的卡片可以重新提交");
-                if (card.FInitiatorId != operatorId) return CardOperationResult.Fail("只有发起人可以重新提交");
+                if (card.FInitiatorId != operatorId && card.FAgentId != operatorId)
+                    return CardOperationResult.Fail("只有发起人或代提交人可以重新提交");
 
                 var flowDef = await _dbContext.Set<CfFlowDefinition>()
                     .AsNoTracking()
@@ -1150,9 +1152,9 @@ public class FlowEngineService : IFlowEngineService
                 if (card == null) return CardOperationResult.Fail("卡片不存在");
                 if (card.FStatus == "voided") return CardOperationResult.Fail("卡片已作废");
 
-                // 验证权限（发起人或管理员 - 此处简化为发起人）
-                if (card.FInitiatorId != operatorId)
-                    return CardOperationResult.Fail("无权限作废此卡片");
+                // 验证权限（发起人、代提交人或管理员 - 此处简化为发起人/代提交人）
+                if (card.FInitiatorId != operatorId && card.FAgentId != operatorId)
+                    return CardOperationResult.Fail("只有发起人或代提交人可作废");
 
                 // 取消所有pending节点实例
                 var pendingStages = await _dbContext.Set<CfStageInstance>()
