@@ -5,15 +5,24 @@ using STOTOP.Core.Services;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.CardFlow.Entities;
 using STOTOP.Module.CardFlow.Hubs;
+using STOTOP.Module.CardFlow.Models;
 using STOTOP.Module.CardFlow.Services.Interfaces;
 
 namespace STOTOP.Module.CardFlow.Jobs;
 
+/// <summary>
+/// CardFlow 节点超时检查（M8-C 升级为超时升级链）。两段逻辑均在同一 per-tenant 循环内逐节点执行：
+/// 1) 一次性超时标记（FIsTimeout + ActionLog + SignalR 推送）——行为与升级前完全一致，未配置升级链的节点只走这条路径。
+/// 2) 若节点定义配置了 FTimeoutActionJson（见 Models.TimeoutActionConfig），按 elapsedHours/timeoutHours 比例
+///    取当前应执行的最高级别，逐级执行 remind / autoApprove / autoReject / escalate；FTimeoutActionLevel 做幂等
+///    高水位标记（已执行过的级别不重复执行，即便同一 tick 内或跨 tick 重复调度）。
+/// </summary>
 public class CardFlowTimeoutJob
 {
     private readonly STOTOPDbContext _dbContext;
     private readonly IHubContext<CardFlowHub> _hubContext;
     private readonly INotificationDispatcher _notificationDispatcher;
+    private readonly IFlowEngineService _flowEngine;
     private readonly ITenantIterationService _iteration;
     private readonly ILogger<CardFlowTimeoutJob> _logger;
 
@@ -21,12 +30,14 @@ public class CardFlowTimeoutJob
         STOTOPDbContext dbContext,
         IHubContext<CardFlowHub> hubContext,
         INotificationDispatcher notificationDispatcher,
+        IFlowEngineService flowEngine,
         ITenantIterationService iteration,
         ILogger<CardFlowTimeoutJob> logger)
     {
         _dbContext = dbContext;
         _hubContext = hubContext;
         _notificationDispatcher = notificationDispatcher;
+        _flowEngine = flowEngine;
         _iteration = iteration;
         _logger = logger;
     }
@@ -76,74 +87,122 @@ public class CardFlowTimeoutJob
                 var timeoutHours = stageDef.FTimeoutHours!.Value;
                 var deadline = instance.FActivatedTime!.Value.AddHours(timeoutHours);
 
-                if (now <= deadline) continue;
-                if (instance.FIsTimeout) continue; // 已标记超时，跳过首次标记
-
-                // 标记超时
-                _dbContext.Attach(instance);
-                instance.FIsTimeout = true;
-                timeoutCount++;
-
-                // 记录超时日志
-                var actionLog = new CfActionLog
+                // ---- 一次性超时标记（升级前既有行为原样保留）：逐节点独立 Save+Clear，不再等到本轮结束批量
+                // 落库，以便紧随其后的升级链在干净的 ChangeTracker 上调用引擎方法，避免同主键双实例跟踪冲突 ----
+                if (now > deadline && !instance.FIsTimeout)
                 {
-                    FCardId = instance.FCardId,
-                    FStageInstanceId = instance.FID,
-                    FActionType = "timeout",
-                    FOperatorId = 0,
-                    FOperatorName = "系统",
-                    FOperationTime = now,
-                    FOpinion = $"节点「{instance.FStageName}」已超时（超时阈值: {timeoutHours}小时）",
-                    FDetailJson = global::System.Text.Json.JsonSerializer.Serialize(new
+                    _dbContext.Attach(instance);
+                    instance.FIsTimeout = true;
+                    timeoutCount++;
+
+                    // 记录超时日志
+                    var actionLog = new CfActionLog
                     {
+                        FCardId = instance.FCardId,
+                        FStageInstanceId = instance.FID,
+                        FActionType = "timeout",
+                        FOperatorId = 0,
+                        FOperatorName = "系统",
+                        FOperationTime = now,
+                        FOpinion = $"节点「{instance.FStageName}」已超时（超时阈值: {timeoutHours}小时）",
+                        FDetailJson = global::System.Text.Json.JsonSerializer.Serialize(new
+                        {
+                            stageInstanceId = instance.FID,
+                            activatedTime = instance.FActivatedTime,
+                            timeoutHours,
+                            actualHours = (now - instance.FActivatedTime.Value).TotalHours
+                        })
+                    };
+                    _dbContext.Set<CfActionLog>().Add(actionLog);
+
+                    // 根据超时倍数决定通知级别
+                    var overHours = (now - deadline).TotalHours;
+                    string level;
+                    if (overHours >= 2 * timeoutHours)
+                        level = "critical";   // 3x 超时
+                    else if (overHours >= timeoutHours)
+                        level = "warning";    // 2x 超时
+                    else
+                        level = "info";       // 1x 超时
+
+                    // 通过 SignalR 推送超时通知
+                    await _hubContext.Clients.Group($"card-{instance.FCardId}").SendAsync("StageTimeout", new
+                    {
+                        cardId = instance.FCardId,
                         stageInstanceId = instance.FID,
-                        activatedTime = instance.FActivatedTime,
+                        stageName = instance.FStageName,
+                        level,
                         timeoutHours,
-                        actualHours = (now - instance.FActivatedTime.Value).TotalHours
-                    })
-                };
-                _dbContext.Set<CfActionLog>().Add(actionLog);
+                        activatedTime = instance.FActivatedTime
+                    });
 
-                // 根据超时倍数决定通知级别
-                var overHours = (now - deadline).TotalHours;
-                string level;
-                if (overHours >= 2 * timeoutHours)
-                    level = "critical";   // 3x 超时
-                else if (overHours >= timeoutHours)
-                    level = "warning";    // 2x 超时
-                else
-                    level = "info";       // 1x 超时
+                    // 推送到监控频道
+                    await _hubContext.Clients.Group("cardflow-monitor").SendAsync("StageTimeout", new
+                    {
+                        cardId = instance.FCardId,
+                        stageInstanceId = instance.FID,
+                        stageName = instance.FStageName,
+                        level,
+                        timeoutHours,
+                        activatedTime = instance.FActivatedTime
+                    });
 
-                // 通过 SignalR 推送超时通知
-                await _hubContext.Clients.Group($"card-{instance.FCardId}").SendAsync("StageTimeout", new
+                    _logger.LogWarning(
+                        "节点超时: CardId={CardId}, StageInstanceId={StageId}, StageName={StageName}, Level={Level}",
+                        instance.FCardId, instance.FID, instance.FStageName, level);
+
+                    await _dbContext.SaveChangesAsync();
+                    _dbContext.ChangeTracker.Clear();
+                }
+
+                // ---- M8-C 超时升级链：仅当节点定义配置了 FTimeoutActionJson 时生效；
+                // null/空/非法 JSON → TimeoutActionConfig.Parse 返回 null，本节点保持向后兼容（只走上面一次性标记）----
+                var actionConfig = TimeoutActionConfig.Parse(stageDef.FTimeoutActionJson);
+                if (actionConfig == null) continue;
+
+                var elapsedHours = (now - instance.FActivatedTime!.Value).TotalHours;
+                var applicableLevel = actionConfig.GetApplicableLevel(elapsedHours, timeoutHours);
+                if (applicableLevel == null) continue;
+
+                // 幂等：已执行过≥本级别的动作则跳过，避免同一 tick 或跨 tick 对同一级别重复执行
+                if (applicableLevel.Multiplier <= (instance.FTimeoutActionLevel ?? 0)) continue;
+
+                try
                 {
-                    cardId = instance.FCardId,
-                    stageInstanceId = instance.FID,
-                    stageName = instance.FStageName,
-                    level,
-                    timeoutHours,
-                    activatedTime = instance.FActivatedTime
-                });
-
-                // 推送到监控频道
-                await _hubContext.Clients.Group("cardflow-monitor").SendAsync("StageTimeout", new
+                    switch (applicableLevel.Action)
+                    {
+                        case "remind":
+                            await RemindStageAsync(instance, applicableLevel.Multiplier);
+                            break;
+                        case "autoApprove":
+                            await _flowEngine.SystemAutoApproveStageAsync(instance.FID, applicableLevel.Multiplier,
+                                $"节点「{instance.FStageName}」超时{applicableLevel.Multiplier}倍未处理，系统自动通过");
+                            break;
+                        case "autoReject":
+                            await _flowEngine.SystemAutoRejectStageAsync(instance.FID, applicableLevel.Multiplier,
+                                $"节点「{instance.FStageName}」超时{applicableLevel.Multiplier}倍未处理，系统自动拒绝");
+                            break;
+                        case "escalate":
+                            await _flowEngine.EscalateStageAsync(instance.FID, applicableLevel.Multiplier,
+                                $"节点「{instance.FStageName}」超时{applicableLevel.Multiplier}倍未处理，升级至上级");
+                            break;
+                        default:
+                            _logger.LogWarning(
+                                "超时升级链未知动作类型，已忽略: StageInstanceId={StageId}, Action={Action}",
+                                instance.FID, applicableLevel.Action);
+                            break;
+                    }
+                }
+                finally
                 {
-                    cardId = instance.FCardId,
-                    stageInstanceId = instance.FID,
-                    stageName = instance.FStageName,
-                    level,
-                    timeoutHours,
-                    activatedTime = instance.FActivatedTime
-                });
-
-                _logger.LogWarning(
-                    "节点超时: CardId={CardId}, StageInstanceId={StageId}, StageName={StageName}, Level={Level}",
-                    instance.FCardId, instance.FID, instance.FStageName, level);
+                    // 引擎方法各自开事务提交，但不清理 ChangeTracker；每次动作调度后统一清理，
+                    // 避免下一实例的 Attach/查询与本次残留跟踪实体撞主键冲突。
+                    _dbContext.ChangeTracker.Clear();
+                }
             }
 
             if (timeoutCount > 0)
             {
-                await _dbContext.SaveChangesAsync();
                 _logger.LogInformation("CardFlow 节点超时检查完成，标记 {Count} 个超时节点", timeoutCount);
             }
             else
@@ -157,5 +216,29 @@ public class CardFlowTimeoutJob
             throw;
         }
         }, "cardflow-stage-timeout");
+    }
+
+    /// <summary>
+    /// 超时升级链-remind：对节点当前全部 pending 待办重推通知（同 StageTimeoutReminderJob 的推送链路），
+    /// 不涉及卡片状态流转，无需走引擎事务；独立 Attach+Save 落 FTimeoutActionLevel 幂等标记。
+    /// </summary>
+    private async Task RemindStageAsync(CfStageInstance instance, int level)
+    {
+        var pendingTodoIds = await _dbContext.Set<CfTodoItem>()
+            .Where(t => t.FStageInstanceId == instance.FID && t.FStatus == "pending")
+            .Select(t => t.FID)
+            .ToListAsync();
+        foreach (var todoId in pendingTodoIds)
+        {
+            await _notificationDispatcher.DispatchCreateTodoAsync(todoId);
+        }
+
+        _dbContext.Attach(instance);
+        instance.FTimeoutActionLevel = level;
+        await _dbContext.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "超时升级-提醒: CardId={CardId}, StageInstanceId={StageId}, Level={Level}, 待办数={TodoCount}",
+            instance.FCardId, instance.FID, level, pendingTodoIds.Count);
     }
 }

@@ -116,6 +116,8 @@ export interface StageDefinitionDto {
   processingGranularity?: 'card' | 'batch'
   /** 跨节点审批人去重：分派处理人前剔除本卡在更早节点已 approved/rejected 过的用户；默认 false */
   skipDuplicateApprover?: boolean
+  /** 超时升级链配置 JSON；null=向后兼容仅走既有 flag+提醒行为。UI 编辑面板为后续任务，此字段目前仅做保存链透传 */
+  timeoutActionJson?: string | null
 }
 
 export interface StageRouteRuleRequest {
@@ -284,6 +286,8 @@ export interface StageDefinitionRequest {
   processingGranularity?: 'card' | 'batch'
   /** 跨节点审批人去重：分派处理人前剔除本卡在更早节点已 approved/rejected 过的用户；默认 false */
   skipDuplicateApprover?: boolean
+  /** 超时升级链配置 JSON；null=向后兼容仅走既有 flag+提醒行为。UI 编辑面板为后续任务，此字段目前仅做保存链透传 */
+  timeoutActionJson?: string | null
 }
 
 // ==================== 自动插件注册与规则 ====================

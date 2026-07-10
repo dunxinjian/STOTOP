@@ -96,6 +96,7 @@ public static class CardFlowSeeder
             new(72, "M8-A 代提交: CF流程实例 加 F代理人ID/F代理人姓名 列(onBehalf 真实操作人留痕) (2026-07-10)", MigrateV72),
             new(73, "M8-C 会签比例(ratio): CF流程节点 加 F通过比例 列(int null, 1-99百分比, ratio审批模式通过阈值) (2026-07-10)", MigrateV73),
             new(74, "M8-C 跨节点去重: CF流程节点 加 F跳过重复审批人 列(bit not null default 0, 分派处理人前剔除本卡已审批用户) (2026-07-10)", MigrateV74),
+            new(75, "M8-C 超时升级链: CF流程节点 加 F超时动作JSON 列(nvarchar(max) null) + CF节点执行实例 加 F超时动作已执行级别 列(int null, 幂等高水位标记) (2026-07-11)", MigrateV75),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -354,6 +355,18 @@ public static class CardFlowSeeder
         if (!SeederHelper.IsSqlServer(ctx)) return;
         ExecSql(ctx, @"IF COL_LENGTH(N'CF流程节点', N'F跳过重复审批人') IS NULL
             ALTER TABLE [CF流程节点] ADD [F跳过重复审批人] BIT NOT NULL DEFAULT 0;");
+    }
+
+    /// <summary>V75：CF流程节点 加 F超时动作JSON（M8-C 超时升级链配置：按 F超时小时数 倍数分级配置
+    /// remind/autoApprove/autoReject/escalate，null=向后兼容仅走既有 flag+提醒行为）；
+    /// CF节点执行实例 加 F超时动作已执行级别（升级链幂等高水位标记，null=尚未执行任何级）。</summary>
+    private static void MigrateV75(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        ExecSql(ctx, @"IF COL_LENGTH(N'CF流程节点', N'F超时动作JSON') IS NULL
+            ALTER TABLE [CF流程节点] ADD [F超时动作JSON] NVARCHAR(MAX) NULL;");
+        ExecSql(ctx, @"IF COL_LENGTH(N'CF节点执行实例', N'F超时动作已执行级别') IS NULL
+            ALTER TABLE [CF节点执行实例] ADD [F超时动作已执行级别] INT NULL;");
     }
 
     // ══════════════════════════════════════════════════════════════════════

@@ -636,33 +636,7 @@ public class FlowEngineService : IFlowEngineService
                 if (_approvalHandler.IsStageCompleted(stageInstance.FApprovalMode, allAssignees, stageDefForApproval?.FApprovalThreshold))
                 {
                     // 节点完成，推进到下一节点
-                    stageInstance.FStatus = "completed";
-                    stageInstance.FFinalAction = "approved";
-                    stageInstance.FOpinion = request.Opinion;
-                    stageInstance.FCompletedTime = DateTime.Now;
-                    // 显式标记为 Modified
-                    _dbContext.Entry(stageInstance).State = EntityState.Modified;
-
-                    // 完成相关待办
-                    await CompleteStageTodosAsync(stageInstance.FID);
-
-                    // 人工节点通过抄送
-                    if (stageInstance.FStageDefinitionId.HasValue)
-                        await FireStageCcAsync(card, stageInstance.FID, stageInstance.FStageDefinitionId.Value, "onApprove");
-
-                    if (stageInstance.FIsDynamicInsert && stageInstance.FInsertSourceStageId.HasValue)
-                    {
-                        await HandleDynamicStageCompletedAsync(card, stageInstance);
-                    }
-                    else if (await TryStartDynamicStageAsync(card, stageInstance, "afterTarget"))
-                    {
-                        // afterTarget 策略命中时，动态节点完成后再从原目标节点继续流转。
-                    }
-                    else
-                    {
-                        // 推进到下一节点
-                        await AdvanceToNextStageAsync(card, stageInstance);
-                    }
+                    await CompleteStageApprovedTransitionAsync(card, stageInstance, request.Opinion);
                 }
                 else
                 {
@@ -807,18 +781,6 @@ public class FlowEngineService : IFlowEngineService
                 }
 
                 // 标记当前节点返回
-                stageInstance.FStatus = "returned";
-                stageInstance.FFinalAction = "rejected";
-                stageInstance.FOpinion = request.Opinion;
-                stageInstance.FCompletedTime = DateTime.Now;
-                _dbContext.Entry(stageInstance).State = EntityState.Modified;
-
-                // 卡片状态→returned
-                card.FStatus = "returned";
-                card.FUpdatedTime = DateTime.Now;
-                card.FCurrentStageInstanceId = null;
-                _dbContext.Entry(card).State = EntityState.Modified;
-
                 if (string.Equals(stageInstance.FApprovalMode, "sequential", StringComparison.OrdinalIgnoreCase))
                 {
                     var assignees = await _dbContext.Set<CfStageAssignee>()
@@ -834,14 +796,7 @@ public class FlowEngineService : IFlowEngineService
                     }
                 }
 
-                // 取消所有pending待办
-                await CancelStageTodosAsync(stageInstance.FID);
-
-                await ReleaseBudgetAsync(card, "reject");
-
-                // 人工节点拒绝抄送
-                if (stageInstance.FStageDefinitionId.HasValue)
-                    await FireStageCcAsync(card, stageInstance.FID, stageInstance.FStageDefinitionId.Value, "onReject");
+                await CompleteStageReturnedTransitionAsync(card, stageInstance, request.Opinion);
 
                 await LogActionAsync(card.FID, stageInstance.FID, "reject", operatorId,
                     assignee.FUserName, request.Opinion);
@@ -864,6 +819,317 @@ public class FlowEngineService : IFlowEngineService
                 return CardOperationResult.Fail($"退回失败: {ex.Message}");
             }
         });
+    }
+
+    /// <summary>节点通过完成后的公共流转（ApproveAsync 会签达标分支 / 超时自动通过 SystemAutoApproveStageAsync 共用，行为等价于原 ApproveAsync 内联逻辑的机械抽取）。</summary>
+    private async Task CompleteStageApprovedTransitionAsync(CfCard card, CfStageInstance stageInstance, string? opinion)
+    {
+        stageInstance.FStatus = "completed";
+        stageInstance.FFinalAction = "approved";
+        stageInstance.FOpinion = opinion;
+        stageInstance.FCompletedTime = DateTime.Now;
+        // 显式标记为 Modified
+        _dbContext.Entry(stageInstance).State = EntityState.Modified;
+
+        // 完成相关待办
+        await CompleteStageTodosAsync(stageInstance.FID);
+
+        // 人工节点通过抄送
+        if (stageInstance.FStageDefinitionId.HasValue)
+            await FireStageCcAsync(card, stageInstance.FID, stageInstance.FStageDefinitionId.Value, "onApprove");
+
+        if (stageInstance.FIsDynamicInsert && stageInstance.FInsertSourceStageId.HasValue)
+        {
+            await HandleDynamicStageCompletedAsync(card, stageInstance);
+        }
+        else if (await TryStartDynamicStageAsync(card, stageInstance, "afterTarget"))
+        {
+            // afterTarget 策略命中时，动态节点完成后再从原目标节点继续流转。
+        }
+        else
+        {
+            // 推进到下一节点
+            await AdvanceToNextStageAsync(card, stageInstance);
+        }
+    }
+
+    /// <summary>节点退回完成后的公共流转（RejectAsync 达到退回条件分支 / 超时自动拒绝 SystemAutoRejectStageAsync 共用，机械抽取自原 RejectAsync 内联逻辑）。</summary>
+    private async Task CompleteStageReturnedTransitionAsync(CfCard card, CfStageInstance stageInstance, string? opinion)
+    {
+        stageInstance.FStatus = "returned";
+        stageInstance.FFinalAction = "rejected";
+        stageInstance.FOpinion = opinion;
+        stageInstance.FCompletedTime = DateTime.Now;
+        _dbContext.Entry(stageInstance).State = EntityState.Modified;
+
+        // 卡片状态→returned
+        card.FStatus = "returned";
+        card.FUpdatedTime = DateTime.Now;
+        card.FCurrentStageInstanceId = null;
+        _dbContext.Entry(card).State = EntityState.Modified;
+
+        // 取消所有pending待办
+        await CancelStageTodosAsync(stageInstance.FID);
+
+        await ReleaseBudgetAsync(card, "reject");
+
+        // 人工节点拒绝抄送
+        if (stageInstance.FStageDefinitionId.HasValue)
+            await FireStageCcAsync(card, stageInstance.FID, stageInstance.FStageDefinitionId.Value, "onReject");
+    }
+
+    /// <summary>
+    /// 超时升级链-系统自动通过（M8-C）：不要求 operatorId 为当前待处理人（区别于公开 ApproveAsync），
+    /// 将当前节点全部 pending/waiting 处理人强制标记为 approved 后按节点完成流转推进。
+    /// 幂等：timeoutLevel 与 stageInstance.FTimeoutActionLevel 在同一事务内原子落库，Job 侧据此跳过已执行级别，不会重复执行。
+    /// </summary>
+    public async Task<CardOperationResult> SystemAutoApproveStageAsync(long stageInstanceId, int timeoutLevel, string reason)
+    {
+        var strategy = _dbContext.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            using var transaction = await _dbContext.Database.BeginTransactionAsync();
+            try
+            {
+                var stageInstance = await _dbContext.Set<CfStageInstance>()
+                    .FirstOrDefaultAsync(s => s.FID == stageInstanceId && s.FStatus == "active");
+                if (stageInstance == null) return CardOperationResult.Fail("节点不存在或不在活跃状态");
+
+                var card = await _dbContext.Set<CfCard>().FirstOrDefaultAsync(c => c.FID == stageInstance.FCardId);
+                if (card == null) return CardOperationResult.Fail("卡片不存在");
+
+                var openAssignees = await _dbContext.Set<CfStageAssignee>()
+                    .Where(a => a.FStageInstanceId == stageInstance.FID && (a.FStatus == "pending" || a.FStatus == "waiting"))
+                    .ToListAsync();
+                foreach (var a in openAssignees)
+                {
+                    a.FStatus = "approved";
+                    a.FOpinion = reason;
+                    a.FCompletedTime = DateTime.Now;
+                    _dbContext.Entry(a).State = EntityState.Modified;
+                }
+
+                await CompleteStageTodosAsync(stageInstance.FID);
+                await CompleteStageApprovedTransitionAsync(card, stageInstance, reason);
+
+                stageInstance.FTimeoutActionLevel = timeoutLevel;
+                _dbContext.Entry(stageInstance).State = EntityState.Modified;
+
+                await LogActionAsync(card.FID, stageInstance.FID, "autoApprove", 0, "system", reason);
+
+                await _dbContext.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return CardOperationResult.Ok(card.FID, "超时自动通过");
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "超时自动通过失败，StageInstanceId={StageInstanceId}", stageInstanceId);
+                return CardOperationResult.Fail($"超时自动通过失败: {ex.Message}");
+            }
+        });
+    }
+
+    /// <summary>
+    /// 超时升级链-系统自动拒绝（M8-C）：不要求 operatorId 为当前待处理人，将当前节点全部 pending/waiting 处理人
+    /// 强制标记为 rejected 后按节点退回流转（卡片→returned）。幂等机制同 SystemAutoApproveStageAsync。
+    /// </summary>
+    public async Task<CardOperationResult> SystemAutoRejectStageAsync(long stageInstanceId, int timeoutLevel, string reason)
+    {
+        var strategy = _dbContext.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            using var transaction = await _dbContext.Database.BeginTransactionAsync();
+            try
+            {
+                var stageInstance = await _dbContext.Set<CfStageInstance>()
+                    .FirstOrDefaultAsync(s => s.FID == stageInstanceId && s.FStatus == "active");
+                if (stageInstance == null) return CardOperationResult.Fail("节点不存在或不在活跃状态");
+
+                var card = await _dbContext.Set<CfCard>().FirstOrDefaultAsync(c => c.FID == stageInstance.FCardId);
+                if (card == null) return CardOperationResult.Fail("卡片不存在");
+
+                var openAssignees = await _dbContext.Set<CfStageAssignee>()
+                    .Where(a => a.FStageInstanceId == stageInstance.FID && (a.FStatus == "pending" || a.FStatus == "waiting"))
+                    .ToListAsync();
+                foreach (var a in openAssignees)
+                {
+                    a.FStatus = "rejected";
+                    a.FOpinion = reason;
+                    a.FCompletedTime = DateTime.Now;
+                    _dbContext.Entry(a).State = EntityState.Modified;
+                }
+
+                if (string.Equals(stageInstance.FApprovalMode, "sequential", StringComparison.OrdinalIgnoreCase))
+                {
+                    var allAssignees = await _dbContext.Set<CfStageAssignee>()
+                        .Where(a => a.FStageInstanceId == stageInstance.FID)
+                        .ToListAsync();
+                    _sequentialRuntime.CancelOpenAssignees(allAssignees);
+                    foreach (var cancelled in allAssignees.Where(a => a.FStatus == "cancelled"))
+                    {
+                        _dbContext.Entry(cancelled).State = EntityState.Modified;
+                    }
+                }
+
+                await CompleteStageReturnedTransitionAsync(card, stageInstance, reason);
+
+                stageInstance.FTimeoutActionLevel = timeoutLevel;
+                _dbContext.Entry(stageInstance).State = EntityState.Modified;
+
+                await LogActionAsync(card.FID, stageInstance.FID, "autoReject", 0, "system", reason);
+
+                await _dbContext.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                TriggerBatchRefreshIfNeeded(card);
+
+                return new CardOperationResult
+                {
+                    Success = true, CardId = card.FID, NewStatus = "returned", Message = "超时自动拒绝"
+                };
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "超时自动拒绝失败，StageInstanceId={StageInstanceId}", stageInstanceId);
+                return CardOperationResult.Fail($"超时自动拒绝失败: {ex.Message}");
+            }
+        });
+    }
+
+    /// <summary>
+    /// 超时升级链-升级至上级（M8-C）：当前节点每个 pending/waiting 处理人各自解析其直属上级（SysUserOrganization.FDirectSuperiorId
+    /// 优先，缺失时走组织链 FManagerId/FParentId 兜底），作为新处理人加入当前节点实例（不推进节点，仅追加待办）。
+    /// 若任一处理人解析不到上级，则该处理人退化为 remind（记录日志，不追加新处理人）；全员解析失败时整体退化为纯提醒。
+    /// 幂等机制同 SystemAutoApproveStageAsync（timeoutLevel 与 stageInstance 同事务落库）。
+    /// </summary>
+    public async Task<CardOperationResult> EscalateStageAsync(long stageInstanceId, int timeoutLevel, string reason)
+    {
+        var strategy = _dbContext.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            using var transaction = await _dbContext.Database.BeginTransactionAsync();
+            try
+            {
+                var stageInstance = await _dbContext.Set<CfStageInstance>()
+                    .FirstOrDefaultAsync(s => s.FID == stageInstanceId && s.FStatus == "active");
+                if (stageInstance == null) return CardOperationResult.Fail("节点不存在或不在活跃状态");
+
+                var card = await _dbContext.Set<CfCard>().FirstOrDefaultAsync(c => c.FID == stageInstance.FCardId);
+                if (card == null) return CardOperationResult.Fail("卡片不存在");
+
+                var openAssignees = await _dbContext.Set<CfStageAssignee>()
+                    .Where(a => a.FStageInstanceId == stageInstance.FID && (a.FStatus == "pending" || a.FStatus == "waiting"))
+                    .ToListAsync();
+
+                var escalatedCount = 0;
+                var unresolvedNames = new List<string>();
+                foreach (var a in openAssignees)
+                {
+                    var superior = await ResolveSuperiorUserAsync(a.FUserId);
+                    if (superior == null)
+                    {
+                        unresolvedNames.Add(a.FUserName);
+                        continue;
+                    }
+
+                    // 已是本节点处理人则不重复追加
+                    var alreadyAssignee = await _dbContext.Set<CfStageAssignee>()
+                        .AnyAsync(x => x.FStageInstanceId == stageInstance.FID && x.FUserId == superior.Value.UserId);
+                    if (alreadyAssignee) continue;
+
+                    var newAssignee = new CfStageAssignee
+                    {
+                        FStageInstanceId = stageInstance.FID,
+                        FUserId = superior.Value.UserId,
+                        FUserName = superior.Value.UserName,
+                        FSortOrder = a.FSortOrder,
+                        FAssignedTime = DateTime.Now,
+                        FStatus = "pending",
+                    };
+                    _dbContext.Set<CfStageAssignee>().Add(newAssignee);
+                    await _dbContext.SaveChangesAsync();
+
+                    await _todoService.CreateTodoAsync(card.FID, stageInstance.FID,
+                        superior.Value.UserId, superior.Value.UserName, card.FTitle ?? "待办");
+                    escalatedCount++;
+                }
+
+                var detail = escalatedCount > 0
+                    ? $"{reason}；已升级 {escalatedCount} 人"
+                    : reason;
+                if (unresolvedNames.Count > 0)
+                {
+                    detail += $"；未解析到上级(降级提醒): {string.Join("、", unresolvedNames)}";
+                    _logger.LogWarning("超时升级未解析到上级，StageInstanceId={StageInstanceId}, Users={Users}",
+                        stageInstanceId, string.Join(",", unresolvedNames));
+                }
+
+                stageInstance.FTimeoutActionLevel = timeoutLevel;
+                _dbContext.Entry(stageInstance).State = EntityState.Modified;
+
+                await LogActionAsync(card.FID, stageInstance.FID, "escalate", 0, "system", detail);
+
+                await _dbContext.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return CardOperationResult.Ok(card.FID, escalatedCount > 0 ? "已升级至上级" : "未解析到上级，已降级为提醒");
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "超时升级失败，StageInstanceId={StageInstanceId}", stageInstanceId);
+                return CardOperationResult.Fail($"超时升级失败: {ex.Message}");
+            }
+        });
+    }
+
+    /// <summary>解析用户直属上级：优先 SysUserOrganization.FDirectSuperiorId（当前生效主任职），
+    /// 缺失时走组织链 FManagerId 兜底（该用户主组织的负责人，且非用户本人），均无则返回 null（调用方降级为 remind）。</summary>
+    private async Task<(long UserId, string UserName)?> ResolveSuperiorUserAsync(long userId)
+    {
+        var membership = await _dbContext.Set<SysUserOrganization>()
+            .AsNoTracking()
+            .Where(m => m.FUserId == userId && m.F是否当前 && m.FStatus == 1)
+            .OrderByDescending(m => m.FIsPrimaryOrg)
+            .FirstOrDefaultAsync();
+
+        if (membership?.FDirectSuperiorId is long directSuperiorId && directSuperiorId > 0 && directSuperiorId != userId)
+        {
+            var directUser = await _dbContext.Set<SysUser>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.FID == directSuperiorId);
+            if (directUser != null)
+                return (directUser.FID, directUser.FName);
+        }
+
+        // 兜底：走用户主组织的 FManagerId 组织链，跳过自身，最多向上找 10 层
+        if (membership?.FOrgId is not long orgId || orgId <= 0) return null;
+
+        var visited = new HashSet<long>();
+        var currentOrgId = orgId;
+        for (var i = 0; i < 10 && currentOrgId > 0 && visited.Add(currentOrgId); i++)
+        {
+            var org = await _dbContext.Set<SysOrganization>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(o => o.FID == currentOrgId);
+            if (org == null) break;
+
+            if (org.FManagerId is long managerId && managerId > 0 && managerId != userId)
+            {
+                var managerUser = await _dbContext.Set<SysUser>()
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(u => u.FID == managerId);
+                if (managerUser != null)
+                    return (managerUser.FID, managerUser.FName);
+            }
+
+            currentOrgId = org.FParentId;
+        }
+
+        return null;
     }
 
     private async Task<CardOperationResult> ReturnToStageAsync(

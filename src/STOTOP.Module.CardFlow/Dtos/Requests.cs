@@ -143,6 +143,10 @@ public class StageDefinitionRequest
     /// <summary>跨节点审批人去重：true=分派处理人前剔除本卡在更早节点已 approved/rejected 过的用户；
     /// 剔除后处理人为空则视为节点自动通过直接推进。默认 false（不去重，向后兼容）。</summary>
     public bool SkipDuplicateApprover { get; set; }
+
+    /// <summary>超时升级链配置 JSON（Models.TimeoutActionConfig）；null=向后兼容仅走既有 flag+提醒行为。
+    /// UI 编辑面板为后续任务，本字段目前仅做保存链透传（不丢弃）。</summary>
+    public string? TimeoutActionJson { get; set; }
 }
 
 public class StageRouteRuleRequest

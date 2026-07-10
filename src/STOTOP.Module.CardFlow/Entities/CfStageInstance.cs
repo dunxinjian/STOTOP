@@ -23,5 +23,7 @@ public class CfStageInstance : BaseEntity
     public bool FIsTimeout { get; set; }
     /// <summary>一级超时提醒时间（StageTimeoutReminderJob 幂等标记，null=未提醒）</summary>
     public DateTime? FTimeoutRemindedAt { get; set; }
+    /// <summary>超时升级链已执行的最高级别倍数（CardFlowTimeoutJob 幂等高水位标记，null=尚未执行任何级）</summary>
+    public int? FTimeoutActionLevel { get; set; }
     public byte[] FRowVersion { get; set; } = Array.Empty<byte>();
 }

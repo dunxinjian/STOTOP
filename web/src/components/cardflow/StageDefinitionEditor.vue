@@ -83,6 +83,8 @@ export interface StageDefinition {
   timeoutHours?: number
   /** 跨节点审批人去重：分派处理人前剔除本卡在更早节点已 approved/rejected 过的用户；默认 false（UI 开关为 Task 4） */
   skipDuplicateApprover?: boolean
+  /** 超时升级链配置 JSON；null/undefined=向后兼容仅走既有 flag+提醒行为（UI 编辑面板为 Task 6，此处仅保存链透传） */
+  timeoutActionJson?: string
 
   // ===== 自动 =====
   /** 插件注册引用的 FID（CF自动插件注册.FID） */

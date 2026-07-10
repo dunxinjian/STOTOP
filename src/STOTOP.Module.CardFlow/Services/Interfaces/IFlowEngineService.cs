@@ -21,4 +21,11 @@ public interface IFlowEngineService
     Task<CardOperationResult> CcAsync(long cardId, long operatorId, CcRequest request);
     Task<CardOperationResult> UrgeAsync(long cardId, long operatorId, string? message = null);
     Task<CardOperationResult> ResumeAsync(long cardId, long operatorId);
+
+    /// <summary>超时升级链-系统自动通过（M8-C，CardFlowTimeoutJob 调用）。timeoutLevel=命中的倍数级别，用于幂等高水位标记。</summary>
+    Task<CardOperationResult> SystemAutoApproveStageAsync(long stageInstanceId, int timeoutLevel, string reason);
+    /// <summary>超时升级链-系统自动拒绝（M8-C，CardFlowTimeoutJob 调用）。</summary>
+    Task<CardOperationResult> SystemAutoRejectStageAsync(long stageInstanceId, int timeoutLevel, string reason);
+    /// <summary>超时升级链-升级至上级（M8-C，CardFlowTimeoutJob 调用）：无法解析上级时降级为提醒。</summary>
+    Task<CardOperationResult> EscalateStageAsync(long stageInstanceId, int timeoutLevel, string reason);
 }

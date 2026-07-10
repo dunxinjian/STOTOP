@@ -1390,6 +1390,7 @@ function mapStageFromDto(s: any): StageDefinition {
     ccConfigJson: s.ccConfigJson || undefined,
     timeoutHours: s.timeoutHours || undefined,
     skipDuplicateApprover: s.skipDuplicateApprover ?? undefined,
+    timeoutActionJson: s.timeoutActionJson || undefined,
     pluginRegistryId: s.pluginRegistryId ?? undefined,
     pluginRuleId: s.pluginRuleId ?? undefined,
     failurePolicy: tryParseFailurePolicy(s.failurePolicyJson),
@@ -1478,6 +1479,7 @@ function buildStageRequests(): StageDefinitionRequest[] {
     ccConfigJson: s.ccConfigJson || null,
     timeoutHours: s.timeoutHours || null,
     skipDuplicateApprover: s.skipDuplicateApprover ?? false,
+    timeoutActionJson: s.timeoutActionJson || null,
     // 不发该字段会被后端"全删全建"置空，存量节点的优先级模板会静默丢失
     priorityTemplate: s.priorityTemplate ?? null,
   }))
