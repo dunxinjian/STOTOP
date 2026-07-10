@@ -70,4 +70,25 @@ public class InitiatorScopeResolverTests
         Assert.NotNull(p.InitiatorScope);
         Assert.Equal(new List<long> { 10, 11 }, p.InitiatorScope!.Roles);
     }
+
+    [Fact]
+    public void 非法startPolicyJson_有legacy_不回退legacy仍不限制()
+    {
+        var p = StartPolicyCodec.Parse("{bad json", "[\"10\"]");
+        Assert.True(p.InitiatorScope == null || p.InitiatorScope.IsEmpty);
+    }
+
+    [Fact]
+    public void 非法startPolicyJson_无legacy_降级为不限制()
+    {
+        var p = StartPolicyCodec.Parse("{bad json", null);
+        Assert.True(p.InitiatorScope == null || p.InitiatorScope.IsEmpty);
+    }
+
+    [Fact]
+    public void 非法legacyJSON_单独_不抛且不限制()
+    {
+        var p = StartPolicyCodec.Parse(null, "{bad");
+        Assert.True(p.InitiatorScope == null || p.InitiatorScope.IsEmpty);
+    }
 }

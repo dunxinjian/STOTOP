@@ -33,19 +33,23 @@ public static class StartPolicyCodec
         PropertyNameCaseInsensitive = true,
     };
 
-    /// <summary>解析发起策略；startPolicyJson 为空时从 legacy 可发起角色JSON 派生角色维（向后兼容，无数据回填）。非法 JSON 静默降级为空策略（=不限制）。</summary>
+    /// <summary>解析发起策略；startPolicyJson 为空时从 legacy 可发起角色JSON 派生角色维（向后兼容，无数据回填）。新列存在(哪怕非法)即以新列为准，不回退 legacy；非法 JSON 静默降级为空策略（=不限制）。</summary>
     public static StartPolicy Parse(string? startPolicyJson, string? legacyAllowedRolesJson)
     {
         if (!string.IsNullOrWhiteSpace(startPolicyJson))
         {
+            // 新列存在(哪怕非法)即以新列为准：合法→解析；非法/为 null→静默降级为空策略(不限制)，不回退 legacy
             try
             {
-                var parsed = JsonSerializer.Deserialize<StartPolicy>(startPolicyJson, Options);
-                if (parsed != null) return parsed;
+                return JsonSerializer.Deserialize<StartPolicy>(startPolicyJson, Options) ?? new StartPolicy();
             }
-            catch (JsonException) { /* 静默降级 */ }
+            catch (JsonException)
+            {
+                return new StartPolicy();
+            }
         }
 
+        // 新列缺失(null/空)→从 legacy 可发起角色JSON 派生角色维(向后兼容)
         var policy = new StartPolicy();
         if (!string.IsNullOrWhiteSpace(legacyAllowedRolesJson))
         {
