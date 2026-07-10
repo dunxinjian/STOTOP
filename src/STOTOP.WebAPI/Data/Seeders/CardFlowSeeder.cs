@@ -93,6 +93,7 @@ public static class CardFlowSeeder
             new(69, "M6-#4 版本迁移日志: 建 CF版本迁移日志(发布 migrate 策略下被删节点在途卡片逐张迁移台账, ITenantScoped+IOrgScoped) (2026-07-08)", MigrateV69),
             new(70, "M7-1 编辑锁: 建 CF定义编辑锁(单定义单锁 F定义ID 唯一键, 心跳续期+接管请求内联, ITenantScoped+IOrgScoped) (2026-07-08)", MigrateV70),
             new(71, "M8-A 发起范围: CF卡片流程 加 F发起策略JSON 列(nvarchar max null, 结构化发起范围+代提交范围) (2026-07-10)", MigrateV71),
+            new(72, "M8-A 代提交: CF流程实例 加 F代理人ID/F代理人姓名 列(onBehalf 真实操作人留痕) (2026-07-10)", MigrateV72),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -324,6 +325,16 @@ public static class CardFlowSeeder
         if (!SeederHelper.IsSqlServer(ctx)) return;
         ExecSql(ctx, @"IF COL_LENGTH(N'CF卡片流程', N'F发起策略JSON') IS NULL
         ALTER TABLE [CF卡片流程] ADD [F发起策略JSON] NVARCHAR(MAX) NULL;");
+    }
+
+    /// <summary>V72：CF流程实例 加 F代理人ID/F代理人姓名（M8-A 代提交留痕，null=本人发起）。</summary>
+    private static void MigrateV72(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        ExecSql(ctx, @"IF COL_LENGTH(N'CF流程实例', N'F代理人ID') IS NULL
+            ALTER TABLE [CF流程实例] ADD [F代理人ID] BIGINT NULL;");
+        ExecSql(ctx, @"IF COL_LENGTH(N'CF流程实例', N'F代理人姓名') IS NULL
+            ALTER TABLE [CF流程实例] ADD [F代理人姓名] NVARCHAR(100) NULL;");
     }
 
     // ══════════════════════════════════════════════════════════════════════

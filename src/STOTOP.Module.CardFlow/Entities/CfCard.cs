@@ -11,6 +11,9 @@ public class CfCard : BaseEntity, IOrgScoped, ITenantScoped
     public string FStatus { get; set; } = "draft";
     public long FInitiatorId { get; set; }
     public string FInitiatorName { get; set; } = string.Empty;
+    /// <summary>代提交人ID：null=本人发起；非 null=代提交，FInitiatorId 为被代理人、本列为真实操作人。</summary>
+    public long? FAgentId { get; set; }
+    public string? FAgentName { get; set; }
     public DateTime FCreatedTime { get; set; }
     public DateTime? FSubmitTime { get; set; }
     public DateTime? FCompletedTime { get; set; }

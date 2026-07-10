@@ -18,6 +18,8 @@ public class CfCardConfiguration : IEntityTypeConfiguration<CfCard>
         builder.Property(e => e.FStatus).HasColumnName("F状态").HasMaxLength(30);
         builder.Property(e => e.FInitiatorId).HasColumnName("F发起人ID");
         builder.Property(e => e.FInitiatorName).HasColumnName("F发起人姓名").HasMaxLength(100);
+        builder.Property(e => e.FAgentId).HasColumnName("F代理人ID");
+        builder.Property(e => e.FAgentName).HasColumnName("F代理人姓名").HasMaxLength(100);
         builder.Property(e => e.FCreatedTime).HasColumnName("F创建时间");
         builder.Property(e => e.FSubmitTime).HasColumnName("F提交时间");
         builder.Property(e => e.FCompletedTime).HasColumnName("F完成时间");
