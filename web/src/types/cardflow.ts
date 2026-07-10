@@ -608,6 +608,8 @@ export interface AvailableFlowDto {
   flowName: string
   flowCode: string
   description: string | null
+  /** 当前用户对该流程是否可代提交（M8-A 件③）；true 时发起页展示"代谁发起"选择器 */
+  onBehalfEnabled: boolean
 }
 
 export interface CardBalanceDto {

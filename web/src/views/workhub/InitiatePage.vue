@@ -44,6 +44,18 @@
       @submitted="handleCardFlowClosed"
       @saved="handleCardFlowClosed"
     />
+
+    <a-modal
+      v-model:open="onBehalfModalVisible"
+      title="代谁发起"
+      ok-text="发起"
+      cancel-text="取消"
+      @ok="confirmOnBehalfStart"
+      @cancel="cancelOnBehalfStart"
+    >
+      <p class="ip-onbehalf-hint">留空则以本人身份发起「{{ onBehalfTargetItem?.label }}」；选择后将代其发起并留痕。</p>
+      <UserSelect v-model="onBehalfUser" placeholder="选择被代理人（可选，留空=本人）" />
+    </a-modal>
   </div>
 </template>
 
@@ -58,9 +70,10 @@ import {
 } from '@ant-design/icons-vue'
 import { getAvailableTriggerActions, type TriggerAction } from '@/api/workflow'
 import { getAvailableFlows, createCard } from '@/api/cardflow'
-import type { AvailableFlowDto } from '@/types/cardflow'
+import type { AvailableFlowDto, UserFieldValue } from '@/types/cardflow'
 import { useOrgContextStore } from '@/stores/orgContext'
 import CardFlowPanel from '@/components/cardflow/CardFlowPanel.vue'
+import UserSelect from '@/components/cardflow/fields/UserSelect.vue'
 
 // 展示项：包裹静态触发动作 + 动态 CardFlow 流程
 interface DisplayItem {
@@ -73,6 +86,8 @@ interface DisplayItem {
   source: 'static' | 'cardflow'
   flowId?: number
   flowCode?: string
+  /** 当前用户对该流程是否可代提交（M8-A 件③） */
+  onBehalfEnabled?: boolean
 }
 
 const router = useRouter()
@@ -85,6 +100,11 @@ const startingFlowId = ref<number | null>(null)
 // CardFlow 填写面板
 const cardPanelVisible = ref(false)
 const cardPanelCardId = ref<number | null>(null)
+
+// 代提交（M8-A 件③）：onBehalfEnabled 的流程发起前先弹窗选被代理人，留空=本人发起
+const onBehalfModalVisible = ref(false)
+const onBehalfTargetItem = ref<DisplayItem | null>(null)
+const onBehalfUser = ref<UserFieldValue | null>(null)
 
 const uploadActions = computed<DisplayItem[]>(() =>
   staticActions.value.filter(a => a.category === 'upload').map(toDisplay)
@@ -103,6 +123,7 @@ const createActions = computed<DisplayItem[]>(() => {
     source: 'cardflow',
     flowId: f.id,
     flowCode: f.flowCode,
+    onBehalfEnabled: f.onBehalfEnabled,
   }))
   return [...staticItems, ...flowItems]
 })
@@ -158,21 +179,50 @@ function getActionDescription(item: DisplayItem) {
 async function handleAction(item: DisplayItem) {
   if (item.source === 'cardflow') {
     if (startingFlowId.value !== null) return
-    const flowId = item.flowId as number
-    startingFlowId.value = flowId
-    try {
-      const orgId = orgStore.currentOrgId ?? 0
-      const draft = await createCard({ flowDefinitionId: flowId, orgId, dataJson: '{}' } as any)
-      cardPanelCardId.value = draft.id
-      cardPanelVisible.value = true
-    } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : '发起流程失败')
-    } finally {
-      startingFlowId.value = null
+    if (item.onBehalfEnabled) {
+      onBehalfTargetItem.value = item
+      onBehalfUser.value = null
+      onBehalfModalVisible.value = true
+      return
     }
+    await startFlow(item, null)
     return
   }
   if (item.route) router.push(item.route)
+}
+
+async function startFlow(item: DisplayItem, actualInitiatorId: number | null) {
+  const flowId = item.flowId as number
+  startingFlowId.value = flowId
+  try {
+    const orgId = orgStore.currentOrgId ?? 0
+    const draft = await createCard({
+      flowDefinitionId: flowId,
+      orgId,
+      dataJson: '{}',
+      actualInitiatorId: actualInitiatorId ?? undefined,
+    })
+    cardPanelCardId.value = draft.id
+    cardPanelVisible.value = true
+  } catch (e: unknown) {
+    message.error(e instanceof Error ? e.message : '发起流程失败')
+  } finally {
+    startingFlowId.value = null
+  }
+}
+
+function confirmOnBehalfStart() {
+  const item = onBehalfTargetItem.value
+  const agentUserId = onBehalfUser.value?.id ?? null
+  onBehalfModalVisible.value = false
+  onBehalfTargetItem.value = null
+  if (!item) return
+  void startFlow(item, agentUserId)
+}
+
+function cancelOnBehalfStart() {
+  onBehalfModalVisible.value = false
+  onBehalfTargetItem.value = null
 }
 
 function handleCardFlowClosed() {
@@ -343,5 +393,11 @@ onMounted(() => loadAll())
   border-radius: var(--radius-sm);
   background: var(--color-primary-light);
   color: var(--color-primary);
+}
+
+.ip-onbehalf-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-3);
 }
 </style>

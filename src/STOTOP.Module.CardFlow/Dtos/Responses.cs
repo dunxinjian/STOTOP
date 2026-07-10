@@ -197,6 +197,8 @@ public class AvailableFlowDto
     public string FlowName { get; set; } = string.Empty;
     public string FlowCode { get; set; } = string.Empty;
     public string? Description { get; set; }
+    /// <summary>当前用户对该流程是否可代提交（M8-A 件③）：onBehalf.enabled 且 agentScope 非空且当前用户在 agentScope 内；空 agentScope 视为对无人开放。</summary>
+    public bool OnBehalfEnabled { get; set; }
 }
 
 public class CardListDto

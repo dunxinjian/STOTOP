@@ -55,13 +55,30 @@ public class CardService : ICardService
         var result = new List<AvailableFlowDto>();
         foreach (var c in candidates)
         {
-            var scope = StartPolicyCodec.Parse(c.FStartPolicyJson, c.FAllowedRolesJson).InitiatorScope;
+            var policy = StartPolicyCodec.Parse(c.FStartPolicyJson, c.FAllowedRolesJson);
+            var scope = policy.InitiatorScope;
             if (scope is { IsEmpty: false })
             {
                 memberships ??= await _initiatorScopeResolver.GetUserMembershipsAsync(userId);
                 if (!_initiatorScopeResolver.IsInScope(memberships, userId, scope)) continue;
             }
-            result.Add(new AvailableFlowDto { Id = c.FID, FlowName = c.FFlowName, FlowCode = c.FFlowCode, Description = c.FDescription });
+
+            // 代提交可见性：与 CreateAsync 越权护栏同一 fail-closed 语义——agentScope 为空 = 无人可代提交（非"不限制"）
+            var onBehalfEnabled = false;
+            if (policy.OnBehalf is { Enabled: true } ob && !ob.AgentScope.IsEmpty)
+            {
+                memberships ??= await _initiatorScopeResolver.GetUserMembershipsAsync(userId);
+                onBehalfEnabled = _initiatorScopeResolver.IsInScope(memberships, userId, ob.AgentScope);
+            }
+
+            result.Add(new AvailableFlowDto
+            {
+                Id = c.FID,
+                FlowName = c.FFlowName,
+                FlowCode = c.FFlowCode,
+                Description = c.FDescription,
+                OnBehalfEnabled = onBehalfEnabled
+            });
         }
         return result;
     }

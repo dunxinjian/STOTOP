@@ -102,7 +102,7 @@ interface BasicInfo {
   flowGroupId: number | undefined
   /** 发起范围四维（角色/组织/岗位/人员），迁入发起抽屉后单一真源；序列化进 startPolicyJson */
   initiatorScope: ScopeDims
-  /** 代提交配置占位（UI 见 Task 11）；此处先落状态字段供序列化 */
+  /** 代提交配置（发起抽屉 UI，M8-A 件③）；序列化进 startPolicyJson.onBehalf */
   onBehalf: OnBehalfConfig
   status: string
   /** 导入文件名匹配通配符（如 *韵达*），保存时包装为 matchPattern JSON 的 fileNamePattern */
@@ -1114,13 +1114,14 @@ const {
 } = useUserSearch({ pageSize: 50 })
 /** 四维全空 → 抽屉内提示未限制 */
 const startScopeEmpty = computed(() => isScopeEmpty(state.basic.initiatorScope))
-/** 编辑已有流程时，回显已选发起人（组织维靠 orgScope limit 覆盖全树；人员维按需补拉详情固定回显） */
+/** 编辑已有流程时，回显已选发起人/代提交人（组织维靠 orgScope limit 覆盖全树；人员维按需补拉详情固定回显） */
 async function loadSelectedInitiatorUsers() {
-  const missingIds = state.basic.initiatorScope.users.filter(id =>
+  const missingIds = [...state.basic.initiatorScope.users, ...state.basic.onBehalf.agentScope.users].filter(id =>
     !userScopeOptions.value.some(option => option.value === id)
   )
   if (!missingIds.length) return
-  const users = await Promise.all(missingIds.map(id => getUserDetail(id).catch(() => null)))
+  const uniqueIds = [...new Set(missingIds)]
+  const users = await Promise.all(uniqueIds.map(id => getUserDetail(id).catch(() => null)))
   users.filter(Boolean).forEach((u: any) => {
     const name = getUserDisplayName(u)
     pinUserScope({ label: formatUserOptionLabel(u), value: Number(u.id), name, orgName: getUserOrgName(u), raw: u })
@@ -3121,7 +3122,61 @@ function goBack() {
         </div>
 
         <p v-if="startScopeEmpty" class="sde-fld__hint">未限制：本流程组织内任何有菜单权限者可发起。</p>
-        <!-- 代提交（onBehalf）配置段在 Task 11 追加 -->
+
+        <!-- 代提交（onBehalf）：越权护栏见 CardService.CreateAsync；agentScope 留空=对无人开放（与上方发起范围留空=不限制相反）（M8-A 件③） -->
+        <div class="cfd-setrow">
+          <a-switch v-model:checked="state.basic.onBehalf.enabled" size="small" />
+          <div class="cfd-setrow__text">
+            <div class="cfd-setrow__title">允许代提交</div>
+            <div class="cfd-setrow__desc">开启后，下列范围内的人可代他人发起本流程。</div>
+          </div>
+        </div>
+
+        <template v-if="state.basic.onBehalf.enabled">
+          <div class="sde-fld">
+            <label class="sde-fld__label">可代提交角色</label>
+            <a-select
+              v-model:value="state.basic.onBehalf.agentScope.roles"
+              mode="multiple" placeholder="留空=对无人开放"
+              option-filter-prop="label"
+              :options="roleOptionsNumeric"
+            />
+          </div>
+
+          <div class="sde-fld">
+            <label class="sde-fld__label">可代提交组织</label>
+            <a-select
+              v-model:value="state.basic.onBehalf.agentScope.orgs"
+              mode="multiple" placeholder="留空=对无人开放"
+              :options="orgScopeOptions" :loading="orgScopeLoading"
+              show-search option-filter-prop="label" :filter-option="false"
+              @search="onOrgScopeSearch"
+            />
+          </div>
+
+          <div class="sde-fld">
+            <label class="sde-fld__label">可代提交岗位</label>
+            <a-select
+              v-model:value="state.basic.onBehalf.agentScope.positions"
+              mode="multiple" placeholder="留空=对无人开放"
+              option-filter-prop="label"
+              :options="positionOptions"
+            />
+          </div>
+
+          <div class="sde-fld">
+            <label class="sde-fld__label">指定代提交人</label>
+            <a-select
+              v-model:value="state.basic.onBehalf.agentScope.users"
+              mode="multiple" placeholder="留空=对无人开放"
+              :options="userScopeOptions" :loading="userScopeLoading"
+              show-search option-filter-prop="label" :filter-option="false"
+              @search="onUserScopeSearch"
+            />
+          </div>
+
+          <p v-if="isScopeEmpty(state.basic.onBehalf.agentScope)" class="sde-fld__hint">未指定范围：代提交对任何人不开放（与发起范围留空=不限制相反）。</p>
+        </template>
       </section>
 
       <section v-else class="fdef-drawer-section">

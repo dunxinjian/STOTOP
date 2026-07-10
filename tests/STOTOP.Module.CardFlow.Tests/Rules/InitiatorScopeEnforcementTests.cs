@@ -89,4 +89,69 @@ public class InitiatorScopeEnforcementTests
         Assert.DoesNotContain(flows, f => f.Id == 3520);
         Assert.Contains(flows, f => f.Id == 3521);
     }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task 可发起清单标记代提交_agentScope覆盖当前用户_onBehalfEnabled为真()
+    {
+        using var db = TestDbContextFactory.Create(nameof(可发起清单标记代提交_agentScope覆盖当前用户_onBehalfEnabled为真));
+        db.Set<CfFlowDefinition>().Add(new CfFlowDefinition
+        {
+            FID = 3530,
+            FFlowName = "代提交流程",
+            FFlowCode = "onbehalf-flow-avail",
+            FOrgId = 1,
+            FStatus = "published",
+            FCreatorId = 1,
+            FCreatedTime = DateTime.Now,
+            FStartPolicyJson = """{"onBehalf":{"enabled":true,"agentScope":{"users":[700]}}}""" // 用户700在 agentScope 内
+        });
+        db.Set<CfFlowVersion>().Add(new CfFlowVersion { FID = 3531, FFlowDefinitionId = 3530, FStatus = "published", FIsCurrentVersion = true });
+        await db.SaveChangesAsync();
+
+        var svc = BuildCardService(db);
+        var flows = await svc.GetAvailableFlowsAsync(userId: 700, orgId: 1);
+
+        var flow = Assert.Single(flows, f => f.Id == 3530);
+        Assert.True(flow.OnBehalfEnabled);
+    }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task 代提交已开启但agentScope为空_onBehalfEnabled为假()
+    {
+        using var db = TestDbContextFactory.Create(nameof(代提交已开启但agentScope为空_onBehalfEnabled为假));
+        db.Set<CfFlowDefinition>().Add(new CfFlowDefinition
+        {
+            FID = 3540,
+            FFlowName = "代提交流程-空范围",
+            FFlowCode = "onbehalf-flow-avail-empty",
+            FOrgId = 1,
+            FStatus = "published",
+            FCreatorId = 1,
+            FCreatedTime = DateTime.Now,
+            FStartPolicyJson = """{"onBehalf":{"enabled":true}}""" // 未填 agentScope → fail-closed，任何人都不可代提交
+        });
+        db.Set<CfFlowVersion>().Add(new CfFlowVersion { FID = 3541, FFlowDefinitionId = 3540, FStatus = "published", FIsCurrentVersion = true });
+        await db.SaveChangesAsync();
+
+        var svc = BuildCardService(db);
+        var flows = await svc.GetAvailableFlowsAsync(userId: 700, orgId: 1);
+
+        var flow = Assert.Single(flows, f => f.Id == 3540);
+        Assert.False(flow.OnBehalfEnabled);
+    }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task 未配置代提交策略_onBehalfEnabled为假()
+    {
+        using var db = TestDbContextFactory.Create(nameof(未配置代提交策略_onBehalfEnabled为假));
+        db.Set<CfFlowDefinition>().Add(new CfFlowDefinition { FID = 3550, FFlowName = "普通流程", FFlowCode = "no-onbehalf-flow", FOrgId = 1, FStatus = "published", FCreatorId = 1, FCreatedTime = DateTime.Now });
+        db.Set<CfFlowVersion>().Add(new CfFlowVersion { FID = 3551, FFlowDefinitionId = 3550, FStatus = "published", FIsCurrentVersion = true });
+        await db.SaveChangesAsync();
+
+        var svc = BuildCardService(db);
+        var flows = await svc.GetAvailableFlowsAsync(userId: 700, orgId: 1);
+
+        var flow = Assert.Single(flows, f => f.Id == 3550);
+        Assert.False(flow.OnBehalfEnabled);
+    }
 }
