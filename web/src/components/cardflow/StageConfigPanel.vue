@@ -34,6 +34,7 @@ import { getPluginRegistry, getPluginRules } from '@/api/cardflow'
 import { DEFAULT_ACTIONS, parseAssigneeConfig, normalizeAssigneeStrategy, getStageHealth as computeStageHealth } from './stageDefinitionShared'
 import { useUserSearch } from '@/composables/useUserSearch'
 import { CC_CHANNEL_OPTIONS, CC_TIMING_OPTIONS, emptyCcConfig, parseCcConfig, serializeCcConfig, type CcNotifyConfig } from './ccConfigShared'
+import { TIMEOUT_ACTION_OPTIONS, emptyTimeoutActionConfig, parseTimeoutAction, serializeTimeoutAction, type TimeoutActionConfig } from './timeoutActionShared'
 
 const props = defineProps<{
   stages: StageDefinition[]
@@ -185,6 +186,16 @@ function syncAutoDecision() {
   }
 }
 
+// 超时升级链（M8-C）：新增级别，倍数默认取「已有最大倍数 + 1」，动作默认提醒
+function addTimeoutLevel() {
+  const maxMultiplier = draftTimeoutAction.value.levels.reduce((max, l) => Math.max(max, l.multiplier), 0)
+  draftTimeoutAction.value.levels.push({ multiplier: Math.min(maxMultiplier + 1, 10), action: 'remind' })
+}
+
+function removeTimeoutLevel(index: number) {
+  draftTimeoutAction.value.levels.splice(index, 1)
+}
+
 // ==================== 选中节点 ====================
 
 const selectedStage = computed(() => props.selectedIndex >= 0 ? props.stages[props.selectedIndex] ?? null : null)
@@ -194,6 +205,8 @@ const autoDecisionMode = ref<'none' | 'autoApprove' | 'autoReject'>('none')
 const draftAutoDecisionCondition = ref<ConditionGroup>({ logic: 'and', conditions: [] })
 // 抄送/通知编辑态（M8-B，仅人工节点；见「高级」Tab）
 const draftCcConfig = ref<CcNotifyConfig>(emptyCcConfig())
+// 超时升级链编辑态（M8-C，仅人工节点且 timeoutHours>0；见「高级」Tab）
+const draftTimeoutAction = ref<TimeoutActionConfig>(emptyTimeoutActionConfig())
 const activeConfigTab = ref<'basic' | 'assignee' | 'fieldPerm' | 'actions' | 'advanced'>('basic')
 
 // ===== 处理人策略配置状态 =====
@@ -616,6 +629,8 @@ function rehydrateSelection(src: StageDefinition | null | undefined) {
     value: u.userId,
     name: u.userName || `#${u.userId}`,
   }))
+  // 回显超时升级链（仅人工节点消费，同上守卫）
+  draftTimeoutAction.value = parseTimeoutAction(src.timeoutActionJson)
   // 预加载当前插件的规则列表
   if (src.type === 'auto' && src.pluginRegistryId) {
     const code = pluginRegistryAll.value.find(p => p.id === src.pluginRegistryId)?.pluginCode
@@ -709,6 +724,14 @@ watch(draftCcConfig, (val) => {
   const stage = props.stages[props.selectedIndex]
   if (!stage || stage.type !== 'manual') return
   stage.ccConfigJson = serializeCcConfig(val)
+}, { deep: true })
+
+// 超时升级链变化时写回（仅人工节点消费；同上守卫）
+watch(draftTimeoutAction, (val) => {
+  if (props.selectedIndex < 0) return
+  const stage = props.stages[props.selectedIndex]
+  if (!stage || stage.type !== 'manual') return
+  stage.timeoutActionJson = serializeTimeoutAction(val)
 }, { deep: true })
 
 // 处理粒度变更时，若已选插件与新粒度不匹配则清空
@@ -1206,6 +1229,35 @@ const tabIssueCounts = computed(() => {
               <p class="sde-fld__hint">超过时长未处理时提醒处理人（0 或留空 = 不提醒）</p>
             </div>
 
+            <div v-if="selectedStage.type === 'manual' && (selectedStage.timeoutHours ?? 0) > 0" class="sde-fld sde-fld--block">
+              <div class="sde-fld__label-row">
+                <label class="sde-fld__label">超时升级链</label>
+                <span class="sde-fld__hint">按超时时长的倍数分级触发动作，未配置级别时仅提醒</span>
+              </div>
+              <div class="sde-timeout-levels">
+                <div v-for="(level, idx) in draftTimeoutAction.levels" :key="idx" class="sde-timeout-levels__row">
+                  <a-input-number
+                    v-model:value="level.multiplier"
+                    :min="1"
+                    :max="10"
+                    addon-before="×"
+                    addon-after="超时"
+                    style="width: 128px"
+                  />
+                  <a-select
+                    v-model:value="level.action"
+                    style="flex: 1"
+                    :options="TIMEOUT_ACTION_OPTIONS.map(o => ({ value: o.value, label: o.label }))"
+                  />
+                  <a-button type="text" danger size="small" aria-label="删除级别" @click="removeTimeoutLevel(idx)">
+                    ✕
+                  </a-button>
+                </div>
+                <div v-if="!draftTimeoutAction.levels.length" class="sde-fld__hint">暂无级别，将始终仅提醒处理人</div>
+              </div>
+              <a-button type="dashed" size="small" block @click="addTimeoutLevel">+ 添加级别</a-button>
+            </div>
+
             <div v-if="selectedStage.type === 'manual'" class="sde-fld sde-fld--block">
               <div class="sde-fld__label-row">
                 <label class="sde-fld__label">抄送 / 通知</label>
@@ -1413,6 +1465,19 @@ const tabIssueCounts = computed(() => {
   &__mono :deep(textarea) {
     font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
     font-size: 12px;
+  }
+}
+
+.sde-timeout-levels {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 }
 
