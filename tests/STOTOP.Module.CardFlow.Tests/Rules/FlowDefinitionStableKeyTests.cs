@@ -131,6 +131,41 @@ public class FlowDefinitionStableKeyTests
     }
 
     [Fact]
+    public async global::System.Threading.Tasks.Task SaveDraftVersion_RoundTripsApprovalThreshold()
+    {
+        using var db = TestDbContextFactory.Create(nameof(SaveDraftVersion_RoundTripsApprovalThreshold));
+        SeedDraft(db);
+        await db.SaveChangesAsync();
+
+        var service = new FlowDefinitionService(db, NullLogger<FlowDefinitionService>.Instance);
+
+        var detail = await service.SaveDraftVersionAsync(100, new SaveDraftVersionRequest
+        {
+            Stages =
+            {
+                new StageDefinitionRequest
+                {
+                    StageKey = "manager",
+                    Name = "主管审批",
+                    SortOrder = 1,
+                    Type = "human",
+                    ApprovalMode = "ratio",
+                    ApprovalThreshold = 60
+                }
+            }
+        }, operatorId: 1);
+
+        Assert.Single(detail.Stages);
+        Assert.Equal("ratio", detail.Stages[0].ApprovalMode);
+        Assert.Equal(60, detail.Stages[0].ApprovalThreshold);
+
+        // 重新读取（模拟前端刷新页面重新拉详情），确认阈值不是只在保存返回值里昙花一现
+        var reloaded = await service.GetVersionDetailAsync(100, detail.Id);
+        Assert.NotNull(reloaded);
+        Assert.Equal(60, reloaded!.Stages[0].ApprovalThreshold);
+    }
+
+    [Fact]
     public async global::System.Threading.Tasks.Task Publish_RejectsDynamicPolicyWithoutFallback()
     {
         using var db = TestDbContextFactory.Create(nameof(Publish_RejectsDynamicPolicyWithoutFallback));

@@ -24,7 +24,7 @@ import { DEFAULT_ACTIONS, getStageHealth as computeStageHealth } from './stageDe
 // ==================== 类型 ====================
 
 export type StageNodeType = 'manual' | 'auto'
-export type StageApprovalMode = 'single' | 'countersign' | 'orsign' | 'sequential'
+export type StageApprovalMode = 'single' | 'countersign' | 'orsign' | 'sequential' | 'ratio'
 export type StageAccessMode = 'hidden' | 'masked' | 'readonly' | 'editable' | 'required'
 export type AssigneeFallbackType = 'failSubmit' | 'flowAdmin' | 'fixedUsers'
 
@@ -71,6 +71,8 @@ export interface StageDefinition {
 
   // ===== 人工 =====
   approvalMode?: StageApprovalMode
+  /** 比例会签(ratio)通过阈值百分比(1-99)；仅 approvalMode==='ratio' 时生效 */
+  approvalThreshold?: number
   assigneeStrategy?: string
   assigneeConfigJson?: string
   inputFields?: string[]

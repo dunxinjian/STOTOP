@@ -52,6 +52,7 @@ const APPROVAL_MODES = [
   { value: 'countersign',  label: '会签', hint: '所有处理人都需通过' },
   { value: 'orsign',       label: '或签', hint: '任一处理人通过即可继续' },
   { value: 'sequential',   label: '顺签', hint: '按人员顺序依次处理' },
+  { value: 'ratio',        label: '比例会签', hint: '达到指定通过比例即可' },
 ] as const
 
 const ASSIGNEE_STRATEGIES = [
@@ -832,6 +833,19 @@ const tabIssueCounts = computed(() => {
               <p class="sde-fld__hint">
                 {{ APPROVAL_MODES.find(m => m.value === selectedStage!.approvalMode)?.hint }}
               </p>
+            </div>
+
+            <div v-if="selectedStage.type === 'manual' && selectedStage.approvalMode === 'ratio'" class="sde-fld">
+              <label class="sde-fld__label">通过比例</label>
+              <a-input-number
+                v-model:value="selectedStage.approvalThreshold"
+                :min="1"
+                :max="99"
+                addon-after="%"
+                placeholder="留空默认 100%"
+                style="width: 140px"
+              />
+              <p class="sde-fld__hint">已通过人数占比达到该阈值即完成节点；留空或超出 1-99 范围按 100%（等同会签）处理</p>
             </div>
 
             <div v-if="selectedStage.type === 'manual'" class="sde-fld">

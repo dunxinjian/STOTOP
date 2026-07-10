@@ -57,6 +57,9 @@ public class StageDefinitionDto
     public string StageName { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
     public string? ApprovalMode { get; set; }
+
+    /// <summary>比例会签(ratio)通过阈值百分比(1-99)；仅 ApprovalMode=="ratio" 时生效，其余模式忽略。</summary>
+    public int? ApprovalThreshold { get; set; }
     public string? AssigneeStrategy { get; set; }
     public string? AssigneeConfigJson { get; set; }
     public string? ConditionJson { get; set; }

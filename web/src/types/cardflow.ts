@@ -100,6 +100,8 @@ export interface StageDefinitionDto {
   stageName: string
   type: string
   approvalMode: string | null
+  /** 比例会签(ratio)通过阈值百分比(1-99)；仅 approvalMode==='ratio' 时生效 */
+  approvalThreshold?: number | null
   assigneeStrategy: string | null
   assigneeConfigJson: string | null
   conditionJson: string | null
@@ -264,6 +266,8 @@ export interface StageDefinitionRequest {
   type?: string
   sortOrder: number
   approvalMode?: string | null
+  /** 比例会签(ratio)通过阈值百分比(1-99)；仅 approvalMode==='ratio' 时生效 */
+  approvalThreshold?: number | null
   assigneeStrategy?: string | null
   assigneeConfigJson?: string | null
   conditionJson?: string | null
@@ -601,6 +605,8 @@ export interface StageSummaryProfile {
 
 export interface ApprovalModeConfig {
   mode: 'single' | 'countersign' | 'orsign' | 'sequential' | string
+  /** 比例会签(ratio)通过阈值百分比(1-99) */
+  threshold?: number | null
 }
 
 export interface AvailableFlowDto {
