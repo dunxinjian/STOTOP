@@ -18,6 +18,7 @@ public class CfFlowDefinitionConfiguration : IEntityTypeConfiguration<CfFlowDefi
         builder.Property(e => e.FNumberTemplate).HasColumnName("F编号模板").HasMaxLength(200);
         builder.Property(e => e.FTitleTemplate).HasColumnName("F标题模板").HasMaxLength(200);
         builder.Property(e => e.FAllowedRolesJson).HasColumnName("F可发起角色JSON");
+        builder.Property(e => e.FStartPolicyJson).HasColumnName("F发起策略JSON").HasColumnType("nvarchar(max)");
         builder.Property(e => e.FFlowGroupId).HasColumnName("F流程组ID");
         builder.Property(e => e.FOrgId).HasColumnName("F组织ID");
         builder.Property(e => e.FTenantId).HasColumnName("F租户ID").HasDefaultValue(0L);

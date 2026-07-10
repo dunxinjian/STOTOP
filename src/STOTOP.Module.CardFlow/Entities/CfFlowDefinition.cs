@@ -11,6 +11,8 @@ public class CfFlowDefinition : BaseEntity, IOrgScoped, ITenantScoped
     public string? FNumberTemplate { get; set; }
     public string? FTitleTemplate { get; set; }
     public string? FAllowedRolesJson { get; set; }
+    /// <summary>发起策略 JSON：initiatorScope(角色/组织/岗位/人员) + onBehalf(代提交开关+agentScope)。null=不限制发起、不允许代提交。</summary>
+    public string? FStartPolicyJson { get; set; }
     public long? FFlowGroupId { get; set; }
     public long FOrgId { get; set; }
     public long FTenantId { get; set; }  // 租户ID（区域公司，多租户隔离键）

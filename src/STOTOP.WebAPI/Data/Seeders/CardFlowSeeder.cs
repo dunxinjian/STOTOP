@@ -92,6 +92,7 @@ public static class CardFlowSeeder
             new(68, "M2-7 节点超时提醒: CF节点执行实例 加 F超时提醒时间(datetime2 null, StageTimeoutReminderJob 一级提醒幂等标记) (2026-07-08)", MigrateV68),
             new(69, "M6-#4 版本迁移日志: 建 CF版本迁移日志(发布 migrate 策略下被删节点在途卡片逐张迁移台账, ITenantScoped+IOrgScoped) (2026-07-08)", MigrateV69),
             new(70, "M7-1 编辑锁: 建 CF定义编辑锁(单定义单锁 F定义ID 唯一键, 心跳续期+接管请求内联, ITenantScoped+IOrgScoped) (2026-07-08)", MigrateV70),
+            new(71, "M8-A 发起范围: CF卡片流程 加 F发起策略JSON 列(nvarchar max null, 结构化发起范围+代提交范围) (2026-07-10)", MigrateV71),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -315,6 +316,14 @@ public static class CardFlowSeeder
             CREATE UNIQUE INDEX [UX_CF定义编辑锁_定义] ON [CF定义编辑锁]([F定义ID]);
         IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_CF定义编辑锁_租户ID')
             CREATE INDEX [IX_CF定义编辑锁_租户ID] ON [CF定义编辑锁]([F租户ID]);");
+    }
+
+    /// <summary>V71：CF卡片流程 加 F发起策略JSON（M8-A 发起范围+代提交范围结构化策略，null=不限制）。</summary>
+    private static void MigrateV71(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        ExecSql(ctx, @"IF COL_LENGTH(N'CF卡片流程', N'F发起策略JSON') IS NULL
+        ALTER TABLE [CF卡片流程] ADD [F发起策略JSON] NVARCHAR(MAX) NULL;");
     }
 
     // ══════════════════════════════════════════════════════════════════════
