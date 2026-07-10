@@ -10,8 +10,10 @@
  *    上层（StageDefinitionEditor）对 stages 的 deep watch 负责 emitUpdate，本面板不再另发事件。
  *  - 选中节点变化（切换选择 / 撤销重做整体替换致对象换新）经 watch(selectedStage) 回显编辑态，
  *    等价于原 selectStage 的调用时机；就地编辑不改变 selectedStage 引用故不触发回显。
- *  - 只暴露引擎已实现的配置（M2 裁剪决策）：ccConfigJson 运行时零消费故不再出输入框；
- *    超时提醒接 StageTimeoutReminderJob（M2-7）；自动通过语义=进入条件跳过（引擎既有）。
+ *  - 只暴露引擎已实现的配置（M2 裁剪决策）：超时提醒接 StageTimeoutReminderJob（M2-7）；
+ *    自动通过语义=进入条件跳过（引擎既有）；抄送/通知（ccConfigJson，M8-B）见「高级」Tab，
+ *    仅人工节点可配——引擎 onEnter/onApprove/onReject 三触点消费，与「抄送节点」
+ *    （auto 节点 + AlertNotify 插件，见 stageDefinitionShared.ts）是两套并行机制。
  */
 import { computed, onMounted, ref, watch, nextTick } from 'vue'
 import {
@@ -30,6 +32,8 @@ import type { CardComponentDefinition, SchemaFieldDefinition, AutoPluginRegistry
 import { getRoleList, getUserList } from '@/api/system'
 import { getPluginRegistry, getPluginRules } from '@/api/cardflow'
 import { DEFAULT_ACTIONS, parseAssigneeConfig, normalizeAssigneeStrategy, getStageHealth as computeStageHealth } from './stageDefinitionShared'
+import { useUserSearch } from '@/composables/useUserSearch'
+import { CC_CHANNEL_OPTIONS, CC_TIMING_OPTIONS, emptyCcConfig, parseCcConfig, serializeCcConfig, type CcNotifyConfig } from './ccConfigShared'
 
 const props = defineProps<{
   stages: StageDefinition[]
@@ -187,6 +191,8 @@ const draftCondition = ref<ConditionGroup>({ logic: 'and', conditions: [] })
 // 自动裁决（审批类型）编辑态
 const autoDecisionMode = ref<'none' | 'autoApprove' | 'autoReject'>('none')
 const draftAutoDecisionCondition = ref<ConditionGroup>({ logic: 'and', conditions: [] })
+// 抄送/通知编辑态（M8-B，仅人工节点；见「高级」Tab）
+const draftCcConfig = ref<CcNotifyConfig>(emptyCcConfig())
 const activeConfigTab = ref<'basic' | 'assignee' | 'fieldPerm' | 'actions' | 'advanced'>('basic')
 
 // ===== 处理人策略配置状态 =====
@@ -208,6 +214,26 @@ const editFallbackUserIds = ref<number[]>([])
 const editOrgChainMaxLevels = ref<number>(20)
 // 防止回显期间被 strategy watch 误清
 let suppressStrategyReset = false
+
+// ===== 抄送/通知配置状态（M8-B，独立远端搜索实例，不与处理人策略共享 userOptions） =====
+const {
+  userOptions: ccUserOptions, loading: ccUserSearchLoading,
+  load: loadCcUsers, search: onCcUserSearch, pin: pinCcUser,
+} = useUserSearch({ pageSize: 50 })
+
+/** 抄送对象 id 数组 ↔ CcUser[] 双向代理（a-select mode="multiple" 只认原始值数组） */
+const ccUserIds = computed<number[]>({
+  get: () => draftCcConfig.value.users.map(u => u.userId),
+  set: (ids) => {
+    // 反查不到时回退已存配置里的姓名，避免二次序列化把 userName 抹空（镜像 buildAssigneeConfig 的 fixed 分支）
+    const previousByUserId = new Map(draftCcConfig.value.users.map(u => [u.userId, u]))
+    draftCcConfig.value.users = ids.map(id => {
+      const opt = ccUserOptions.value.find(o => o.value === id)
+      const prev = previousByUserId.get(id)
+      return { userId: id, userName: opt?.name || prev?.userName || '' }
+    })
+  },
+})
 
 // ===== 插件注册 & 插件规则加载状态 =====
 const pluginRegistryAll = ref<AutoPluginRegistryDto[]>([])
@@ -276,6 +302,11 @@ onMounted(async () => {
   } catch (e) {
     console.warn('[StageConfigPanel] 加载角色列表失败:', e)
   }
+})
+
+// 预拉初始抄送人候选（无关键词），与角色列表同批加载；search 时 useUserSearch 再按关键词换页
+onMounted(() => {
+  void loadCcUsers('')
 })
 
 async function loadPluginRegistry() {
@@ -577,6 +608,13 @@ function rehydrateSelection(src: StageDefinition | null | undefined) {
   } catch {
     draftAutoDecisionCondition.value = { logic: 'and', conditions: [] }
   }
+  // 回显抄送/通知配置（仅人工节点消费，auto 节点解析出空配置也不回写——watch 已按 type 守卫）
+  draftCcConfig.value = parseCcConfig(src.ccConfigJson)
+  draftCcConfig.value.users.forEach(u => pinCcUser({
+    label: u.userName || `#${u.userId}`,
+    value: u.userId,
+    name: u.userName || `#${u.userId}`,
+  }))
   // 预加载当前插件的规则列表
   if (src.type === 'auto' && src.pluginRegistryId) {
     const code = pluginRegistryAll.value.find(p => p.id === src.pluginRegistryId)?.pluginCode
@@ -662,6 +700,14 @@ watch(draftCondition, (val) => {
 watch(draftAutoDecisionCondition, () => {
   if (props.selectedIndex < 0 || suppressStrategyReset) return
   if (autoDecisionMode.value !== 'none') syncAutoDecision()
+}, { deep: true })
+
+// 抄送/通知配置变化时写回（仅人工节点消费；镜像 syncAssigneeConfig 的 type 守卫）
+watch(draftCcConfig, (val) => {
+  if (props.selectedIndex < 0) return
+  const stage = props.stages[props.selectedIndex]
+  if (!stage || stage.type !== 'manual') return
+  stage.ccConfigJson = serializeCcConfig(val)
 }, { deep: true })
 
 // 处理粒度变更时，若已选插件与新粒度不匹配则清空
@@ -1136,6 +1182,48 @@ const tabIssueCounts = computed(() => {
                 style="width: 140px"
               />
               <p class="sde-fld__hint">超过时长未处理时提醒处理人（0 或留空 = 不提醒）</p>
+            </div>
+
+            <div v-if="selectedStage.type === 'manual'" class="sde-fld sde-fld--block">
+              <div class="sde-fld__label-row">
+                <label class="sde-fld__label">抄送 / 通知</label>
+                <span class="sde-fld__hint">按时机将处理进度推送给相关人，不参与审批流转</span>
+              </div>
+              <div class="sde-fld">
+                <label class="sde-fld__label">抄送对象</label>
+                <a-select
+                  v-model:value="ccUserIds"
+                  mode="multiple"
+                  style="width: 100%"
+                  placeholder="搜索并选择抄送人"
+                  :options="ccUserOptions"
+                  :loading="ccUserSearchLoading"
+                  show-search
+                  option-filter-prop="label"
+                  :filter-option="filterOption"
+                  @search="onCcUserSearch"
+                />
+                <p class="sde-fld__hint">留空则不触发抄送</p>
+              </div>
+              <template v-if="ccUserIds.length">
+                <div class="sde-fld">
+                  <label class="sde-fld__label">抄送时机</label>
+                  <a-radio-group v-model:value="draftCcConfig.timing" button-style="solid" size="small">
+                    <a-radio-button v-for="opt in CC_TIMING_OPTIONS" :key="opt.value" :value="opt.value">
+                      {{ opt.label }}
+                    </a-radio-button>
+                  </a-radio-group>
+                </div>
+                <div class="sde-fld">
+                  <label class="sde-fld__label">通知渠道</label>
+                  <a-checkbox-group v-model:value="draftCcConfig.channels">
+                    <a-checkbox v-for="opt in CC_CHANNEL_OPTIONS" :key="opt.value" :value="opt.value" :disabled="opt.disabled">
+                      {{ opt.label }}
+                    </a-checkbox>
+                  </a-checkbox-group>
+                  <p class="sde-fld__hint">企微 / Bot 渠道尚未接入，暂不可选</p>
+                </div>
+              </template>
             </div>
 
             <div class="sde-fld sde-fld--block">
