@@ -666,6 +666,8 @@ export interface CreateCardRequest {
   returnUrl?: string | null
   initialDataJson?: string | null
   sourceTitle?: string | null
+  /** 代提交：代替谁发起（被代理人 userId）。null=本人发起。 */
+  actualInitiatorId?: number | null
 }
 
 export interface UpdateCardRequest {

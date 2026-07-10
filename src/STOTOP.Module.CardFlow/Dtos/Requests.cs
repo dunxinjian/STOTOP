@@ -237,6 +237,9 @@ public class CreateCardRequest
     public string? ReturnUrl { get; set; }
     public string? InitialDataJson { get; set; }
     public string? SourceTitle { get; set; }
+
+    /// <summary>代提交：代替谁发起（被代理人 userId）。null=本人发起。</summary>
+    public long? ActualInitiatorId { get; set; }
 }
 
 public class UpdateCardRequest

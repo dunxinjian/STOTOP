@@ -11,6 +11,7 @@ using STOTOP.Module.CardFlow.Models.Approval;
 using STOTOP.Module.CardFlow.Models.Schema;
 using STOTOP.Module.CardFlow.Services.Interfaces;
 using STOTOP.Module.CardFlow.Services.Redaction;
+using STOTOP.Module.System.Entities;
 
 namespace STOTOP.Module.CardFlow.Services;
 
@@ -172,10 +173,11 @@ public class CardService : ICardService
             .Where(a => stageInstanceIds.Contains(a.FStageInstanceId))
             .ToListAsync();
 
-        // 最小卡片访问门：发起人 / 任意轮次处理人 / 管理员，否则拒绝（不暴露存在性）
+        // 最小卡片访问门：发起人 / 代提交的代理人 / 任意轮次处理人 / 管理员，否则拒绝（不暴露存在性）
         var isInitiator = card.FInitiatorId == userId;
+        var isAgent = card.FAgentId == userId;
         var isAssignee = assignees.Any(a => a.FUserId == userId);
-        if (!canViewAll && !isInitiator && !isAssignee)
+        if (!canViewAll && !isInitiator && !isAgent && !isAssignee)
         {
             return null;
         }
@@ -786,13 +788,30 @@ public class CardService : ICardService
                 throw new InvalidOperationException("您不在该流程的可发起范围内，无法发起");
         }
 
+        // 代提交解析：ActualInitiatorId 有值时校验代提交范围，落被代理人+代理人留痕
+        long initiatorId = userId;
+        long? agentId = null;
+        if (request.ActualInitiatorId is { } actualId && actualId != userId)
+        {
+            var onBehalf = startPolicy.OnBehalf;
+            if (onBehalf is not { Enabled: true })
+                throw new InvalidOperationException("该流程未开启代提交");
+            var agentMemberships = await _initiatorScopeResolver.GetUserMembershipsAsync(userId);
+            if (!_initiatorScopeResolver.IsInScope(agentMemberships, userId, onBehalf.AgentScope))
+                throw new InvalidOperationException("您不在该流程的可代提交范围内");
+            initiatorId = actualId;
+            agentId = userId;
+        }
+
         var card = new CfCard
         {
             FFlowDefinitionId = request.FlowDefinitionId,
             FFlowVersionId = currentVersion.FID,
             FStatus = "draft",
-            FInitiatorId = userId,
-            FInitiatorName = string.Empty,
+            FInitiatorId = initiatorId,
+            FInitiatorName = await ResolveUserNameAsync(initiatorId),
+            FAgentId = agentId,
+            FAgentName = agentId.HasValue ? await ResolveUserNameAsync(agentId.Value) : null,
             FDataJson = MergeTrustedDataJson(request.DataJson, sourceVerification.TrustedDataJson),
             FOrgId = request.OrgId,
             FSourceModule = NormalizeSourceContext(request.SourceModule),
@@ -810,6 +829,12 @@ public class CardService : ICardService
         _logger.LogInformation("Created card {CardId} for flow {FlowId} by user {UserId}", card.FID, request.FlowDefinitionId, userId);
 
         return (await GetByIdAsync(card.FID, userId))!;
+    }
+
+    private async Task<string> ResolveUserNameAsync(long userId)
+    {
+        var name = await _dbContext.Set<SysUser>().Where(u => u.FID == userId).Select(u => u.FName).FirstOrDefaultAsync();
+        return string.IsNullOrWhiteSpace(name) ? userId.ToString() : name;
     }
 
     public async Task<CardDetailDto> UpdateAsync(long id, UpdateCardRequest request, long userId)
