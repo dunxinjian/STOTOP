@@ -154,4 +154,31 @@ public class InitiatorScopeEnforcementTests
         var flow = Assert.Single(flows, f => f.Id == 3550);
         Assert.False(flow.OnBehalfEnabled);
     }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task legacy可发起角色JSON_新列为空时_发起范围生效()
+    {
+        using var db = TestDbContextFactory.Create(nameof(legacy可发起角色JSON_新列为空时_发起范围生效));
+        // 流程定义: 新列 F发起策略JSON=null, 旧列 FAllowedRolesJson=["10"]
+        db.Set<CfFlowDefinition>().Add(new CfFlowDefinition
+        {
+            FID = 3560,
+            FFlowName = "legacy限制",
+            FFlowCode = "legacy-restrict",
+            FOrgId = 1,
+            FStatus = "published",
+            FCreatorId = 1,
+            FCreatedTime = DateTime.Now,
+            FStartPolicyJson = null,
+            FAllowedRolesJson = "[\"10\"]"
+        });
+        db.Set<CfFlowVersion>().Add(new CfFlowVersion { FID = 3561, FFlowDefinitionId = 3560, FStatus = "published", FIsCurrentVersion = true });
+        // 用户 700 无角色 10（即不在 legacy 限制内）
+        await db.SaveChangesAsync();
+
+        var svc = BuildCardService(db);
+        // 应该被拒——legacy 角色限制生效
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            svc.CreateAsync(new CreateCardRequest { FlowDefinitionId = 3560, OrgId = 1, DataJson = "{}" }, userId: 700));
+    }
 }
