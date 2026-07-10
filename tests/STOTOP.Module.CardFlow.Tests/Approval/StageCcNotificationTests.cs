@@ -156,6 +156,60 @@ public class StageCcNotificationTests
         Assert.Equal(0, ccTodoCount);
     }
 
+    [Fact]
+    public async global::System.Threading.Tasks.Task Submit_OnEnterDingtalkChannel_DispatchesPushForCcTodo()
+    {
+        using var db = CreateNoTrackingDb(nameof(Submit_OnEnterDingtalkChannel_DispatchesPushForCcTodo));
+        await SeedFlowAsync(db, """{"users":[{"userId":52,"userName":"抄送人"}],"timing":"onEnter","channels":["system","dingtalk"]}""");
+
+        db.Set<CfCard>().Add(new CfCard
+        {
+            FID = 9605, FFlowDefinitionId = FlowDefId, FFlowVersionId = FlowVersionId,
+            FTitle = "cc用例-dingtalk", FStatus = "draft", FInitiatorId = InitiatorId, FInitiatorName = "发起人",
+            FCurrentRound = 0, FOrgId = 1, FDataJson = "{}"
+        });
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var fakeDispatcher = new FakeNotificationDispatcher();
+        var engine = CreateEngine(db, fakeDispatcher);
+        var result = await engine.SubmitAsync(9605, InitiatorId);
+        Assert.True(result.Success, result.Message);
+
+        db.ChangeTracker.Clear();
+        var ccTodo = await db.Set<CfTodoItem>().AsNoTracking()
+            .SingleOrDefaultAsync(t => t.FCardId == 9605 && t.FType == "cc" && t.FHandlerId == CcUserId);
+        Assert.NotNull(ccTodo);
+        Assert.Contains(ccTodo!.FID, fakeDispatcher.DispatchedTodoIds);
+    }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task Submit_OnEnterSystemChannelOnly_DoesNotDispatchPush()
+    {
+        using var db = CreateNoTrackingDb(nameof(Submit_OnEnterSystemChannelOnly_DoesNotDispatchPush));
+        await SeedFlowAsync(db, """{"users":[{"userId":52,"userName":"抄送人"}],"timing":"onEnter","channels":["system"]}""");
+
+        db.Set<CfCard>().Add(new CfCard
+        {
+            FID = 9606, FFlowDefinitionId = FlowDefId, FFlowVersionId = FlowVersionId,
+            FTitle = "cc用例-system-only", FStatus = "draft", FInitiatorId = InitiatorId, FInitiatorName = "发起人",
+            FCurrentRound = 0, FOrgId = 1, FDataJson = "{}"
+        });
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var fakeDispatcher = new FakeNotificationDispatcher();
+        var engine = CreateEngine(db, fakeDispatcher);
+        var result = await engine.SubmitAsync(9606, InitiatorId);
+        Assert.True(result.Success, result.Message);
+
+        db.ChangeTracker.Clear();
+        var ccTodo = await db.Set<CfTodoItem>().AsNoTracking()
+            .SingleOrDefaultAsync(t => t.FCardId == 9606 && t.FType == "cc" && t.FHandlerId == CcUserId);
+        Assert.NotNull(ccTodo);
+        Assert.Empty(fakeDispatcher.DispatchedTodoIds);
+    }
+
     /// <summary>复现生产全局跟踪行为的 InMemory 上下文（默认 TrackAll 会掩盖不落库 bug）。</summary>
     private static STOTOP.Infrastructure.Data.STOTOPDbContext CreateNoTrackingDb(string name)
     {
@@ -189,7 +243,7 @@ public class StageCcNotificationTests
         await db.SaveChangesAsync();
     }
 
-    private static FlowEngineService CreateEngine(STOTOP.Infrastructure.Data.STOTOPDbContext db)
+    private static FlowEngineService CreateEngine(STOTOP.Infrastructure.Data.STOTOPDbContext db, FakeNotificationDispatcher? notificationDispatcher = null)
     {
         var services = new ServiceCollection();
         var provider = services.BuildServiceProvider();
@@ -209,7 +263,7 @@ public class StageCcNotificationTests
             new ApproverResolver(db),
             new FakeBudgetOccupationService(),
             new DbTodoService(db),
-            new FakeNotificationDispatcher(),
+            notificationDispatcher ?? new FakeNotificationDispatcher(),
             new AutoPluginFactory(provider),
             provider,
             provider.GetRequiredService<IServiceScopeFactory>(),

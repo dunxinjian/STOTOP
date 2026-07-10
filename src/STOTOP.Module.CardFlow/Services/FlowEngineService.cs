@@ -2763,6 +2763,8 @@ public class FlowEngineService : IFlowEngineService
         }
 
         // 人工节点入口抄送
+        // 注：自动决议（TryApplyAutoDecisionAsync）命中时已在上方 return，不会执行到此处——
+        // 自动决议节点不产生处理人/待办，故任何 timing 均不触发抄送，属预期行为。
         if (string.Equals(stageDef.FType, "human", StringComparison.OrdinalIgnoreCase))
             await FireStageCcAsync(card, stageInstance.FID, stageDef.FID, "onEnter");
     }

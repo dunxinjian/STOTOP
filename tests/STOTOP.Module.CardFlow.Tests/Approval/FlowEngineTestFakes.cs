@@ -59,7 +59,14 @@ internal sealed class DbTodoService : ITodoService
 
 internal sealed class FakeNotificationDispatcher : INotificationDispatcher
 {
-    public global::System.Threading.Tasks.Task DispatchCreateTodoAsync(long todoItemId) => global::System.Threading.Tasks.Task.CompletedTask;
+    public List<long> DispatchedTodoIds { get; } = new();
+
+    public global::System.Threading.Tasks.Task DispatchCreateTodoAsync(long todoItemId)
+    {
+        DispatchedTodoIds.Add(todoItemId);
+        return global::System.Threading.Tasks.Task.CompletedTask;
+    }
+
     public global::System.Threading.Tasks.Task DispatchCompleteTodoAsync(long todoItemId) => global::System.Threading.Tasks.Task.CompletedTask;
     public global::System.Threading.Tasks.Task DispatchDeleteTodoAsync(long todoItemId) => global::System.Threading.Tasks.Task.CompletedTask;
     public global::System.Threading.Tasks.Task RetryPushAsync(long todoItemId) => global::System.Threading.Tasks.Task.CompletedTask;
