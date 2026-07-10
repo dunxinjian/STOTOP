@@ -57,6 +57,12 @@ public class FlowDefinitionRollbackDraftTests
         var source = await db.Set<CfFlowVersion>().AsNoTracking().FirstAsync(v => v.FID == 201);
         Assert.Equal("published", source.FStatus);
         Assert.True(source.FIsCurrentVersion);
+
+        // ratio 模式的 FApprovalThreshold 须随克隆节点一并拷贝（M8-C 件④ review）
+        var clonedManagerStage = await db.Set<CfStageDefinition>().AsNoTracking()
+            .FirstAsync(s => s.FFlowVersionId == draft.Id && s.FStageKey == "manager");
+        Assert.Equal("ratio", clonedManagerStage.FApprovalMode);
+        Assert.Equal(60, clonedManagerStage.FApprovalThreshold);
     }
 
     [Fact]
@@ -92,7 +98,8 @@ public class FlowDefinitionRollbackDraftTests
         db.Set<CfStageDefinition>().Add(new CfStageDefinition
         {
             FID = 301, FFlowVersionId = 201, FStageKey = "manager",
-            FStageName = "主管审批", FSortOrder = 1, FType = "human"
+            FStageName = "主管审批", FSortOrder = 1, FType = "human",
+            FApprovalMode = "ratio", FApprovalThreshold = 60
         });
         db.Set<CfStageDefinition>().Add(new CfStageDefinition
         {
