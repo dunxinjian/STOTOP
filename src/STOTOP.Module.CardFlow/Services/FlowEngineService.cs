@@ -1048,7 +1048,7 @@ public class FlowEngineService : IFlowEngineService
                 // 标记后实体转入跟踪态，下方 FCurrentStageInstanceId 赋值由变更检测自动落库
                 _dbContext.Entry(card).State = EntityState.Modified;
 
-                // 获取第一个阶段定义（重新提交从第一个节点开始）
+                // 获取节点定义
                 var stages = await _dbContext.Set<CfStageDefinition>()
                     .Where(s => s.FFlowVersionId == card.FFlowVersionId)
                     .OrderBy(s => s.FSortOrder)
@@ -1056,7 +1056,23 @@ public class FlowEngineService : IFlowEngineService
 
                 if (stages.Count == 0) return CardOperationResult.Fail("流程无节点定义");
 
-                var firstStage = stages[0];
+                // 重提策略：fromRejected=从最近被驳回节点续跑；缺省 fromStart=从头
+                var version = await _dbContext.Set<CfFlowVersion>().AsNoTracking()
+                    .FirstOrDefaultAsync(v => v.FID == card.FFlowVersionId);
+                var resubmitStrategy = GetResubmitStrategy(version?.FFlowSettingsJson);
+                CfStageDefinition restartStage = stages[0];
+                if (string.Equals(resubmitStrategy, "fromRejected", StringComparison.OrdinalIgnoreCase))
+                {
+                    var lastRejected = await _dbContext.Set<CfStageInstance>().AsNoTracking()
+                        .Where(s => s.FCardId == card.FID && s.FFinalAction == "rejected")
+                        .OrderByDescending(s => s.FRound).ThenByDescending(s => s.FCompletedTime)
+                        .FirstOrDefaultAsync();
+                    var matched = lastRejected == null ? null
+                        : stages.FirstOrDefault(s => s.FID == lastRejected.FStageDefinitionId);
+                    if (matched != null) restartStage = matched; // 找不到→防御回退 stages[0]
+                }
+
+                var firstStage = restartStage;
                 var stageInstance = new CfStageInstance
                 {
                     FCardId = card.FID,
@@ -1102,6 +1118,24 @@ public class FlowEngineService : IFlowEngineService
                 return CardOperationResult.Fail($"重新提交失败: {ex.Message}");
             }
         });
+    }
+
+    /// <summary>读版本流程设置里的重提策略（缺省 fromStart）；非法 JSON 静默降级。</summary>
+    private static string GetResubmitStrategy(string? flowSettingsJson)
+    {
+        if (string.IsNullOrWhiteSpace(flowSettingsJson)) return "fromStart";
+        try
+        {
+            using var doc = JsonDocument.Parse(flowSettingsJson);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("resubmitStrategy", out var v)
+                && v.ValueKind == JsonValueKind.String)
+            {
+                return v.GetString() ?? "fromStart";
+            }
+        }
+        catch (JsonException) { /* 静默降级 */ }
+        return "fromStart";
     }
 
     public async Task<CardOperationResult> VoidAsync(long cardId, long operatorId, string? opinion = null)
