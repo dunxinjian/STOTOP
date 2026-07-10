@@ -62,7 +62,7 @@ import {
   getFlowDraftVersion, saveFlowDraftVersion,
   getFlowGroups, getFlowDefinitions, previewFlowDraftPath, previewPresentation,
 } from '@/api/cardflow'
-import { getRoleList, getUserList, getUserDetail } from '@/api/system'
+import { getRoleList, getUserList, getUserDetail, getPositionList } from '@/api/system'
 import type {
   FlowDefinitionDto, FlowVersionDetailDto, StageDefinitionRequest,
   SchemaFieldDefinition, FlowGroupDto, StageRouteRuleRequest,
@@ -71,6 +71,12 @@ import type {
 } from '@/types/cardflow'
 import { useOrgContextStore } from '@/stores/orgContext'
 import { useUserStore } from '@/stores/user'
+import { useUserSearch } from '@/composables/useUserSearch'
+import { useOrgSearch } from '@/composables/useOrgSearch'
+import {
+  emptyScope, emptyStartPolicy, isScopeEmpty, parseStartPolicy, serializeStartPolicy,
+  type ScopeDims, type OnBehalfConfig,
+} from '@/components/cardflow/startPolicyShared'
 import { useUndoRedo, useAutoCommit } from '@/composables/useUndoRedo'
 import { useAutoSave } from '@/composables/useAutoSave'
 import { useDefinitionEditLock } from '@/composables/useDefinitionEditLock'
@@ -94,7 +100,10 @@ interface BasicInfo {
   numberTemplate: string
   titleTemplate: string
   flowGroupId: number | undefined
-  allowedRoles: string[]
+  /** 发起范围四维（角色/组织/岗位/人员），迁入发起抽屉后单一真源；序列化进 startPolicyJson */
+  initiatorScope: ScopeDims
+  /** 代提交配置占位（UI 见 Task 11）；此处先落状态字段供序列化 */
+  onBehalf: OnBehalfConfig
   status: string
   /** 导入文件名匹配通配符（如 *韵达*），保存时包装为 matchPattern JSON 的 fileNamePattern */
   matchFileNamePattern: string
@@ -130,7 +139,8 @@ const initialState = (): FlowState => ({
   basic: {
     flowName: '', flowCode: '', description: '',
     numberTemplate: '', titleTemplate: '',
-    flowGroupId: undefined, allowedRoles: [],
+    flowGroupId: undefined,
+    ...emptyStartPolicy(),
     status: 'draft',
     matchFileNamePattern: '',
   },
@@ -179,7 +189,7 @@ const selectedPreviewStageId = ref<string | undefined>()
 // B4 预览工作台：视角（处理人/旁观者/发起人填单）× 设备（PC / 移动）
 const previewViewerMode = ref<'assignee' | 'observer' | 'initiator'>('assignee')
 const previewDevice = ref<'pc' | 'mobile'>('pc')
-const designerSelection = reactive<{ type: 'blank' | 'node' | 'edge'; key: string | null }>({
+const designerSelection = reactive<{ type: 'blank' | 'node' | 'edge' | 'start'; key: string | null }>({
   type: 'blank',
   key: null,
 })
@@ -373,6 +383,7 @@ const selectedDesignerRoute = computed(() =>
 const designerDrawerTitle = computed(() => {
   if (designerSelection.type === 'node') return '节点配置'
   if (designerSelection.type === 'edge') return '条件流转'
+  if (designerSelection.type === 'start') return '发起人节点'
   return '预演与校验'
 })
 
@@ -421,6 +432,12 @@ function selectDesignerEdge(edgeKey: string) {
 
 function selectDesignerBlank() {
   designerSelection.type = 'blank'
+  designerSelection.key = null
+  designerDrawerOpen.value = true
+}
+
+function selectDesignerStart() {
+  designerSelection.type = 'start'
   designerSelection.key = null
   designerDrawerOpen.value = true
 }
@@ -1067,6 +1084,49 @@ const flowGroups = ref<FlowGroupDto[]>([])
 const roleOptions = ref<{ value: string; label: string }[]>([])
 const availableFlows = ref<{ code: string; name: string }[]>([])
 
+// ---- 发起抽屉（M8-A 件②）：角色/组织/岗位/人员四维选择器数据源 ----
+/** 角色维复用 roleOptions，数值化供 initiatorScope.roles（number[]）绑定 */
+const roleOptionsNumeric = computed(() =>
+  roleOptions.value
+    .map(o => ({ value: Number(o.value), label: o.label }))
+    .filter(o => Number.isFinite(o.value) && o.value > 0)
+)
+const positionOptions = ref<{ value: number; label: string }[]>([])
+async function loadPositionOptions() {
+  try {
+    const res: any = await getPositionList({ pageIndex: 1, pageSize: 200 })
+    const items = res?.items || res?.data?.items || (Array.isArray(res) ? res : [])
+    positionOptions.value = items
+      .map((p: any) => ({ value: Number(p.id), label: p.name || p.positionName || String(p.id) }))
+      .filter((o: any) => Number.isFinite(o.value) && o.value > 0)
+  } catch { /* 岗位加载失败不阻断流程定义编辑 */ }
+}
+// 组织维：远端搜索（复用 useOrgSearch，与卡片组织字段同源）；limit 拉大到覆盖全树，
+// 使编辑已有流程时回显的已选组织无需额外按 id 补拉即可正确显示名称
+const {
+  orgOptions: orgScopeOptions, loading: orgScopeLoading,
+  load: loadOrgScope, search: onOrgScopeSearch,
+} = useOrgSearch({ limit: 500 })
+// 人员维：远端搜索（复用 useUserSearch，与审批管理员选择同源）
+const {
+  userOptions: userScopeOptions, loading: userScopeLoading,
+  load: loadUserScope, search: onUserScopeSearch, pin: pinUserScope,
+} = useUserSearch({ pageSize: 50 })
+/** 四维全空 → 抽屉内提示未限制 */
+const startScopeEmpty = computed(() => isScopeEmpty(state.basic.initiatorScope))
+/** 编辑已有流程时，回显已选发起人（组织维靠 orgScope limit 覆盖全树；人员维按需补拉详情固定回显） */
+async function loadSelectedInitiatorUsers() {
+  const missingIds = state.basic.initiatorScope.users.filter(id =>
+    !userScopeOptions.value.some(option => option.value === id)
+  )
+  if (!missingIds.length) return
+  const users = await Promise.all(missingIds.map(id => getUserDetail(id).catch(() => null)))
+  users.filter(Boolean).forEach((u: any) => {
+    const name = getUserDisplayName(u)
+    pinUserScope({ label: formatUserOptionLabel(u), value: Number(u.id), name, orgName: getUserOrgName(u), raw: u })
+  })
+}
+
 /** 发布设置：新建节点默认超时（小时）。前端预填值，非全局引擎开关（引擎无全局默认字段）。 */
 const settingsDefaultTimeout = ref(0)
 
@@ -1163,6 +1223,9 @@ async function loadMeta() {
       label: x.name || x.roleName || String(x.code),
     }))
     await loadApprovalAdminUsers('')
+    await loadPositionOptions()
+    void loadOrgScope('')
+    void loadUserScope('')
     const fl: any = await getFlowDefinitions({ page: 1, pageSize: 200, status: 'published' }).catch(() => null)
     availableFlows.value = (fl?.items || []).map((d: any) => ({ code: d.flowCode, name: d.flowName }))
   } catch { /* ignore */ }
@@ -1220,9 +1283,10 @@ async function loadData() {
     state.basic.flowGroupId = d.flowGroupId ?? undefined
     state.basic.status = d.status
     publishedVersionNumber.value = d.currentVersion ?? null
-    try {
-      state.basic.allowedRoles = d.allowedRolesJson ? JSON.parse(d.allowedRolesJson) : []
-    } catch { state.basic.allowedRoles = [] }
+    const sp = parseStartPolicy(d.startPolicyJson, d.allowedRolesJson)
+    state.basic.initiatorScope = sp.initiatorScope
+    state.basic.onBehalf = sp.onBehalf
+    await loadSelectedInitiatorUsers()
     try {
       const mp = d.matchPattern ? JSON.parse(d.matchPattern) : null
       state.basic.matchFileNamePattern = typeof mp?.fileNamePattern === 'string' ? mp.fileNamePattern : ''
@@ -1474,7 +1538,10 @@ async function ensureDefinitionId(): Promise<number | null> {
     numberTemplate: state.basic.numberTemplate || undefined,
     titleTemplate: state.basic.titleTemplate || undefined,
     flowGroupId: state.basic.flowGroupId || undefined,
-    allowedRolesJson: state.basic.allowedRoles.length ? JSON.stringify(state.basic.allowedRoles) : undefined,
+    allowedRolesJson: state.basic.initiatorScope.roles.length
+      ? JSON.stringify(state.basic.initiatorScope.roles.map(String))
+      : undefined,
+    startPolicyJson: serializeStartPolicy({ initiatorScope: state.basic.initiatorScope, onBehalf: state.basic.onBehalf }),
     matchPattern: state.basic.matchFileNamePattern.trim()
       ? JSON.stringify({ fileNamePattern: state.basic.matchFileNamePattern.trim() })
       : undefined,
@@ -1504,7 +1571,12 @@ async function doSilentSave(): Promise<number | undefined> {
       numberTemplate: state.basic.numberTemplate || undefined,
       titleTemplate: state.basic.titleTemplate || undefined,
       flowGroupId: state.basic.flowGroupId || undefined,
-      allowedRolesJson: JSON.stringify(state.basic.allowedRoles),
+      allowedRolesJson: state.basic.initiatorScope.roles.length
+        ? JSON.stringify(state.basic.initiatorScope.roles.map(String))
+        : '',
+      // 更新须始终传具体字符串（不传 undefined）：后端 UpdateAsync 走 "!= null 才覆盖" 的部分更新语义，
+      // 若发起范围被清空为不限制而字段缺省，旧的限制性 JSON 会残留在库里继续生效（仿现有 allowedRolesJson 清空写法）
+      startPolicyJson: serializeStartPolicy({ initiatorScope: state.basic.initiatorScope, onBehalf: state.basic.onBehalf }) ?? '',
       matchPattern: state.basic.matchFileNamePattern.trim()
         ? JSON.stringify({ fileNamePattern: state.basic.matchFileNamePattern.trim() })
         : '',
@@ -1971,14 +2043,6 @@ function goBack() {
                 v-model:value="state.basic.flowGroupId"
                 allow-clear placeholder="选择流程组"
                 :options="flowGroups.map(g => ({ value: g.id, label: g.groupName }))"
-              />
-            </div>
-            <div class="fdef-fc-item">
-              <div class="fdef-fc-item__label">可发起角色</div>
-              <a-select
-                v-model:value="state.basic.allowedRoles"
-                mode="multiple" placeholder="选择允许发起此流程的角色"
-                :options="roleOptions"
               />
             </div>
             <div class="fdef-fc-item">
@@ -2528,6 +2592,7 @@ function goBack() {
               @select-node="selectDesignerNode"
               @select-edge="selectDesignerEdge"
               @update-structure="applyGraphStructure"
+              @select-start="selectDesignerStart"
             />
             <RuleHealthPanel
               :stages="state.stages"
@@ -3002,6 +3067,62 @@ function goBack() {
         @delete="deleteRoute"
         @navigate-field="focusSchemaField"
       />
+
+      <!-- 发起人节点：发起范围四维（角色/组织/岗位/人员）配置（M8-A 件②） -->
+      <section
+        v-else-if="designerSelection.type === 'start'"
+        class="fdef-drawer-section"
+      >
+        <header class="page-section__title fdef-drawer-section__head">
+          <strong>发起人节点</strong>
+          <span>发起范围圈定谁可发起本流程；四维留空=不限制</span>
+        </header>
+
+        <div class="sde-fld">
+          <label class="sde-fld__label">可发起角色</label>
+          <a-select
+            v-model:value="state.basic.initiatorScope.roles"
+            mode="multiple" placeholder="留空=不限制"
+            option-filter-prop="label"
+            :options="roleOptionsNumeric"
+          />
+        </div>
+
+        <div class="sde-fld">
+          <label class="sde-fld__label">可发起组织</label>
+          <a-select
+            v-model:value="state.basic.initiatorScope.orgs"
+            mode="multiple" placeholder="留空=不限制"
+            :options="orgScopeOptions" :loading="orgScopeLoading"
+            show-search option-filter-prop="label" :filter-option="false"
+            @search="onOrgScopeSearch"
+          />
+        </div>
+
+        <div class="sde-fld">
+          <label class="sde-fld__label">可发起岗位</label>
+          <a-select
+            v-model:value="state.basic.initiatorScope.positions"
+            mode="multiple" placeholder="留空=不限制"
+            option-filter-prop="label"
+            :options="positionOptions"
+          />
+        </div>
+
+        <div class="sde-fld">
+          <label class="sde-fld__label">指定发起人</label>
+          <a-select
+            v-model:value="state.basic.initiatorScope.users"
+            mode="multiple" placeholder="留空=不限制"
+            :options="userScopeOptions" :loading="userScopeLoading"
+            show-search option-filter-prop="label" :filter-option="false"
+            @search="onUserScopeSearch"
+          />
+        </div>
+
+        <p v-if="startScopeEmpty" class="sde-fld__hint">未限制：本流程组织内任何有菜单权限者可发起。</p>
+        <!-- 代提交（onBehalf）配置段在 Task 11 追加 -->
+      </section>
 
       <section v-else class="fdef-drawer-section">
         <PathPreviewPanel
@@ -4144,6 +4265,27 @@ function goBack() {
   span {
     margin-top: 4px;
     font-size: 12px;
+  }
+}
+
+/* 发起抽屉字段行（镜像 StageConfigPanel.vue .sde-fld——scoped 样式不跨组件，故在此复制一份保持视觉一致，M8-A 件②） */
+.sde-fld {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  &__label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-2);
+    letter-spacing: 0.3px;
+  }
+
+  &__hint {
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-3);
+    font-style: italic;
   }
 }
 

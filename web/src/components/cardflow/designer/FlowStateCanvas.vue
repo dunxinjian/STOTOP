@@ -24,7 +24,7 @@ const props = defineProps<{
   stages: StageDefinition[]
   routes: StageRouteRuleRequest[]
   dynamicPolicies: DynamicStagePolicyRequest[]
-  selectedType?: 'node' | 'edge' | 'blank'
+  selectedType?: 'node' | 'edge' | 'blank' | 'start'
   selectedKey?: string | null
 }>()
 

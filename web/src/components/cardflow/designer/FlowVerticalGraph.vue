@@ -33,7 +33,7 @@ const props = defineProps<{
   stages: StageDefinition[]
   routes: StageRouteRuleRequest[]
   diagnostics?: HealthItem[]
-  selectedType?: 'blank' | 'node' | 'edge'
+  selectedType?: 'blank' | 'node' | 'edge' | 'start'
   selectedKey?: string | null
   conditionFields?: FieldOption[]
   /** 干跑命中路径的 stageKey 集合（M5-4 路径点亮） */
@@ -47,6 +47,8 @@ const emit = defineEmits<{
   'select-edge': [edgeKey: string]
   /** 结构变更：新 stages/routes 整体上抛（编辑页直接替换 state） */
   'update-structure': [payload: { stages: StageDefinition[]; routes: StageRouteRuleRequest[]; label?: string }]
+  /** 点击起点节点：唤起发起抽屉（M8-A 件②——发起范围配置） */
+  'select-start': []
 }>()
 
 const projection = computed(() => buildFlowTree(props.stages, props.routes))
@@ -261,16 +263,21 @@ function askDeleteStage(stageId: string) {
     @click.self="openMenuAnchor = null"
     @keydown="onGraphKeydown"
   >
-    <!-- 起点（隐含节点，不在 stages 中；发起范围/代提交/重提走向属二期，诚实呈现不出假配置） -->
+    <!-- 起点（隐含节点，不在 stages 中）；点击唤起发起抽屉配置发起范围（M8-A 件②）。代提交/重提走向仍属后续规划 -->
     <a-popover placement="right" trigger="click">
       <template #content>
         <div class="cfd-graph__startpop">
           <p><b>发起人节点</b></p>
-          <p>谁可以发起：由流程所属组织与菜单权限决定（当前版本）。</p>
-          <p class="cfd-graph__startpop-muted">发起范围圈定 / 代他人提交 / 被退回后重提走向 属二期规划，暂不可配置。</p>
+          <p>谁可以发起：按发起范围（角色/组织/岗位/人员）圈定；四维留空=不限制。</p>
+          <p class="cfd-graph__startpop-muted">代他人提交 / 被退回后重提走向 属后续规划，暂不可配置。</p>
         </div>
       </template>
-      <div class="cfd-node cfd-node--start cfd-graph__terminal" role="button" tabindex="0" aria-label="发起人节点，点击查看说明">
+      <div
+        class="cfd-node cfd-node--start cfd-graph__terminal"
+        role="button" tabindex="0" aria-label="发起人节点，点击配置发起范围"
+        @click.stop="$emit('select-start')"
+        @keydown.enter.prevent="$emit('select-start')"
+      >
         <div class="cfd-node__head">
           <span class="cfd-node__icon">起</span>
           <span class="cfd-node__title">发起人</span>
