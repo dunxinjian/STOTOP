@@ -3029,24 +3029,35 @@ public class FlowEngineService : IFlowEngineService
     private static string Truncate(string? s, int max)
         => string.IsNullOrEmpty(s) ? string.Empty : (s!.Length > max ? s[..max] : s);
 
-    /// <summary>按人工节点的 FCcConfigJson 配置在指定 timing 触发抄送通知（创建 cc-todo + 按渠道推送）。</summary>
+    /// <summary>按人工节点的 FCcConfigJson 配置在指定 timing 触发抄送通知（创建 cc-todo + 按渠道推送）。
+    /// 抄送不参与审批流转：任何异常在此吞掉，绝不回滚核心提交/审批/驳回事务。</summary>
     private async Task FireStageCcAsync(CfCard card, long stageInstanceId, long stageDefinitionId, string currentTiming)
     {
-        var stageDef = await _dbContext.Set<CfStageDefinition>().AsNoTracking()
-            .FirstOrDefaultAsync(s => s.FID == stageDefinitionId);
-        var ccConfig = STOTOP.Module.CardFlow.Models.CcNotifyConfig.Parse(stageDef?.FCcConfigJson);
-        if (ccConfig == null || !ccConfig.ShouldFire(currentTiming)) return;
-
-        foreach (var user in ccConfig.Users)
+        try
         {
-            var todoId = await _todoService.CreateTodoAsync(
-                card.FID, stageInstanceId, user.UserId, user.UserName,
-                card.FTitle ?? "抄送通知", "cc");
+            var stageDef = await _dbContext.Set<CfStageDefinition>().AsNoTracking()
+                .FirstOrDefaultAsync(s => s.FID == stageDefinitionId);
+            var ccConfig = STOTOP.Module.CardFlow.Models.CcNotifyConfig.Parse(stageDef?.FCcConfigJson);
+            if (ccConfig == null || !ccConfig.ShouldFire(currentTiming)) return;
 
-            if (ccConfig.HasChannel("dingtalk") && todoId > 0)
+            var wantsDingtalk = ccConfig.HasChannel("dingtalk");
+
+            foreach (var user in ccConfig.Users)
             {
-                await _notificationDispatcher.DispatchCreateTodoAsync(todoId);
+                var todoId = await _todoService.CreateTodoAsync(
+                    card.FID, stageInstanceId, user.UserId, user.UserName,
+                    card.FTitle ?? "抄送通知", "cc", wantsDingtalk ? "dingtalk" : null);
+
+                if (wantsDingtalk && todoId > 0)
+                {
+                    await _notificationDispatcher.DispatchCreateTodoAsync(todoId);
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "抄送触发失败(不影响核心流转): 卡片={CardId}, 节点实例={StageInstanceId}, 时机={Timing}",
+                card.FID, stageInstanceId, currentTiming);
         }
     }
 

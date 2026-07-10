@@ -46,6 +46,7 @@ internal sealed class DbTodoService : ITodoService
             FTitle = title,
             FType = type,
             FStatus = "pending",
+            FPushChannel = pushChannel,
             FOrgId = 1
         };
         _db.Set<CfTodoItem>().Add(todo);

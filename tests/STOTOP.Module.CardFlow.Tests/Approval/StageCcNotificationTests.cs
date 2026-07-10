@@ -181,6 +181,7 @@ public class StageCcNotificationTests
             .SingleOrDefaultAsync(t => t.FCardId == 9605 && t.FType == "cc" && t.FHandlerId == CcUserId);
         Assert.NotNull(ccTodo);
         Assert.Contains(ccTodo!.FID, fakeDispatcher.DispatchedTodoIds);
+        Assert.Equal("dingtalk", ccTodo.FPushChannel);
     }
 
     [Fact]
@@ -208,6 +209,7 @@ public class StageCcNotificationTests
             .SingleOrDefaultAsync(t => t.FCardId == 9606 && t.FType == "cc" && t.FHandlerId == CcUserId);
         Assert.NotNull(ccTodo);
         Assert.Empty(fakeDispatcher.DispatchedTodoIds);
+        Assert.Null(ccTodo.FPushChannel);
     }
 
     /// <summary>复现生产全局跟踪行为的 InMemory 上下文（默认 TrackAll 会掩盖不落库 bug）。</summary>
