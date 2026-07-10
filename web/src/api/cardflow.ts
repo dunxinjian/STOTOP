@@ -25,6 +25,7 @@ import type {
   CountersignRequest,
   TransferRequest,
   CcRequest,
+  CustomActionRequest,
   CreateRelationRequest,
   CardRelationDto,
   CardBalanceDto,
@@ -362,6 +363,11 @@ export function ccCard(id: number, data: CcRequest) {
 /** 催办 */
 export function urgeCard(id: number, message?: string) {
   return post<CardOperationResult>(`/cardflow/cards/${id}/urge`, { message })
+}
+
+/** 执行自定义动作（M8-C：designer 配置的 autoApprove/autoReject/notify 处理器） */
+export function executeCustomAction(id: number, data: CustomActionRequest) {
+  return post<CardOperationResult>(`/cardflow/cards/${id}/custom-action`, data)
 }
 
 // ===== 待办 API =====

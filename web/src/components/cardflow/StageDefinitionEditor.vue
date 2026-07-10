@@ -49,6 +49,17 @@ export interface StageActionPolicyDraft {
   allowedActions: string[]
   /** 需填写处理意见的动作（approve/reject/returnToStage/transfer），空=不强制 */
   opinionRequiredActions?: string[]
+  /** 设计器自定义动作按钮（M8-C）：审批面板动态渲染，引擎按 Handler 分派执行 */
+  customActions?: CustomActionDraft[]
+}
+
+/** 自定义动作定义（M8-C）：Handler 初期仅支持 autoApprove/autoReject/notify；webhook 暂不支持（SSRF 面，设计器置灰） */
+export interface CustomActionDraft {
+  code: string
+  label: string
+  handler: 'autoApprove' | 'autoReject' | 'notify' | string
+  handlerConfigJson?: string
+  requireOpinion?: boolean
 }
 
 /** 自动裁决：条件命中时自动通过/自动拒绝（无 UI，保存链透传信封 autoDecision） */

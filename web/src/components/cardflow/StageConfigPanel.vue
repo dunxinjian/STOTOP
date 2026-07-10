@@ -102,6 +102,14 @@ const OPINION_REQUIRED_OPTIONS = [
   { value: 'transfer', label: '转办' },
 ]
 
+// 自定义动作处理器（M8-C）：webhook 系外部 URL 调用（SSRF 面），设计器置灰暂不支持
+const CUSTOM_ACTION_HANDLER_OPTIONS = [
+  { value: 'autoApprove', label: '自动通过当前节点', disabled: false },
+  { value: 'autoReject', label: '自动驳回', disabled: false },
+  { value: 'notify', label: '触发通知/抄送', disabled: false },
+  { value: 'webhook', label: 'Webhook（外部调用，暂不支持）', disabled: true },
+] as const
+
 /** 意见必填动作双向代理（actionPolicy 可能无此键，就地建） */
 const opinionRequiredActions = computed<string[]>({
   get: () => selectedStage.value?.actionPolicy?.opinionRequiredActions ?? [],
@@ -137,6 +145,20 @@ function toggleOpinionRequired(action: string, required: boolean) {
   } else if (!required) {
     stage.actionPolicy.opinionRequiredActions = arr.filter(a => a !== action)
   }
+}
+
+/** 自定义动作按钮（M8-C）：新增行默认 autoApprove，编号/文案留空待填 */
+function addCustomAction() {
+  const stage = selectedManualStage()
+  if (!stage?.actionPolicy) return
+  stage.actionPolicy.customActions ||= []
+  stage.actionPolicy.customActions.push({ code: '', label: '', handler: 'autoApprove', requireOpinion: false })
+}
+
+function removeCustomAction(index: number) {
+  const stage = selectedManualStage()
+  if (!stage?.actionPolicy?.customActions) return
+  stage.actionPolicy.customActions.splice(index, 1)
 }
 
 /** viewProfile access（含 required 复合态）→ 权限胶囊四态（required 显示为可编辑，另有必填勾） */
@@ -1154,6 +1176,37 @@ const tabIssueCounts = computed(() => {
               <p v-if="selectedStage.actionPolicy!.allowedActions?.includes('returnToStage')" class="sde-fld__hint">
                 「退回节点」的目标由审批人在运行时现场选择（本轮已完成的人工节点），无需在设计器指定。
               </p>
+
+              <div class="sde-fld">
+                <label class="sde-fld__label">自定义动作</label>
+                <p class="sde-fld__hint">
+                  审批面板动态渲染的额外按钮，引擎按处理器分派执行（自动通过当前节点 / 自动驳回 / 触发通知抄送）。
+                </p>
+                <div class="cfd-list">
+                  <div
+                    v-for="(item, idx) in (selectedStage.actionPolicy!.customActions || [])"
+                    :key="idx"
+                    class="cfd-list__row"
+                    style="gap: 8px"
+                  >
+                    <a-input v-model:value="item.code" placeholder="编码，如 quickApprove" style="width: 130px; flex: none" />
+                    <a-input v-model:value="item.label" placeholder="按钮文案" style="width: 110px; flex: none" />
+                    <a-select
+                      v-model:value="item.handler"
+                      :options="CUSTOM_ACTION_HANDLER_OPTIONS.map(o => ({ value: o.value, label: o.label, disabled: o.disabled }))"
+                      style="width: 190px; flex: none"
+                    />
+                    <span class="sde-action__col">
+                      <a-switch size="small" v-model:checked="item.requireOpinion" />
+                    </span>
+                    <a-button type="text" danger size="small" @click="removeCustomAction(idx)">删除</a-button>
+                  </div>
+                  <div v-if="!selectedStage.actionPolicy!.customActions?.length" class="cfd-list__row">
+                    <span class="cfd-list__label sde-action__na">尚未配置自定义动作</span>
+                  </div>
+                </div>
+                <a-button type="dashed" size="small" style="margin-top: 8px" @click="addCustomAction">+ 新增自定义动作</a-button>
+              </div>
             </template>
 
             <template v-else>

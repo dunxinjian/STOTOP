@@ -25,6 +25,8 @@ public sealed class StageViewResolutionResult
     public Dictionary<string, StageDetailAccessRule> DetailAccess { get; set; } = new();
     public StageSummaryProfile? Summary { get; set; }
     public List<string> AllowedActions { get; set; } = new();
+    /// <summary>设计器自定义动作按钮（M8-C），透传给前端动态渲染。</summary>
+    public List<CustomActionDefinition> CustomActions { get; set; } = new();
     public CardPresentationRuntimeView Presentation { get; set; } = new();
     public string RedactedDataJson { get; set; } = "{}";
     public List<RedactedDetailRow> RedactedDetails { get; set; } = new();

@@ -210,6 +210,27 @@ public class CardController : ControllerBase
         }
     }
 
+    /// <summary>执行节点自定义动作（M8-C）：designer 配置的 autoApprove/autoReject/notify 处理器。</summary>
+    [HttpPost("{id}/custom-action")]
+    public async Task<ApiResult<CardOperationResult>> ExecuteCustomAction(long id, [FromBody] CustomActionRequest request)
+    {
+        try
+        {
+            var result = await _engine.ExecuteCustomActionAsync(id, GetUserId(), request.ActionCode, request.Opinion);
+            if (!result.Success)
+                return ApiResult<CardOperationResult>.Fail(result.Message ?? "操作失败");
+            return ApiResult<CardOperationResult>.Success(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ApiResult<CardOperationResult>.Fail(ex.Message);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return ApiResult<CardOperationResult>.Fail("数据已被其他用户修改，请刷新后重试", 409);
+        }
+    }
+
     [HttpPost("{id}/withdraw")]
     public async Task<ApiResult<CardOperationResult>> Withdraw(long id)
     {

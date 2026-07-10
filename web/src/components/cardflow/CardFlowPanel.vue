@@ -17,6 +17,7 @@ import 'vant/es/dialog/style'
 import type {
   CardDetailDto,
   CardHeaderConfig,
+  CustomActionDefinition,
   RejectRequest,
   SchemaFieldDefinition,
 } from '@/types/cardflow'
@@ -35,6 +36,7 @@ import {
   transferCard,
   countersignCard,
   ccCard,
+  executeCustomAction,
 } from '@/api/cardflow'
 import { getUserList } from '@/api/system'
 import request from '@/api/request'
@@ -78,6 +80,7 @@ const emit = defineEmits<{
   (e: 'transferred'): void
   (e: 'countersigned'): void
   (e: 'cc-sent'): void
+  (e: 'custom-action'): void
   (e: 'resubmitted'): void
   (e: 'voided'): void
   (e: 'deleted'): void
@@ -93,11 +96,14 @@ const submitting = ref(false)
 const budgetPreview = ref<any | null>(null)
 const budgetPreviewLoading = ref(false)
 
-// 审批模式底栏：'default' | 'approve' | 'reject'
-const actionMode = ref<'default' | 'approve' | 'reject'>('default')
+// 审批模式底栏：'default' | 'approve' | 'reject' | 'custom'
+const actionMode = ref<'default' | 'approve' | 'reject' | 'custom'>('default')
 const opinion = ref('')
 const showActionSheet = ref(false)
 const conflictError = ref(false)
+
+// 当前待执行的自定义动作（M8-C，actionMode==='custom' 时生效）
+const customActionTarget = ref<CustomActionDefinition | null>(null)
 
 // 退回模式：默认退回发起人（不传 targetStageId）；toSpecified 时后端要求节点定义 ID
 const rejectReturnMode = ref<'toInitiator' | 'toPrevious' | 'toSpecified'>('toInitiator')
@@ -325,6 +331,8 @@ const moreActions = [
   { name: '催办', subname: '催促当前审批人', value: 'urge' },
 ]
 const canStageAction = stageView.canStageAction
+/** 设计器自定义动作按钮（M8-C），审批面板动态渲染。 */
+const stageCustomActions = stageView.stageCustomActions
 
 const visibleMoreActions = computed(() =>
   moreActions.filter((item) => !item.action || canStageAction(item.action)),
@@ -703,6 +711,7 @@ function startReject() {
 function cancelAction() {
   actionMode.value = 'default'
   opinion.value = ''
+  customActionTarget.value = null
 }
 
 async function confirmApprove() {
@@ -765,6 +774,48 @@ async function confirmReject() {
     await rejectCard(cardDetail.value.id, payload)
     showToast({ message: '已退回', type: 'success' })
     emit('rejected')
+    close()
+  } catch (err: any) {
+    if (err?.response?.status === 409 || err?.status === 409) {
+      handleConflict()
+    } else {
+      showToast({ message: err?.message || '操作失败', type: 'fail' })
+    }
+  } finally {
+    submitting.value = false
+  }
+}
+
+// ==================== 自定义动作（M8-C：设计器配置的 autoApprove/autoReject/notify 处理器） ====================
+
+/** 点击自定义动作按钮：需要意见则展开意见输入区，否则直接执行。 */
+function startCustomAction(action: CustomActionDefinition) {
+  if (action.requireOpinion) {
+    customActionTarget.value = action
+    actionMode.value = 'custom'
+    opinion.value = ''
+    focusOpinionInput()
+    return
+  }
+  customActionTarget.value = action
+  confirmCustomAction(action)
+}
+
+async function confirmCustomAction(actionOverride?: CustomActionDefinition) {
+  const action = actionOverride ?? customActionTarget.value
+  if (!cardDetail.value || !action || submitting.value) return
+  if (action.requireOpinion && !opinion.value.trim()) {
+    showToast('请填写处理意见')
+    return
+  }
+  submitting.value = true
+  try {
+    await executeCustomAction(cardDetail.value.id, {
+      actionCode: action.code,
+      opinion: opinion.value.trim() || null,
+    })
+    showToast({ message: '操作成功', type: 'success' })
+    emit('custom-action')
     close()
   } catch (err: any) {
     if (err?.response?.status === 409 || err?.status === 409) {
@@ -1421,7 +1472,7 @@ void showDialog
               v-model="opinion"
               type="textarea"
               rows="3"
-              :placeholder="actionMode === 'reject' ? '请填写退回原因（必填）' : '选填审批意见'"
+              :placeholder="actionMode === 'reject' ? '请填写退回原因（必填）' : (actionMode === 'custom' ? '请填写处理意见（必填）' : '选填审批意见')"
               maxlength="500"
               show-word-limit
             />
@@ -1447,6 +1498,16 @@ void showDialog
               >
                 确认退回
               </VanButton>
+              <VanButton
+                v-if="actionMode === 'custom'"
+                size="small"
+                type="primary"
+                :loading="submitting"
+                :disabled="submitting || !opinion.trim()"
+                @click="confirmCustomAction()"
+              >
+                确认{{ customActionTarget?.label || '执行' }}
+              </VanButton>
             </div>
           </div>
 
@@ -1454,6 +1515,15 @@ void showDialog
           <div v-if="actionMode === 'default'" class="cf-panel__actions">
             <VanButton v-if="canStageAction('reject')" size="small" plain type="danger" @click="startReject">退回</VanButton>
             <VanButton v-if="canStageAction('approve')" size="small" type="primary" @click="startApprove">通过</VanButton>
+            <VanButton
+              v-for="item in stageCustomActions"
+              :key="item.code"
+              size="small"
+              plain
+              @click="startCustomAction(item)"
+            >
+              {{ item.label }}
+            </VanButton>
             <span v-if="visibleMoreActions.length > 0" class="cf-panel__more" @click="showActionSheet = true">···</span>
           </div>
         </template>

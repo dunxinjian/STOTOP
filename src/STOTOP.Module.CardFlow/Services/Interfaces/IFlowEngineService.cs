@@ -28,4 +28,8 @@ public interface IFlowEngineService
     Task<CardOperationResult> SystemAutoRejectStageAsync(long stageInstanceId, int timeoutLevel, string reason);
     /// <summary>超时升级链-升级至上级（M8-C，CardFlowTimeoutJob 调用）：无法解析上级时降级为提醒。</summary>
     Task<CardOperationResult> EscalateStageAsync(long stageInstanceId, int timeoutLevel, string reason);
+
+    /// <summary>执行节点自定义动作（M8-C）：actionCode 命中当前节点 ActionPolicy.CustomActions 后按 Handler 分派
+    /// （autoApprove=自动通过/autoReject=自动驳回/notify=触发通知抄送）。</summary>
+    Task<CardOperationResult> ExecuteCustomActionAsync(long cardId, long operatorId, string actionCode, string? opinion);
 }

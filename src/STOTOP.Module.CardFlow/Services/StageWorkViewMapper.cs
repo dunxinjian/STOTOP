@@ -45,7 +45,14 @@ public static class StageWorkViewMapper
             DetailSummary = resolved.Presentation.DetailSummary,
             ActionPolicy = new StageActionPolicyDto
             {
-                AllowedActions = resolved.AllowedActions
+                AllowedActions = resolved.AllowedActions,
+                CustomActions = resolved.CustomActions.Select(action => new CustomActionDto
+                {
+                    Code = action.Code,
+                    Label = action.Label,
+                    Handler = action.Handler,
+                    RequireOpinion = action.RequireOpinion
+                }).ToList()
             },
             Summary = resolved.Summary == null
                 ? null

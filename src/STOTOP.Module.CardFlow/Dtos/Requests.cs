@@ -44,6 +44,13 @@ public class CcRequest
     public string? Opinion { get; set; }
 }
 
+/// <summary>自定义动作执行请求（M8-C）：ActionCode 对应节点配置的 CustomActionDefinition.Code。</summary>
+public class CustomActionRequest
+{
+    public string ActionCode { get; set; } = string.Empty;
+    public string? Opinion { get; set; }
+}
+
 public class VoidRequest
 {
     public string? Opinion { get; set; }

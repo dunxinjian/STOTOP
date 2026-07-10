@@ -1434,6 +1434,7 @@ function hasAdvancedStageConfig(stage: StageDefinition) {
     || stage.viewProfile?.summary?.fields?.length
     || stage.actionPolicy?.allowedActions?.length
     || stage.actionPolicy?.opinionRequiredActions?.length
+    || stage.actionPolicy?.customActions?.length
     || (stage.autoDecision && stage.autoDecision.mode !== 'none')
   )
 }

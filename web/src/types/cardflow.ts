@@ -605,6 +605,15 @@ export interface StageDetailAccess {
 
 export interface StageActionPolicy {
   allowedActions: string[]
+  /** 设计器自定义动作按钮（M8-C），审批面板动态渲染。 */
+  customActions: CustomActionDefinition[]
+}
+
+export interface CustomActionDefinition {
+  code: string
+  label: string
+  handler: 'autoApprove' | 'autoReject' | 'notify' | string
+  requireOpinion: boolean
 }
 
 export interface StageSummaryProfile {
@@ -742,6 +751,12 @@ export interface TransferRequest {
 
 export interface CcRequest {
   userIds: number[]
+  opinion?: string | null
+}
+
+/** 执行节点自定义动作（M8-C）：actionCode 对应节点配置的 CustomActionDefinition.code。 */
+export interface CustomActionRequest {
+  actionCode: string
   opinion?: string | null
 }
 

@@ -66,6 +66,7 @@ public sealed class StageViewProfileResolver : IStageViewProfileResolver
             DetailAccess = detailAccess,
             Summary = normalizedConfig.ViewProfile?.Summary,
             AllowedActions = ResolveActions(normalizedConfig),
+            CustomActions = normalizedConfig.ActionPolicy?.CustomActions ?? new(),
             Presentation = presentation,
             RedactedDataJson = RedactJson(card.FDataJson, fieldAccess),
             RedactedDetails = details

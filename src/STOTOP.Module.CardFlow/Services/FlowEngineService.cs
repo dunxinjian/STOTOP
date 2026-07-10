@@ -1080,6 +1080,86 @@ public class FlowEngineService : IFlowEngineService
         });
     }
 
+    /// <summary>
+    /// 执行节点自定义动作（M8-C）：actionCode 命中当前节点 ActionPolicy.CustomActions 后按 Handler 分派。
+    /// autoApprove/autoReject 直接复用公共 ApproveAsync/RejectAsync（各自持有独立事务，不嵌套）；
+    /// notify 复用 M8-B 抄送机制（FireStageCcAsync，currentTiming="onCustomAction"），自持轻量事务。
+    /// </summary>
+    public async Task<CardOperationResult> ExecuteCustomActionAsync(long cardId, long operatorId, string actionCode, string? opinion)
+    {
+        if (string.IsNullOrWhiteSpace(actionCode)) return CardOperationResult.Fail("动作编码不能为空");
+
+        var card = await _dbContext.Set<CfCard>().AsNoTracking().FirstOrDefaultAsync(c => c.FID == cardId);
+        if (card == null) return CardOperationResult.Fail("卡片不存在");
+        if (card.FStatus != "active") return CardOperationResult.Fail("卡片不在审批中");
+
+        var stageInstance = await _dbContext.Set<CfStageInstance>()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.FID == card.FCurrentStageInstanceId && s.FStatus == "active");
+        if (stageInstance == null) return CardOperationResult.Fail("当前无活跃节点");
+
+        var assignee = await _dbContext.Set<CfStageAssignee>()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.FStageInstanceId == stageInstance.FID
+                && a.FUserId == operatorId && a.FStatus == "pending");
+        if (assignee == null) return CardOperationResult.Fail("您不是当前节点处理人");
+
+        var normalizedConfig = await LoadStageConfigAsync(stageInstance.FStageDefinitionId);
+        var customAction = normalizedConfig.ActionPolicy?.CustomActions?
+            .FirstOrDefault(a => string.Equals(a.Code, actionCode, StringComparison.OrdinalIgnoreCase));
+        if (customAction == null) return CardOperationResult.Fail("自定义动作不存在");
+
+        if (customAction.RequireOpinion && string.IsNullOrWhiteSpace(opinion))
+            return CardOperationResult.Fail("该动作需要填写处理意见");
+
+        switch (customAction.Handler)
+        {
+            case "autoApprove":
+                return await ApproveAsync(cardId, operatorId, new ApproveRequest { Opinion = opinion });
+            case "autoReject":
+                return await RejectAsync(cardId, operatorId, new RejectRequest { Opinion = opinion });
+            case "notify":
+                return await ExecuteNotifyCustomActionAsync(
+                    cardId, operatorId, assignee.FUserName, stageInstance.FID, stageInstance.FStageDefinitionId, opinion);
+            default:
+                return CardOperationResult.Fail($"不支持的自定义动作处理器: {customAction.Handler}");
+        }
+    }
+
+    /// <summary>notify 自定义动作处理器：复用 M8-B 抄送机制（timing="onCustomAction"）+ 落动作日志，自持独立事务。</summary>
+    private async Task<CardOperationResult> ExecuteNotifyCustomActionAsync(
+        long cardId, long operatorId, string operatorName, long stageInstanceId, long? stageDefinitionId, string? opinion)
+    {
+        var strategy = _dbContext.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            using var transaction = await _dbContext.Database.BeginTransactionAsync();
+            try
+            {
+                var card = await _dbContext.Set<CfCard>().FirstOrDefaultAsync(c => c.FID == cardId);
+                if (card == null) return CardOperationResult.Fail("卡片不存在");
+
+                if (stageDefinitionId.HasValue)
+                {
+                    await FireStageCcAsync(card, stageInstanceId, stageDefinitionId.Value, "onCustomAction");
+                }
+
+                await LogActionAsync(card.FID, stageInstanceId, "customAction:notify", operatorId, operatorName, opinion);
+
+                await _dbContext.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return CardOperationResult.Ok(card.FID, "已触发通知");
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "自定义动作(notify)执行失败，CardId={CardId}", cardId);
+                return CardOperationResult.Fail($"操作失败: {ex.Message}");
+            }
+        });
+    }
+
     /// <summary>解析用户直属上级：优先 SysUserOrganization.FDirectSuperiorId（当前生效主任职），
     /// 缺失时走组织链 FManagerId 兜底（该用户主组织的负责人，且非用户本人），均无则返回 null（调用方降级为 remind）。</summary>
     private async Task<(long UserId, string UserName)?> ResolveSuperiorUserAsync(long userId)

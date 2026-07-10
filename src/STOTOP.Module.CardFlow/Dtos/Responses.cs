@@ -323,6 +323,16 @@ public class StageDetailAccessDto
 public class StageActionPolicyDto
 {
     public List<string> AllowedActions { get; set; } = new();
+    /// <summary>设计器自定义动作按钮（M8-C），审批面板动态渲染。</summary>
+    public List<CustomActionDto> CustomActions { get; set; } = new();
+}
+
+public class CustomActionDto
+{
+    public string Code { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public string Handler { get; set; } = string.Empty;
+    public bool RequireOpinion { get; set; }
 }
 
 public class StageSummaryProfileDto

@@ -2,6 +2,7 @@ import { computed, type ComputedRef, type Ref } from 'vue'
 import type {
   CardComponentRuntime,
   CardDetailDto,
+  CustomActionDefinition,
   SchemaFieldDefinition,
   StageWorkView,
 } from '@/types/cardflow'
@@ -122,6 +123,9 @@ export function useStageWorkView(
 
   const stageAllowedActions = computed<string[] | null>(() => stageWorkView.value?.actionPolicy?.allowedActions ?? null)
 
+  /** 设计器自定义动作按钮（M8-C），审批面板动态渲染。 */
+  const stageCustomActions = computed<CustomActionDefinition[]>(() => stageWorkView.value?.actionPolicy?.customActions ?? [])
+
   /** 节点是否允许某动作：无 allowedActions 或为空 → 全放行；否则大小写不敏感匹配。 */
   function canStageAction(action: string): boolean {
     const allowed = stageAllowedActions.value
@@ -137,6 +141,7 @@ export function useStageWorkView(
     applyDetailAccess,
     buildStageInputFields,
     stageAllowedActions,
+    stageCustomActions,
     canStageAction,
   }
 }
