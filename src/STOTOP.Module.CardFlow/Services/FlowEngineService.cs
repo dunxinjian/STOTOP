@@ -2790,11 +2790,18 @@ public class FlowEngineService : IFlowEngineService
 
         if (stageDef.FSkipDuplicateApprover)
         {
-            // 跨节点去重：剔除本卡在更早节点已 approved/rejected 过的用户（同一用户重复审同一张卡意义不大）。
+            // 跨节点去重：剔除本卡在更早、不同节点已 approved/rejected 过的用户（同一用户重复审同一张卡意义不大）。
+            // 必须排除本节点自身历史（含重提 fromRejected/退回重入的往轮实例），否则本节点自己上一轮的
+            // 审批/驳回记录会被误判为"跨节点已审批"，导致去重后无人可分派 → 自动通过 → 该重审的节点被静默跳过。
+            // 同时排除已作废(cancelled)节点：退回重入时被 SupersedeDownstreamCompletedStages 标记作废的下游节点，
+            // 其审批已被判定失效，不应再计入去重依据。
             var actedUserIds = await (
                 from a in _dbContext.Set<CfStageAssignee>()
                 join si in _dbContext.Set<CfStageInstance>() on a.FStageInstanceId equals si.FID
-                where si.FCardId == card.FID && (a.FStatus == "approved" || a.FStatus == "rejected")
+                where si.FCardId == card.FID
+                    && si.FStageDefinitionId != stageDef.FID
+                    && si.FStatus != "cancelled"
+                    && (a.FStatus == "approved" || a.FStatus == "rejected")
                 select a.FUserId)
                 .Distinct()
                 .ToListAsync();

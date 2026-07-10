@@ -165,6 +165,95 @@ public class CrossStageDeduplicateTests
         Assert.Equal("pending", stageBAssignee.FStatus);
     }
 
+    // ── 场景4：重提fromRejected时，B 不应因"本节点自身历史"（上一轮被驳回）而被误判为跨节点重复审批人并自动跳过 ──
+    // 回归背景：dedup 查询若仅按 FCardId 过滤、不排除本节点自身历史，会把 B 上一轮"51 rejected"这条记录也计入
+    // actedUserIds，导致重提后 B 的唯一处理人 51 被去重成空 → 自动通过 → 本该被打回重审的节点无人复核就静默放行。
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task Resubmit_FromRejected_RejectedStageBNotSkippedByOwnPriorHistory()
+    {
+        const long flowDefId = 3630;
+        const long flowVersionId = 3631;
+        const long stageDefIdA = 6631;
+        const long stageDefIdB = 6632;
+        const long approverAtStageA = 100; // 只出现在 A，与 B 的处理人不重复
+        const long approverAtStageB = 51; // B 的唯一固定处理人，B 开启去重
+
+        using var db = CreateNoTrackingDb(nameof(Resubmit_FromRejected_RejectedStageBNotSkippedByOwnPriorHistory));
+        db.Set<SysUser>().Add(new SysUser { FID = approverAtStageA, FName = "审批人A" });
+        db.Set<SysUser>().Add(new SysUser { FID = approverAtStageB, FName = "审批人B" });
+        db.Set<CfFlowDefinition>().Add(new CfFlowDefinition
+        {
+            FID = flowDefId, FFlowName = "重提fromRejected自身历史去重回归", FFlowCode = $"cross-stage-dedup-{flowDefId}", FOrgId = 1,
+            FStatus = "published", FCreatorId = 1, FCreatedTime = DateTime.Now
+        });
+        db.Set<CfFlowVersion>().Add(new CfFlowVersion
+        {
+            FID = flowVersionId, FFlowDefinitionId = flowDefId, FStatus = "published", FIsCurrentVersion = true,
+            FFlowSettingsJson = """{"resubmitStrategy":"fromRejected"}"""
+        });
+        db.Set<CfStageDefinition>().Add(new CfStageDefinition
+        {
+            FID = stageDefIdA, FFlowVersionId = flowVersionId, FSortOrder = 1, FStageName = "节点A",
+            FType = "human", FApprovalMode = "single", FAssigneeStrategy = "fixedUsers",
+            FAssigneeConfigJson = """{"users":[{"userId":100,"userName":"审批人A"}]}"""
+        });
+        db.Set<CfStageDefinition>().Add(new CfStageDefinition
+        {
+            FID = stageDefIdB, FFlowVersionId = flowVersionId, FSortOrder = 2, FStageName = "节点B",
+            FType = "human", FApprovalMode = "single", FAssigneeStrategy = "fixedUsers",
+            FAssigneeConfigJson = """{"users":[{"userId":51,"userName":"审批人B"}]}""",
+            FSkipDuplicateApprover = true
+        });
+
+        db.Set<CfCard>().Add(new CfCard
+        {
+            FID = 9804, FFlowDefinitionId = flowDefId, FFlowVersionId = flowVersionId,
+            FTitle = "重提fromRejected-自身历史不去重", FStatus = "draft", FInitiatorId = InitiatorId, FInitiatorName = "发起人",
+            FCurrentRound = 0, FOrgId = 1, FDataJson = "{}"
+        });
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var engine = CreateEngine(db);
+        var submitResult = await engine.SubmitAsync(9804, InitiatorId);
+        Assert.True(submitResult.Success, submitResult.Message);
+
+        db.ChangeTracker.Clear();
+        var approveResult = await engine.ApproveAsync(9804, approverAtStageA, new ApproveRequest { Opinion = "同意" });
+        Assert.True(approveResult.Success, approveResult.Message);
+
+        db.ChangeTracker.Clear();
+        var stageBRound1 = await db.Set<CfStageInstance>().AsNoTracking()
+            .SingleAsync(s => s.FCardId == 9804 && s.FStageDefinitionId == stageDefIdB && s.FRound == 1);
+        Assert.Equal("active", stageBRound1.FStatus); // 首轮：51 与 A 的处理人(100)不重复，正常分派
+
+        var rejectResult = await engine.RejectAsync(9804, approverAtStageB, new RejectRequest { Opinion = "不同意，打回重写" });
+        Assert.True(rejectResult.Success, rejectResult.Message);
+
+        db.ChangeTracker.Clear();
+        var cardAfterReject = await db.Set<CfCard>().AsNoTracking().SingleAsync(c => c.FID == 9804);
+        Assert.Equal("returned", cardAfterReject.FStatus);
+
+        var resubmitResult = await engine.ResubmitAsync(9804, InitiatorId);
+        Assert.True(resubmitResult.Success, resubmitResult.Message);
+
+        db.ChangeTracker.Clear();
+        // B 第二轮(round 2)实例：修复前，dedup 查询未排除"本节点自身历史"，会把上一轮 51 rejected
+        // 记录也计入 actedUserIds，导致去重后无人可分派 → 自动通过（FStatus=="completed"），
+        // 本次断言即为防止该回归——B 应保持 active 等待 51 真正重新审批。
+        var stageBRound2 = await db.Set<CfStageInstance>().AsNoTracking()
+            .SingleAsync(s => s.FCardId == 9804 && s.FStageDefinitionId == stageDefIdB && s.FRound == 2);
+        Assert.Equal("active", stageBRound2.FStatus);
+
+        var stageBRound2Assignees = await db.Set<CfStageAssignee>().AsNoTracking()
+            .Where(a => a.FStageInstanceId == stageBRound2.FID)
+            .ToListAsync();
+        Assert.Single(stageBRound2Assignees); // 51 被真实分派，而非因自身历史被去重剔除
+        Assert.Equal(approverAtStageB, stageBRound2Assignees[0].FUserId);
+        Assert.Equal("pending", stageBRound2Assignees[0].FStatus);
+    }
+
     /// <summary>复现生产全局跟踪行为的 InMemory 上下文（默认 TrackAll 会掩盖不落库 bug）。</summary>
     private static STOTOP.Infrastructure.Data.STOTOPDbContext CreateNoTrackingDb(string name)
     {
