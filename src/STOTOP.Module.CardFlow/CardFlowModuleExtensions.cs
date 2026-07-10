@@ -49,6 +49,7 @@ public static class CardFlowModuleExtensions
         services.AddScoped<ICardPresentationResolver, CardPresentationResolver>();
         services.AddScoped<IStageViewProfileResolver, StageViewProfileResolver>();
         services.AddScoped<IApproverResolver, ApproverResolver>();
+        services.AddScoped<IInitiatorScopeResolver, InitiatorScopeResolver>();
         services.AddScoped<IStageFieldAccessService, StageFieldAccessService>();
         services.AddScoped<IStageActionPolicyService, StageActionPolicyService>();
         services.AddScoped<SequentialApprovalRuntime>();
