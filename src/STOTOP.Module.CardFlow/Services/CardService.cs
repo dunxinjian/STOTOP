@@ -798,32 +798,34 @@ public class CardService : ICardService
             throw new InvalidOperationException(sourceVerification.ErrorMessage);
 
         var startPolicy = StartPolicyCodec.Parse(flowDef.FStartPolicyJson, flowDef.FAllowedRolesJson);
-        UserMemberships? operatorMemberships = null;
-        if (startPolicy.InitiatorScope is { IsEmpty: false } scope)
-        {
-            operatorMemberships ??= await _initiatorScopeResolver.GetUserMembershipsAsync(userId);
-            if (!_initiatorScopeResolver.IsInScope(operatorMemberships, userId, scope))
-                throw new InvalidOperationException("您不在该流程的可发起范围内，无法发起");
-        }
 
-        // 代提交解析：ActualInitiatorId 有值时校验代提交范围，落被代理人+代理人留痕
+        // 1) 先解析代提交：确定有效发起人(被代理人) + 用 agentScope 校验代理人(fail-closed)
         // AgentScope 语义与 InitiatorScope 相反：空 = 无人可代提交（fail-closed），而非不限制
         long initiatorId = userId;
         long? agentId = null;
         if (request.ActualInitiatorId is { } actualId && actualId != userId)
         {
-            var onBehalf = startPolicy.OnBehalf;
-            if (onBehalf is not { Enabled: true })
+            if (startPolicy.OnBehalf is not { Enabled: true } onBehalf)
                 throw new InvalidOperationException("该流程未开启代提交");
-            operatorMemberships ??= await _initiatorScopeResolver.GetUserMembershipsAsync(userId);
+            var agentMemberships = await _initiatorScopeResolver.GetUserMembershipsAsync(userId);
             if (onBehalf.AgentScope.IsEmpty
-                || !_initiatorScopeResolver.IsInScope(operatorMemberships, userId, onBehalf.AgentScope))
+                || !_initiatorScopeResolver.IsInScope(agentMemberships, userId, onBehalf.AgentScope))
                 throw new InvalidOperationException("您不在该流程的可代提交范围内");
             var actualExists = await _dbContext.Set<SysUser>().AnyAsync(u => u.FID == actualId);
             if (!actualExists)
                 throw new InvalidOperationException("被代理发起人不存在");
             initiatorId = actualId;
             agentId = userId;
+        }
+
+        // 2) 发起范围校验：针对【有效发起人】(代提交时=被代理人，否则=操作人)——代理人只受 agentScope 约束
+        if (startPolicy.InitiatorScope is { IsEmpty: false } scope)
+        {
+            var initiatorMemberships = await _initiatorScopeResolver.GetUserMembershipsAsync(initiatorId);
+            if (!_initiatorScopeResolver.IsInScope(initiatorMemberships, initiatorId, scope))
+                throw new InvalidOperationException(agentId.HasValue
+                    ? "被代理发起人不在该流程的可发起范围内"
+                    : "您不在该流程的可发起范围内，无法发起");
         }
 
         var card = new CfCard
