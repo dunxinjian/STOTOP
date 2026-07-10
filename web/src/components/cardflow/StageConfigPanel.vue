@@ -976,6 +976,14 @@ const tabIssueCounts = computed(() => {
                 :filter-option="filterOption"
               />
             </div>
+
+            <div class="sde-fld">
+              <div class="sde-fld__label-row">
+                <label class="sde-fld__label">跳过重复审批人</label>
+                <a-switch v-model:checked="selectedStage.skipDuplicateApprover" size="small" />
+              </div>
+              <p class="sde-fld__hint">若某人在本卡更早的节点已审批过，本节点自动跳过该人（全部跳过则本节点自动通过）</p>
+            </div>
           </div>
         </a-tab-pane>
 
