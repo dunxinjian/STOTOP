@@ -953,7 +953,8 @@ public class FlowEngineService : IFlowEngineService
             {
                 var card = await _dbContext.Set<CfCard>().FirstOrDefaultAsync(c => c.FID == cardId);
                 if (card == null) return CardOperationResult.Fail("卡片不存在");
-                if (card.FInitiatorId != operatorId) return CardOperationResult.Fail("只有发起人可以撤回");
+                if (card.FInitiatorId != operatorId && card.FAgentId != operatorId)
+                    return CardOperationResult.Fail("只有发起人或代提交人可以撤回");
                 if (card.FStatus != "active") return CardOperationResult.Fail("当前状态不允许撤回");
 
                 // 验证当前节点所有Assignee状态=pending（即无人审批）
@@ -1103,7 +1104,8 @@ public class FlowEngineService : IFlowEngineService
                     await AssignStageHandlersAsync(stageInstance, firstStage, card);
                 }
 
-                await LogActionAsync(card.FID, stageInstance.FID, "resubmit", operatorId, card.FInitiatorName, null);
+                var resubmitName = operatorId == card.FAgentId ? (card.FAgentName ?? "") : card.FInitiatorName;
+                await LogActionAsync(card.FID, stageInstance.FID, "resubmit", operatorId, resubmitName, null);
 
                 await _dbContext.SaveChangesAsync();
                 await transaction.CommitAsync();

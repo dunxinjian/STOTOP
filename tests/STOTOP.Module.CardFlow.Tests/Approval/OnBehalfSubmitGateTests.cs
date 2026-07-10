@@ -89,6 +89,60 @@ public class OnBehalfSubmitGateTests
         Assert.True(result.Success, result.Message);
     }
 
+    [Fact]
+    public async global::System.Threading.Tasks.Task 代理人可撤回被代理人提交的卡片()
+    {
+        using var db = CreateNoTrackingDb(nameof(代理人可撤回被代理人提交的卡片));
+        await SeedFlowAsync(db);
+
+        db.Set<CfCard>().Add(new CfCard
+        {
+            FID = 9723, FFlowDefinitionId = FlowDefId, FFlowVersionId = FlowVersionId,
+            FTitle = "代提交-撤回", FStatus = "active", FInitiatorId = 901, FInitiatorName = "被代理人",
+            FAgentId = 900, FAgentName = "代理人",
+            FCurrentStageInstanceId = 9823, FCurrentRound = 1, FOrgId = 1, FDataJson = "{}"
+        });
+        db.Set<CfStageInstance>().Add(new CfStageInstance
+        {
+            FID = 9823, FCardId = 9723, FStageDefinitionId = StageDefId, FStageName = "审批",
+            FType = "human", FApprovalMode = "single", FRound = 1, FStatus = "active"
+        });
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var result = await CreateEngine(db).WithdrawAsync(9723, 900); // 代理人900 撤回
+        Assert.True(result.Success, result.Message);
+
+        db.ChangeTracker.Clear();
+        var card = await db.Set<CfCard>().AsNoTracking().SingleAsync(c => c.FID == 9723);
+        Assert.Equal("draft", card.FStatus);
+    }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task 无关人员不能撤回()
+    {
+        using var db = CreateNoTrackingDb(nameof(无关人员不能撤回));
+        await SeedFlowAsync(db);
+
+        db.Set<CfCard>().Add(new CfCard
+        {
+            FID = 9724, FFlowDefinitionId = FlowDefId, FFlowVersionId = FlowVersionId,
+            FTitle = "代提交-撤回", FStatus = "active", FInitiatorId = 901, FInitiatorName = "被代理人",
+            FAgentId = null,
+            FCurrentStageInstanceId = 9824, FCurrentRound = 1, FOrgId = 1, FDataJson = "{}"
+        });
+        db.Set<CfStageInstance>().Add(new CfStageInstance
+        {
+            FID = 9824, FCardId = 9724, FStageDefinitionId = StageDefId, FStageName = "审批",
+            FType = "human", FApprovalMode = "single", FRound = 1, FStatus = "active"
+        });
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var result = await CreateEngine(db).WithdrawAsync(9724, 902); // 无关人员902
+        Assert.False(result.Success);
+    }
+
     /// <summary>复现生产全局跟踪行为的 InMemory 上下文（默认 TrackAll 会掩盖不落库 bug）。</summary>
     private static STOTOP.Infrastructure.Data.STOTOPDbContext CreateNoTrackingDb(string name)
     {
