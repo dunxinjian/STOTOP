@@ -19,7 +19,8 @@ public class CardListInitialDataExposureTests
         new StageConfigParser(),
         new StageViewProfileResolver(new CardPresentationResolver()),
         new CardFlowSourceContextVerifier(db),
-        new CardRedactionService());
+        new CardRedactionService(),
+        new InitiatorScopeResolver(db));
 
     [Fact]
     public async global::System.Threading.Tasks.Task GetCardsAsync_DoesNotExposeInitialDataJson()

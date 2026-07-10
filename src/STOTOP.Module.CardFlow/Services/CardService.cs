@@ -6,6 +6,7 @@ using STOTOP.Core.Models;
 using STOTOP.Infrastructure.Data;
 using STOTOP.Module.CardFlow.Dtos;
 using STOTOP.Module.CardFlow.Entities;
+using STOTOP.Module.CardFlow.Models;
 using STOTOP.Module.CardFlow.Models.Approval;
 using STOTOP.Module.CardFlow.Models.Schema;
 using STOTOP.Module.CardFlow.Services.Interfaces;
@@ -21,6 +22,7 @@ public class CardService : ICardService
     private readonly IStageViewProfileResolver _stageViewResolver;
     private readonly ICardFlowSourceContextVerifier _sourceContextVerifier;
     private readonly ICardRedactionService _redactionService;
+    private readonly IInitiatorScopeResolver _initiatorScopeResolver;
 
     public CardService(
         STOTOPDbContext dbContext,
@@ -28,7 +30,8 @@ public class CardService : ICardService
         IStageConfigParser stageConfigParser,
         IStageViewProfileResolver stageViewResolver,
         ICardFlowSourceContextVerifier sourceContextVerifier,
-        ICardRedactionService redactionService)
+        ICardRedactionService redactionService,
+        IInitiatorScopeResolver initiatorScopeResolver)
     {
         _dbContext = dbContext;
         _logger = logger;
@@ -36,21 +39,30 @@ public class CardService : ICardService
         _stageViewResolver = stageViewResolver;
         _sourceContextVerifier = sourceContextVerifier;
         _redactionService = redactionService;
+        _initiatorScopeResolver = initiatorScopeResolver;
     }
 
     public async Task<List<AvailableFlowDto>> GetAvailableFlowsAsync(long userId, long orgId)
     {
-        return await _dbContext.Set<CfFlowDefinition>()
+        var candidates = await _dbContext.Set<CfFlowDefinition>()
             .Where(x => x.FStatus == "published" && x.FOrgId == orgId)
             .Where(x => x.FTriggerConfigJson == null || !x.FTriggerConfigJson.Contains("fileUpload"))
-            .Select(x => new AvailableFlowDto
-            {
-                Id = x.FID,
-                FlowName = x.FFlowName,
-                FlowCode = x.FFlowCode,
-                Description = x.FDescription
-            })
+            .Select(x => new { x.FID, x.FFlowName, x.FFlowCode, x.FDescription, x.FStartPolicyJson, x.FAllowedRolesJson })
             .ToListAsync();
+
+        UserMemberships? memberships = null;
+        var result = new List<AvailableFlowDto>();
+        foreach (var c in candidates)
+        {
+            var scope = StartPolicyCodec.Parse(c.FStartPolicyJson, c.FAllowedRolesJson).InitiatorScope;
+            if (scope is { IsEmpty: false })
+            {
+                memberships ??= await _initiatorScopeResolver.GetUserMembershipsAsync(userId);
+                if (!_initiatorScopeResolver.IsInScope(memberships, userId, scope)) continue;
+            }
+            result.Add(new AvailableFlowDto { Id = c.FID, FlowName = c.FFlowName, FlowCode = c.FFlowCode, Description = c.FDescription });
+        }
+        return result;
     }
 
     public async Task<PagedResult<CardListDto>> GetCardsAsync(CardQueryRequest request)
@@ -765,6 +777,14 @@ public class CardService : ICardService
         var sourceVerification = await _sourceContextVerifier.VerifyAsync(request);
         if (!string.IsNullOrWhiteSpace(sourceVerification.ErrorMessage))
             throw new InvalidOperationException(sourceVerification.ErrorMessage);
+
+        var startPolicy = StartPolicyCodec.Parse(flowDef.FStartPolicyJson, flowDef.FAllowedRolesJson);
+        if (startPolicy.InitiatorScope is { IsEmpty: false } scope)
+        {
+            var memberships = await _initiatorScopeResolver.GetUserMembershipsAsync(userId);
+            if (!_initiatorScopeResolver.IsInScope(memberships, userId, scope))
+                throw new InvalidOperationException("您不在该流程的可发起范围内，无法发起");
+        }
 
         var card = new CfCard
         {

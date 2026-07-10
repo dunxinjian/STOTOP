@@ -59,7 +59,8 @@ public class CardDetailAuditTrailRedactionTests
             new StageConfigParser(),
             new StageViewProfileResolver(new CardPresentationResolver()),
             new CardFlowSourceContextVerifier(db),
-            new CardRedactionService());
+            new CardRedactionService(),
+            new InitiatorScopeResolver(db));
 
         // 发起人查看（通过访问门）
         var result = await service.GetByIdAsync(200, userId: 9);

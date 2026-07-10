@@ -249,7 +249,8 @@ public class CardDetailWorkViewContractTests
             new StageConfigParser(),
             new StageViewProfileResolver(new CardPresentationResolver()),
             new CardFlowSourceContextVerifier(db),
-            new CardRedactionService());
+            new CardRedactionService(),
+            new InitiatorScopeResolver(db));
 
         var result = await service.GetByIdAsync(40, userId: 2);
 
