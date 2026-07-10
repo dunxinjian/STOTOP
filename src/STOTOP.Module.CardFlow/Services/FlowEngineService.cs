@@ -646,6 +646,10 @@ public class FlowEngineService : IFlowEngineService
                     // 完成相关待办
                     await CompleteStageTodosAsync(stageInstance.FID);
 
+                    // 人工节点通过抄送
+                    if (stageInstance.FStageDefinitionId.HasValue)
+                        await FireStageCcAsync(card, stageInstance.FID, stageInstance.FStageDefinitionId.Value, "onApprove");
+
                     if (stageInstance.FIsDynamicInsert && stageInstance.FInsertSourceStageId.HasValue)
                     {
                         await HandleDynamicStageCompletedAsync(card, stageInstance);
@@ -798,6 +802,10 @@ public class FlowEngineService : IFlowEngineService
                 await CancelStageTodosAsync(stageInstance.FID);
 
                 await ReleaseBudgetAsync(card, "reject");
+
+                // 人工节点拒绝抄送
+                if (stageInstance.FStageDefinitionId.HasValue)
+                    await FireStageCcAsync(card, stageInstance.FID, stageInstance.FStageDefinitionId.Value, "onReject");
 
                 await LogActionAsync(card.FID, stageInstance.FID, "reject", operatorId,
                     assignee.FUserName, request.Opinion);
@@ -2753,6 +2761,10 @@ public class FlowEngineService : IFlowEngineService
             await _todoService.CreateTodoAsync(card.FID, stageInstance.FID,
                 assignment.UserId, assignment.UserName, card.FTitle ?? "待办");
         }
+
+        // 人工节点入口抄送
+        if (string.Equals(stageDef.FType, "human", StringComparison.OrdinalIgnoreCase))
+            await FireStageCcAsync(card, stageInstance.FID, stageDef.FID, "onEnter");
     }
 
     private List<(long UserId, string UserName)> ResolveAssignees(CfStageDefinition stageDef, CfCard card)
@@ -3014,6 +3026,27 @@ public class FlowEngineService : IFlowEngineService
 
     private static string Truncate(string? s, int max)
         => string.IsNullOrEmpty(s) ? string.Empty : (s!.Length > max ? s[..max] : s);
+
+    /// <summary>按人工节点的 FCcConfigJson 配置在指定 timing 触发抄送通知（创建 cc-todo + 按渠道推送）。</summary>
+    private async Task FireStageCcAsync(CfCard card, long stageInstanceId, long stageDefinitionId, string currentTiming)
+    {
+        var stageDef = await _dbContext.Set<CfStageDefinition>().AsNoTracking()
+            .FirstOrDefaultAsync(s => s.FID == stageDefinitionId);
+        var ccConfig = STOTOP.Module.CardFlow.Models.CcNotifyConfig.Parse(stageDef?.FCcConfigJson);
+        if (ccConfig == null || !ccConfig.ShouldFire(currentTiming)) return;
+
+        foreach (var user in ccConfig.Users)
+        {
+            var todoId = await _todoService.CreateTodoAsync(
+                card.FID, stageInstanceId, user.UserId, user.UserName,
+                card.FTitle ?? "抄送通知", "cc");
+
+            if (ccConfig.HasChannel("dingtalk") && todoId > 0)
+            {
+                await _notificationDispatcher.DispatchCreateTodoAsync(todoId);
+            }
+        }
+    }
 
     #endregion
 }
