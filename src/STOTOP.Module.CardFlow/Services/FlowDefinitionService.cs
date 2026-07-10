@@ -700,6 +700,7 @@ public class FlowDefinitionService : IFlowDefinitionService
         "sequential" => "sequential",
         "countersign" => "countersign",
         "orsign" => "orsign",
+        "ratio" => "ratio",
         "single" => "single",
         "" => "single",
         _ => mode!.ToLowerInvariant()

@@ -37,4 +37,7 @@ public class CfStageDefinition : BaseEntity
     public string? FCcConfigJson { get; set; }
     public int? FTimeoutHours { get; set; }
     public int? FPriorityTemplate { get; set; }
+
+    /// <summary>比例(ratio)审批模式的通过阈值，1-99 百分比；null=不适用（非 ratio 模式或未配置，运行时回退 100%）。</summary>
+    public int? FApprovalThreshold { get; set; }
 }

@@ -633,7 +633,7 @@ public class FlowEngineService : IFlowEngineService
                     .Select(a => new AssigneeStatus(a.FUserId, a.FStatus))
                     .ToListAsync();
 
-                if (_approvalHandler.IsStageCompleted(stageInstance.FApprovalMode, allAssignees))
+                if (_approvalHandler.IsStageCompleted(stageInstance.FApprovalMode, allAssignees, stageDefForApproval?.FApprovalThreshold))
                 {
                     // 节点完成，推进到下一节点
                     stageInstance.FStatus = "completed";
@@ -769,6 +769,42 @@ public class FlowEngineService : IFlowEngineService
                 assignee.FCompletedTime = DateTime.Now;
                 // 全局 NoTracking 下必须显式标记，否则状态变更不落库
                 _dbContext.Entry(assignee).State = EntityState.Modified;
+
+                // 先保存本次 rejected 状态变更、再重查全部处理人 —— orsign/ratio 等多处理人模式
+                // 需要看到本次落库后的最新状态才能正确判定是否已达到退回条件
+                await _dbContext.SaveChangesAsync();
+                var allAssignees = await _dbContext.Set<CfStageAssignee>()
+                    .Where(a => a.FStageInstanceId == stageInstance.FID)
+                    .Select(a => new AssigneeStatus(a.FUserId, a.FStatus))
+                    .ToListAsync();
+                var approvalThreshold = await LoadApprovalThresholdAsync(stageInstance.FStageDefinitionId);
+
+                if (!_approvalHandler.IsStageReturned(stageInstance.FApprovalMode, allAssignees, approvalThreshold))
+                {
+                    // 会签/或签/比例等模式下尚未达到退回条件，等待其他处理人表态。
+                    // 修复原 bug：此前任一人 reject 即硬编码整卡 returned，未按审批模式语义（如 orsign 需全部 rejected）等待其余处理人。
+                    // 本次仅完成操作人自己的待办，节点与卡片保持 active。
+                    var operatorTodo = await _dbContext.Set<CfTodoItem>()
+                        .FirstOrDefaultAsync(t => t.FStageInstanceId == stageInstance.FID
+                            && t.FHandlerId == operatorId && t.FStatus == "pending");
+                    if (operatorTodo != null)
+                    {
+                        operatorTodo.FStatus = "completed";
+                        operatorTodo.FCompletedTime = DateTime.Now;
+                        await _notificationDispatcher.DispatchCompleteTodoAsync(operatorTodo.FID);
+                    }
+
+                    await LogActionAsync(card.FID, stageInstance.FID, "reject", operatorId,
+                        assignee.FUserName, request.Opinion);
+
+                    await _dbContext.SaveChangesAsync();
+                    await transaction.CommitAsync();
+
+                    return new CardOperationResult
+                    {
+                        Success = true, CardId = card.FID, NewStatus = "active", Message = "已拒绝，等待其他处理人"
+                    };
+                }
 
                 // 标记当前节点返回
                 stageInstance.FStatus = "returned";
@@ -1296,7 +1332,8 @@ public class FlowEngineService : IFlowEngineService
                         .Where(a => a.FStageInstanceId == currentStage.FID)
                         .Select(a => new AssigneeStatus(a.FUserId, a.FStatus))
                         .ToListAsync();
-                    sourceWasComplete = _approvalHandler.IsStageCompleted(currentStage.FApprovalMode, allAssignees);
+                    var countersignThreshold = await LoadApprovalThresholdAsync(currentStage.FStageDefinitionId);
+                    sourceWasComplete = _approvalHandler.IsStageCompleted(currentStage.FApprovalMode, allAssignees, countersignThreshold);
                     if (sourceWasComplete)
                     {
                         currentStage.FStatus = "completed";
@@ -2548,6 +2585,18 @@ public class FlowEngineService : IFlowEngineService
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.FID == stageDefinitionId.Value);
         return _stageConfigParser.Parse(stageDef?.FInputFieldsJson);
+    }
+
+    /// <summary>加载节点定义的 ratio 审批模式通过阈值（1-99 百分比，其余模式/未配置返回 null 由 ApprovalModeHandler 回退处理）。</summary>
+    private async Task<int?> LoadApprovalThresholdAsync(long? stageDefinitionId)
+    {
+        if (!stageDefinitionId.HasValue) return null;
+
+        return await _dbContext.Set<CfStageDefinition>()
+            .AsNoTracking()
+            .Where(s => s.FID == stageDefinitionId.Value)
+            .Select(s => s.FApprovalThreshold)
+            .FirstOrDefaultAsync();
     }
 
     private StageActionPolicyValidationResult ValidateStageAction(

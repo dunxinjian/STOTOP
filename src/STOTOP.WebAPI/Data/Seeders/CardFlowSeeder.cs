@@ -94,6 +94,7 @@ public static class CardFlowSeeder
             new(70, "M7-1 编辑锁: 建 CF定义编辑锁(单定义单锁 F定义ID 唯一键, 心跳续期+接管请求内联, ITenantScoped+IOrgScoped) (2026-07-08)", MigrateV70),
             new(71, "M8-A 发起范围: CF卡片流程 加 F发起策略JSON 列(nvarchar max null, 结构化发起范围+代提交范围) (2026-07-10)", MigrateV71),
             new(72, "M8-A 代提交: CF流程实例 加 F代理人ID/F代理人姓名 列(onBehalf 真实操作人留痕) (2026-07-10)", MigrateV72),
+            new(73, "M8-C 会签比例(ratio): CF流程节点 加 F通过比例 列(int null, 1-99百分比, ratio审批模式通过阈值) (2026-07-10)", MigrateV73),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -335,6 +336,14 @@ public static class CardFlowSeeder
             ALTER TABLE [CF流程实例] ADD [F代理人ID] BIGINT NULL;");
         ExecSql(ctx, @"IF COL_LENGTH(N'CF流程实例', N'F代理人姓名') IS NULL
             ALTER TABLE [CF流程实例] ADD [F代理人姓名] NVARCHAR(100) NULL;");
+    }
+
+    /// <summary>V73：CF流程节点 加 F通过比例（M8-C 会签比例 ratio 模式通过阈值，1-99 百分比，null=不适用）。</summary>
+    private static void MigrateV73(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        ExecSql(ctx, @"IF COL_LENGTH(N'CF流程节点', N'F通过比例') IS NULL
+            ALTER TABLE [CF流程节点] ADD [F通过比例] INT NULL;");
     }
 
     // ══════════════════════════════════════════════════════════════════════
