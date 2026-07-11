@@ -164,6 +164,42 @@ public class CustomActionTests
         Assert.NotNull(actionLog);
     }
 
+    [Fact]
+    public async global::System.Threading.Tasks.Task ExecuteCustomAction_WebhookHandler_RejectedByEngine_NoExternalCall()
+    {
+        using var db = CreateNoTrackingDb(nameof(ExecuteCustomAction_WebhookHandler_RejectedByEngine_NoExternalCall));
+        const string webhookActionJson = """
+            {
+              "version": 2,
+              "inputFields": [],
+              "actionPolicy": {
+                "allowedActions": ["approve", "reject"],
+                "customActions": [
+                  { "code": "wh", "label": "外部", "handler": "webhook", "requireOpinion": false }
+                ]
+              }
+            }
+            """;
+        await SeedFlowAsync(db, webhookActionJson, null);
+        await SeedActiveCardAsync(db, cardId: 9707, stageInstanceId: 9807, assigneeId: 9907);
+
+        var engine = CreateEngine(db);
+        // handler 为未知的 "webhook"（引擎 switch 无匹配 case）：SSRF 延期护栏——须被 default→Fail 拒绝，不得触发外部调用
+        var result = await engine.ExecuteCustomActionAsync(9707, ApproverId, "wh", null);
+
+        Assert.False(result.Success);
+
+        db.ChangeTracker.Clear();
+        var card = await db.Set<CfCard>().AsNoTracking().SingleAsync(c => c.FID == 9707);
+        Assert.Equal("active", card.FStatus);
+
+        var stageInstance = await db.Set<CfStageInstance>().AsNoTracking().SingleAsync(s => s.FID == 9807);
+        Assert.Equal("active", stageInstance.FStatus);
+
+        var assignee = await db.Set<CfStageAssignee>().AsNoTracking().SingleAsync(a => a.FID == 9907);
+        Assert.Equal("pending", assignee.FStatus);
+    }
+
     /// <summary>复现生产全局跟踪行为的 InMemory 上下文（默认 TrackAll 会掩盖不落库 bug）。</summary>
     private static STOTOP.Infrastructure.Data.STOTOPDbContext CreateNoTrackingDb(string name)
     {
