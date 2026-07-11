@@ -245,6 +245,8 @@ public class CardDetailDto : CardListDto
     public List<CardDetailRowDto> Details { get; set; } = new();
     public List<CardFlowRuntimeAuditDto> AuditTrail { get; set; } = new();
     public StageWorkViewDto? CurrentStageWorkView { get; set; }
+    /// <summary>M8-D 件② P1：该卡锁定版本是否允许发起人撤回（allowInitiatorRevoke，缺失=true）。仅供运行时按钮展示，权威 gate 在 WithdrawAsync。</summary>
+    public bool AllowInitiatorRevoke { get; set; } = true;
 }
 
 public class StageInstanceDto

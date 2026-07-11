@@ -258,6 +258,7 @@ public class CardService : ICardService
         var flowVersion = await _dbContext.Set<CfFlowVersion>()
             .AsNoTracking()
             .FirstOrDefaultAsync(v => v.FID == card.FFlowVersionId);
+        detail.AllowInitiatorRevoke = FlowSettingsReader.ReadBool(flowVersion?.FFlowSettingsJson, "allowInitiatorRevoke", true);
 
         StageConfigEnvelope? activeConfig = null;
         var handledConfigs = new List<StageConfigEnvelope>();

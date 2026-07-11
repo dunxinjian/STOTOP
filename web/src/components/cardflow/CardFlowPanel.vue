@@ -1549,7 +1549,7 @@ void showDialog
             v-if="cardDetail.status === 'active' || cardDetail.status === 'Pending'"
             class="cf-panel__actions cf-panel__actions--fill"
           >
-            <VanButton size="small" plain :loading="submitting" :disabled="submitting" @click="doWithdraw">撤回</VanButton>
+            <VanButton v-if="cardDetail.allowInitiatorRevoke !== false" size="small" plain :loading="submitting" :disabled="submitting" @click="doWithdraw">撤回</VanButton>
             <VanButton size="small" type="primary" :loading="submitting" :disabled="submitting" @click="doUrge">催办</VanButton>
           </div>
           <div

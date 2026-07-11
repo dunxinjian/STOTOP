@@ -135,7 +135,8 @@ const canWithdraw = computed(
   () =>
     isInitiator.value &&
     card.value?.status === 'active' &&
-    !hasAnyApproval.value
+    !hasAnyApproval.value &&
+    card.value?.allowInitiatorRevoke !== false
 )
 
 const canUrge = computed(() => card.value?.status === 'active')
@@ -163,7 +164,7 @@ const showToolbarUrge = computed(
 )
 // 后端 VoidAsync 仅发起人可作废，管理员分支不再展示恒失败的按钮
 const showToolbarVoid = computed(() => isInitiator.value && canVoid.value)
-const showToolbarWithdraw = computed(() => isInitiator.value)
+const showToolbarWithdraw = computed(() => isInitiator.value && card.value?.allowInitiatorRevoke !== false)
 
 const triggerRelations = computed(() =>
   relations.value.filter(

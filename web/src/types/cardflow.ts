@@ -413,6 +413,8 @@ export interface CardDetailDto extends CardListDto {
   currentStageInstanceId: number | null
   dataJson: string | null
   currentRound: number
+  /** M8-D 件② P1：该卡锁定版本是否允许发起人撤回（缺失=true） */
+  allowInitiatorRevoke?: boolean
   concurrencyStamp: string | null
   stageInstances: StageInstanceDto[]
   details: CardDetailRowDto[]
