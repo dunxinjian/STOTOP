@@ -113,6 +113,7 @@ interface FlowSettings {
   rejectStrategy: 'toInitiator' | 'toPrevious' | 'toSpecified'
   resubmitStrategy: 'fromStart' | 'fromRejected'
   skipDuplicateApprover: boolean
+  allowInitiatorRevoke: boolean
   approvalAdminUserIds: number[]
   prerequisites: { flowCode: string; required: boolean }[]
   offsetEnabled: boolean
@@ -158,6 +159,7 @@ const initialState = (): FlowState => ({
     rejectStrategy: 'toInitiator',
     resubmitStrategy: 'fromStart',
     skipDuplicateApprover: false,
+    allowInitiatorRevoke: true,
     approvalAdminUserIds: [],
     prerequisites: [],
     offsetEnabled: false,
@@ -2806,11 +2808,12 @@ function goBack() {
                 </div>
               </div>
 
-              <div class="cfd-setrow is-deferred">
-                <a-switch :checked="false" size="small" disabled />
+              <!-- 允许发起人撤回（定义级，M8-D 件②）：缺省允许；WithdrawAsync 读锁定版本 gate -->
+              <div class="cfd-setrow">
+                <a-switch v-model:checked="state.settings.allowInitiatorRevoke" size="small" />
                 <div class="cfd-setrow__text">
-                  <div class="cfd-setrow__title">允许发起人撤回 <a-tag size="small">二期</a-tag></div>
-                  <div class="cfd-setrow__desc">流程进行中允许发起人撤回，撤回后回到草稿（引擎暂未消费，规划中）。</div>
+                  <div class="cfd-setrow__title">允许发起人撤回</div>
+                  <div class="cfd-setrow__desc">流程进行中、当前节点无人审批时，允许发起人撤回，撤回后回到草稿。关闭后发起人无法撤回。</div>
                 </div>
               </div>
             </div>

@@ -1351,6 +1351,14 @@ public class FlowEngineService : IFlowEngineService
                     return CardOperationResult.Fail("只有发起人或代提交人可以撤回");
                 if (card.FStatus != "active") return CardOperationResult.Fail("当前状态不允许撤回");
 
+                // M8-D 件②：定义级 gate —— 读卡片锁定版本设置，仅显式关闭时拦（缺失/true 放行，保留现状）
+                var flowSettingsJson = await _dbContext.Set<CfFlowVersion>()
+                    .Where(version => version.FID == card.FFlowVersionId)
+                    .Select(version => version.FFlowSettingsJson)
+                    .FirstOrDefaultAsync();
+                if (!FlowSettingsReader.ReadBool(flowSettingsJson, "allowInitiatorRevoke", true))
+                    return CardOperationResult.Fail("该流程不允许发起人撤回");
+
                 // 验证当前节点所有Assignee状态=pending（即无人审批）
                 if (card.FCurrentStageInstanceId.HasValue)
                 {
