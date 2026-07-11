@@ -149,6 +149,7 @@ public class CustomActionTests
         var engine = CreateEngine(db);
         var result = await engine.ExecuteCustomActionAsync(9706, ApproverId, "pingCc", null);
         Assert.True(result.Success, result.Message);
+        Assert.Equal("已触发通知", result.Message);
 
         db.ChangeTracker.Clear();
         // 卡片/节点/处理人状态不受 notify 影响（非 approve/reject）
@@ -161,6 +162,30 @@ public class CustomActionTests
 
         var actionLog = await db.Set<CfActionLog>().AsNoTracking()
             .SingleOrDefaultAsync(l => l.FCardId == 9706 && l.FActionType == "customAction:notify");
+        Assert.NotNull(actionLog);
+    }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task ExecuteCustomAction_NotifyHandler_NoCcConfig_HonestMessageNoFalseSuccess()
+    {
+        // review 修复回归（M8-C 件③）：节点未配置 onCustomAction 抄送时，notify 不得谎称"已触发通知"，
+        // 须落诚实消息且仍要记录动作日志、不产生 cc 待办。
+        using var db = CreateNoTrackingDb(nameof(ExecuteCustomAction_NotifyHandler_NoCcConfig_HonestMessageNoFalseSuccess));
+        await SeedFlowAsync(db, CustomActionsJson, ccConfigJson: null);
+        await SeedActiveCardAsync(db, cardId: 9708, stageInstanceId: 9808, assigneeId: 9908);
+
+        var engine = CreateEngine(db);
+        var result = await engine.ExecuteCustomActionAsync(9708, ApproverId, "pingCc", null);
+        Assert.True(result.Success, result.Message);
+        Assert.Equal("已记录动作（该节点未配置自定义动作触发的抄送，无通知发送）", result.Message);
+
+        db.ChangeTracker.Clear();
+        var ccTodo = await db.Set<CfTodoItem>().AsNoTracking()
+            .SingleOrDefaultAsync(t => t.FCardId == 9708 && t.FType == "cc");
+        Assert.Null(ccTodo);
+
+        var actionLog = await db.Set<CfActionLog>().AsNoTracking()
+            .SingleOrDefaultAsync(l => l.FCardId == 9708 && l.FActionType == "customAction:notify");
         Assert.NotNull(actionLog);
     }
 

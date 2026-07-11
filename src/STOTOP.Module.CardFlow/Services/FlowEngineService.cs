@@ -1139,9 +1139,17 @@ public class FlowEngineService : IFlowEngineService
                 var card = await _dbContext.Set<CfCard>().FirstOrDefaultAsync(c => c.FID == cardId);
                 if (card == null) return CardOperationResult.Fail("卡片不存在");
 
+                var willFireCc = false;
                 if (stageDefinitionId.HasValue)
                 {
-                    await FireStageCcAsync(card, stageInstanceId, stageDefinitionId.Value, "onCustomAction");
+                    var stageDef = await _dbContext.Set<CfStageDefinition>().AsNoTracking()
+                        .FirstOrDefaultAsync(s => s.FID == stageDefinitionId.Value);
+                    var ccConfig = STOTOP.Module.CardFlow.Models.CcNotifyConfig.Parse(stageDef?.FCcConfigJson);
+                    willFireCc = ccConfig != null && ccConfig.ShouldFire("onCustomAction");
+                    if (willFireCc)
+                    {
+                        await FireStageCcAsync(card, stageInstanceId, stageDefinitionId.Value, "onCustomAction");
+                    }
                 }
 
                 await LogActionAsync(card.FID, stageInstanceId, "customAction:notify", operatorId, operatorName, opinion);
@@ -1149,7 +1157,9 @@ public class FlowEngineService : IFlowEngineService
                 await _dbContext.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                return CardOperationResult.Ok(card.FID, "已触发通知");
+                return willFireCc
+                    ? CardOperationResult.Ok(card.FID, "已触发通知")
+                    : CardOperationResult.Ok(card.FID, "已记录动作（该节点未配置自定义动作触发的抄送，无通知发送）");
             }
             catch (Exception ex)
             {

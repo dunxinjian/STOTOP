@@ -20,6 +20,7 @@ export const CC_TIMING_OPTIONS = [
   { value: 'onEnter', label: '进入节点时' },
   { value: 'onApprove', label: '审批通过时' },
   { value: 'onReject', label: '审批驳回时' },
+  { value: 'onCustomAction', label: '自定义动作触发' },
   { value: 'always', label: '全部时机' },
 ] as const
 

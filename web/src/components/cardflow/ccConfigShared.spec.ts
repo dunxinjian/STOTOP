@@ -91,8 +91,8 @@ describe('serializeCcConfig', () => {
 })
 
 describe('选项常量', () => {
-  it('CC_TIMING_OPTIONS 四项时机齐全', () => {
-    expect(CC_TIMING_OPTIONS.map(o => o.value)).toEqual(['onEnter', 'onApprove', 'onReject', 'always'])
+  it('CC_TIMING_OPTIONS 五项时机齐全（含自定义动作触发）', () => {
+    expect(CC_TIMING_OPTIONS.map(o => o.value)).toEqual(['onEnter', 'onApprove', 'onReject', 'onCustomAction', 'always'])
   })
 
   it('CC_CHANNEL_OPTIONS 企微/bot 标记禁用（未实装渠道不可选）', () => {
