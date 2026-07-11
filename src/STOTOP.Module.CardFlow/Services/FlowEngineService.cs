@@ -3138,7 +3138,8 @@ public class FlowEngineService : IFlowEngineService
             })
             .ToList();
 
-        if (stageDef.FSkipDuplicateApprover)
+        var flowLevelSkipDup = FlowSettingsReader.ReadBool(flowSettingsJson, "skipDuplicateApprover", false);
+        if (stageDef.FSkipDuplicateApprover || flowLevelSkipDup)
         {
             // 跨节点去重：剔除本卡在更早、不同节点已 approved/rejected 过的用户（同一用户重复审同一张卡意义不大）。
             // 必须排除本节点自身历史（含重提 fromRejected/退回重入的往轮实例），否则本节点自己上一轮的

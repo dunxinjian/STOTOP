@@ -254,6 +254,85 @@ public class CrossStageDeduplicateTests
         Assert.Equal("pending", stageBRound2Assignees[0].FStatus);
     }
 
+    // ── 场景5：定义级开关 ON（节点级 OFF）→ 全流程套用去重，51 在 A 审后从 B 剔除 → B 无人可分派自动通过 ──
+    [Fact]
+    public async global::System.Threading.Tasks.Task Approve_FlowLevelSkipDuplicate_StageLevelOff_AutoCompletesStageB()
+    {
+        const long flowDefId = 3640;
+        const long flowVersionId = 3641;
+        const long stageDefIdA = 6641;
+        const long stageDefIdB = 6642;
+
+        using var db = CreateNoTrackingDb(nameof(Approve_FlowLevelSkipDuplicate_StageLevelOff_AutoCompletesStageB));
+        await SeedTwoStageFlowAsync(
+            db, flowDefId, flowVersionId, stageDefIdA, stageDefIdB,
+            stageBUsersJson: """{"users":[{"userId":51,"userName":"审批人A"}]}""",
+            stageBSkipDuplicateApprover: false,                       // 节点级关闭
+            flowSettingsJson: """{"skipDuplicateApprover":true}""");  // 定义级开启
+
+        db.Set<CfCard>().Add(new CfCard
+        {
+            FID = 9805, FFlowDefinitionId = flowDefId, FFlowVersionId = flowVersionId,
+            FTitle = "定义级去重-全部剔除", FStatus = "draft", FInitiatorId = InitiatorId, FInitiatorName = "发起人",
+            FCurrentRound = 0, FOrgId = 1, FDataJson = "{}"
+        });
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var engine = CreateEngine(db);
+        Assert.True((await engine.SubmitAsync(9805, InitiatorId)).Success);
+        db.ChangeTracker.Clear();
+        Assert.True((await engine.ApproveAsync(9805, ApproverA, new ApproveRequest { Opinion = "同意" })).Success);
+        db.ChangeTracker.Clear();
+
+        var stageBInstance = await db.Set<CfStageInstance>().AsNoTracking()
+            .SingleAsync(s => s.FCardId == 9805 && s.FStageDefinitionId == stageDefIdB);
+        Assert.Equal("completed", stageBInstance.FStatus);   // 定义级去重触发 → 自动通过
+        Assert.Equal("approved", stageBInstance.FFinalAction);
+        var card = await db.Set<CfCard>().AsNoTracking().SingleAsync(c => c.FID == 9805);
+        Assert.Equal("completed", card.FStatus);
+    }
+
+    // ── 场景6：定义级 ON + 节点级 OFF + B 部分重叠(51 重复,52 独有) → 仅剔 51，保留 52 ──
+    [Fact]
+    public async global::System.Threading.Tasks.Task Approve_FlowLevelSkipDuplicate_PartialOverlap_RemovesOnlyDuplicate()
+    {
+        const long flowDefId = 3650;
+        const long flowVersionId = 3651;
+        const long stageDefIdA = 6651;
+        const long stageDefIdB = 6652;
+
+        using var db = CreateNoTrackingDb(nameof(Approve_FlowLevelSkipDuplicate_PartialOverlap_RemovesOnlyDuplicate));
+        await SeedTwoStageFlowAsync(
+            db, flowDefId, flowVersionId, stageDefIdA, stageDefIdB,
+            stageBUsersJson: """{"users":[{"userId":51,"userName":"审批人A"},{"userId":52,"userName":"审批人B"}]}""",
+            stageBSkipDuplicateApprover: false,
+            flowSettingsJson: """{"skipDuplicateApprover":true}""");
+
+        db.Set<CfCard>().Add(new CfCard
+        {
+            FID = 9806, FFlowDefinitionId = flowDefId, FFlowVersionId = flowVersionId,
+            FTitle = "定义级去重-部分重复", FStatus = "draft", FInitiatorId = InitiatorId, FInitiatorName = "发起人",
+            FCurrentRound = 0, FOrgId = 1, FDataJson = "{}"
+        });
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var engine = CreateEngine(db);
+        Assert.True((await engine.SubmitAsync(9806, InitiatorId)).Success);
+        db.ChangeTracker.Clear();
+        Assert.True((await engine.ApproveAsync(9806, ApproverA, new ApproveRequest { Opinion = "同意" })).Success);
+        db.ChangeTracker.Clear();
+
+        var stageBInstance = await db.Set<CfStageInstance>().AsNoTracking()
+            .SingleAsync(s => s.FCardId == 9806 && s.FStageDefinitionId == stageDefIdB);
+        Assert.Equal("active", stageBInstance.FStatus);
+        var stageBAssignees = await db.Set<CfStageAssignee>().AsNoTracking()
+            .Where(a => a.FStageInstanceId == stageBInstance.FID).ToListAsync();
+        Assert.Single(stageBAssignees);
+        Assert.Equal(ApproverOnlyAtB, stageBAssignees[0].FUserId);   // 51 剔除，52 保留
+    }
+
     /// <summary>复现生产全局跟踪行为的 InMemory 上下文（默认 TrackAll 会掩盖不落库 bug）。</summary>
     private static STOTOP.Infrastructure.Data.STOTOPDbContext CreateNoTrackingDb(string name)
     {
@@ -267,7 +346,7 @@ public class CrossStageDeduplicateTests
     private static async global::System.Threading.Tasks.Task SeedTwoStageFlowAsync(
         STOTOP.Infrastructure.Data.STOTOPDbContext db,
         long flowDefId, long flowVersionId, long stageDefIdA, long stageDefIdB,
-        string stageBUsersJson, bool stageBSkipDuplicateApprover)
+        string stageBUsersJson, bool stageBSkipDuplicateApprover, string? flowSettingsJson = null)
     {
         db.Set<SysUser>().Add(new SysUser { FID = ApproverA, FName = "审批人A" });
         db.Set<SysUser>().Add(new SysUser { FID = ApproverOnlyAtB, FName = "审批人B" });
@@ -278,7 +357,8 @@ public class CrossStageDeduplicateTests
         });
         db.Set<CfFlowVersion>().Add(new CfFlowVersion
         {
-            FID = flowVersionId, FFlowDefinitionId = flowDefId, FStatus = "published", FIsCurrentVersion = true
+            FID = flowVersionId, FFlowDefinitionId = flowDefId, FStatus = "published", FIsCurrentVersion = true,
+            FFlowSettingsJson = flowSettingsJson
         });
         db.Set<CfStageDefinition>().Add(new CfStageDefinition
         {

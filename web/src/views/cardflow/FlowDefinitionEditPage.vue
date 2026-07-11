@@ -112,6 +112,7 @@ interface BasicInfo {
 interface FlowSettings {
   rejectStrategy: 'toInitiator' | 'toPrevious' | 'toSpecified'
   resubmitStrategy: 'fromStart' | 'fromRejected'
+  skipDuplicateApprover: boolean
   approvalAdminUserIds: number[]
   prerequisites: { flowCode: string; required: boolean }[]
   offsetEnabled: boolean
@@ -156,6 +157,7 @@ const initialState = (): FlowState => ({
   settings: {
     rejectStrategy: 'toInitiator',
     resubmitStrategy: 'fromStart',
+    skipDuplicateApprover: false,
     approvalAdminUserIds: [],
     prerequisites: [],
     offsetEnabled: false,
@@ -2787,12 +2789,12 @@ function goBack() {
                 </div>
               </div>
 
-              <!-- === 二期占位（引擎无消费，灰置 + 标签说明） === -->
-              <div class="cfd-setrow is-deferred">
-                <a-switch :checked="false" size="small" disabled />
+              <!-- 审批人去重（定义级，M8-D 件①）：与节点级 FSkipDuplicateApprover OR 叠加 -->
+              <div class="cfd-setrow">
+                <a-switch v-model:checked="state.settings.skipDuplicateApprover" size="small" />
                 <div class="cfd-setrow__text">
-                  <div class="cfd-setrow__title">审批人去重 <a-tag size="small">二期</a-tag></div>
-                  <div class="cfd-setrow__desc">同一人在多个连续环节只需审批一次（引擎暂未消费，规划中）。</div>
+                  <div class="cfd-setrow__title">审批人去重</div>
+                  <div class="cfd-setrow__desc">同一人在本流程更早环节已审批过，后续环节自动跳过其重复审批（与节点级去重叠加生效）。</div>
                 </div>
               </div>
 
