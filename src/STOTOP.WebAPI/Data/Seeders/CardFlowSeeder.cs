@@ -97,6 +97,8 @@ public static class CardFlowSeeder
             new(73, "M8-C 会签比例(ratio): CF流程节点 加 F通过比例 列(int null, 1-99百分比, ratio审批模式通过阈值) (2026-07-10)", MigrateV73),
             new(74, "M8-C 跨节点去重: CF流程节点 加 F跳过重复审批人 列(bit not null default 0, 分派处理人前剔除本卡已审批用户) (2026-07-10)", MigrateV74),
             new(75, "M8-C 超时升级链: CF流程节点 加 F超时动作JSON 列(nvarchar(max) null) + CF节点执行实例 加 F超时动作已执行级别 列(int null, 幂等高水位标记) (2026-07-11)", MigrateV75),
+            new(76, "极兔凭证规则回填(财务确认版): 规则3141 ruleGroups 155组(账套2末级,四行收支模式,2重名合并组) + 种3个极兔outlet辅助项 + 流程版本2341接autoVoucher节点5141 — 资金类7项走createDraft (2026-07-11)", MigrateV76),
+            new(77, "韵达凭证规则回填(财务确认版,源=韵达交易-科目映射建议-已修改7.11.xlsx): 规则3151 应用财务21改(11账户改码含5处 往来→损益 重分类:共创基金/复工保证金→其他收入·仲裁代收代付→客服赔款/总部平台单 + 10处进出港BD;268-7/268-8保证金往来无BD维不落) + 种2个韵达outlet辅助项(992209城区/744706浏河) + 流程版本2351接autoVoucher节点5151 — 资金类282-x走createDraft (2026-07-11)", MigrateV77),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -251,6 +253,115 @@ public static class CardFlowSeeder
         SET [F发生额收入] = CASE WHEN [F发生金额] > 0 THEN [F发生金额] ELSE 0 END,
             [F发生额支出] = CASE WHEN [F发生金额] < 0 THEN -[F发生金额] ELSE 0 END
         WHERE [F发生额收入] IS NULL OR [F发生额支出] IS NULL;");
+    }
+
+    /// <summary>
+    /// V76 极兔凭证规则回填（财务确认版，源=Taicang/极兔交易-科目映射建议-已修改7.5.xlsx）：
+    ///   ① 规则 3141 config 全量替换为 Resources/jitu-hqtx-rule3141.json——155 组（157 映射子类型，
+    ///      2 对跨主类型重名合并：漏扫扣款/上传不及时扣款按 F费用主类 条件行分流），账套2 真实末级科目；
+    ///      四行收支模式：借业务科目/贷220201(F发生额支出,兜底行) + 贷业务科目/借220201(F发生额收入,条件行 F交易类型=加款)。
+    ///      引擎语义依据：同方向兜底行首个吃光剩余行，故收入对必须挂条件行；amount==0 行运行时跳过 → 单向子类型自动退化两行。
+    ///      资金类 7 项(提现/转入转出/保证金/充值)财务标待定 → 不建组，unmatchedAction=createDraft 落待补录(占位 700044)。
+    ///   ② 种 3 个极兔 outlet 辅助项（凭证 outlet 维 dynamic F网点编号 matchBy code 的匹配目标；FOrgId=192 对齐批次组织）。
+    ///   ③ 流程版本 2341 接 autoVoucher 节点 5141（插件注册ID=5，排序2）——极兔凭证链自此接通。
+    /// </summary>
+    private static void MigrateV76(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // ① 规则 3141 config 全量替换（参数化，避免 425KB JSON 的 SQL 转义；幂等=重复 UPDATE 同值）
+        var cfg = ReadSeedResource("jitu-hqtx-rule3141.json");
+        var conn = ctx.Database.GetDbConnection();
+        if (conn.State != ConnectionState.Open) conn.Open();
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = ctx.Database.CurrentTransaction?.GetDbTransaction();
+            cmd.CommandTimeout = MigrationRunner.GetConfig().CommandTimeoutSeconds;
+            cmd.CommandText = @"UPDATE [CF自动插件_规则]
+                SET [F规则配置JSON] = @cfg,
+                    [F说明] = N'极兔总部交易明细自动凭证(财务确认版155组,账套2品牌版末级;资金类7项createDraft;源=极兔交易-科目映射建议-已修改7.5.xlsx)'
+                WHERE [FID] = 3141;";
+            var p = cmd.CreateParameter(); p.ParameterName = "@cfg"; p.Value = cfg; cmd.Parameters.Add(p);
+            cmd.ExecuteNonQuery();
+        }
+
+        // ② 极兔 outlet 辅助项（对齐 AuxiliaryService.AddFromNetworkPointAsync 形状；FOrgId=192=批次组织，
+        //    引擎预加载按 FOrgId==ctx.OrgId||0 过滤；F租户ID=根租户——FinAuxiliaryItem 挂 ITenantScoped 硬墙）
+        ExecSql(ctx, @"
+        DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+        IF NOT EXISTS (SELECT 1 FROM [FIN辅助核算项目] WHERE [F辅助类型] = N'outlet' AND [F编码] = N'3512907' AND [F账套ID] = 2)
+        INSERT INTO [FIN辅助核算项目] ([F辅助类型],[F编码],[F名称],[F启用状态],[F账套ID],[F组织ID],[F来源类型],[F租户ID],[F创建时间],[F更新时间])
+        VALUES (N'outlet', N'3512907', N'极兔南郊', 1, 2, 192, N'EXP快递网点', ISNULL(@tenant,0), GETDATE(), GETDATE());
+        IF NOT EXISTS (SELECT 1 FROM [FIN辅助核算项目] WHERE [F辅助类型] = N'outlet' AND [F编码] = N'3512894' AND [F账套ID] = 2)
+        INSERT INTO [FIN辅助核算项目] ([F辅助类型],[F编码],[F名称],[F启用状态],[F账套ID],[F组织ID],[F来源类型],[F租户ID],[F创建时间],[F更新时间])
+        VALUES (N'outlet', N'3512894', N'极兔城区', 1, 2, 192, N'EXP快递网点', ISNULL(@tenant,0), GETDATE(), GETDATE());
+        IF NOT EXISTS (SELECT 1 FROM [FIN辅助核算项目] WHERE [F辅助类型] = N'outlet' AND [F编码] = N'3512906' AND [F账套ID] = 2)
+        INSERT INTO [FIN辅助核算项目] ([F辅助类型],[F编码],[F名称],[F启用状态],[F账套ID],[F组织ID],[F来源类型],[F租户ID],[F创建时间],[F更新时间])
+        VALUES (N'outlet', N'3512906', N'极兔陆渡', 1, 2, 192, N'EXP快递网点', ISNULL(@tenant,0), GETDATE(), GETDATE());
+        ");
+
+        // ③ autoVoucher 节点接线（插件注册 FID=5=AutoVoucher，蓝本=申通 V6 节点 5005）。
+        //    F节点键 必填：唯一索引 IX_CF流程节点_版本节点键(F流程版本ID,F节点键)，缺省空值会与首节点撞键（V76 首跑即栽此坑）。
+        ExecSql(ctx, @"
+        SET IDENTITY_INSERT [CF流程节点] ON;
+        IF NOT EXISTS (SELECT 1 FROM [CF流程节点] WHERE [FID] = 5141)
+        INSERT INTO [CF流程节点] ([FID], [F流程版本ID], [F排序号], [F节点名称], [F节点键], [F类型], [F处理粒度], [F审批模式], [F插件注册ID], [F插件规则ID])
+        VALUES (5141, 2341, 2, N'自动凭证', N'jt-auto-voucher', N'auto', N'batch', N'single', 5, 3141);
+        SET IDENTITY_INSERT [CF流程节点] OFF;
+        ");
+    }
+
+    /// <summary>
+    /// V77 韵达凭证规则回填（财务确认版，源=韵达交易-科目映射建议-已修改7.11.xlsx；蓝本=V76 极兔）：
+    ///   ① 规则 3151 config 全量替换为 Resources/yunda-hqtx-rule3151.json——财务 21 处改动已回填
+    ///      (11 处账户改码，其中 5 处 往来→损益 重分类：共创基金/复工保证金(268-3/4)→其他收入(505103)、
+    ///       仲裁代收代付(266-12/275-10)→客服赔款(54010701)、裹裹代收代付(320-4)→总部平台单(50010104)；
+    ///       10 处进出港 BD 调整；268-7/268-8 保证金仍为往来行、无 business_direction 维，财务的 BD=IN 不落)。
+    ///      77 组账套2品牌版末级；资金类 282-6/7/8 财务标资金 → 不建组，unmatchedAction=createDraft(占位700044)。
+    ///   ② 种 2 个韵达 outlet 辅助项(992209城区/744706浏河；凭证 outlet 维 dynamic F公司编码 matchBy code 的匹配目标；
+    ///      FOrgId=192 对齐批次组织，F租户ID=根租户——FinAuxiliaryItem 挂 ITenantScoped 硬墙)。
+    ///   ③ 流程版本 2351 接 autoVoucher 节点 5151（插件注册ID=5，排序2）——韵达凭证链自此接通(生成待审草稿)。
+    ///      F节点键 必填：唯一索引 IX_CF流程节点_版本节点键(F流程版本ID,F节点键)，与首节点 5150 的 stage_2351_1_5150 区分。
+    /// </summary>
+    private static void MigrateV77(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // ① 规则 3151 config 全量替换（参数化，避免大 JSON SQL 转义；幂等=重复 UPDATE 同值）
+        var cfg = ReadSeedResource("yunda-hqtx-rule3151.json");
+        var conn = ctx.Database.GetDbConnection();
+        if (conn.State != ConnectionState.Open) conn.Open();
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = ctx.Database.CurrentTransaction?.GetDbTransaction();
+            cmd.CommandTimeout = MigrationRunner.GetConfig().CommandTimeoutSeconds;
+            cmd.CommandText = @"UPDATE [CF自动插件_规则]
+                SET [F规则配置JSON] = @cfg,
+                    [F说明] = N'韵达总部交易明细自动凭证(财务确认版77组,账套2品牌版末级;资金类282-x createDraft;源=韵达交易-科目映射建议-已修改7.11.xlsx)'
+                WHERE [FID] = 3151;";
+            var p = cmd.CreateParameter(); p.ParameterName = "@cfg"; p.Value = cfg; cmd.Parameters.Add(p);
+            cmd.ExecuteNonQuery();
+        }
+
+        // ② 韵达 outlet 辅助项（对齐 V76 极兔形状；sourceField=F公司编码；FOrgId=192=批次组织；F租户ID=根租户）
+        ExecSql(ctx, @"
+        DECLARE @tenant bigint = (SELECT TOP 1 [FID] FROM [SYS组织架构] WHERE [F父ID] = 0 ORDER BY [FID]);
+        IF NOT EXISTS (SELECT 1 FROM [FIN辅助核算项目] WHERE [F辅助类型] = N'outlet' AND [F编码] = N'992209' AND [F账套ID] = 2)
+        INSERT INTO [FIN辅助核算项目] ([F辅助类型],[F编码],[F名称],[F启用状态],[F账套ID],[F组织ID],[F来源类型],[F租户ID],[F创建时间],[F更新时间])
+        VALUES (N'outlet', N'992209', N'韵达城区', 1, 2, 192, N'EXP快递网点', ISNULL(@tenant,0), GETDATE(), GETDATE());
+        IF NOT EXISTS (SELECT 1 FROM [FIN辅助核算项目] WHERE [F辅助类型] = N'outlet' AND [F编码] = N'744706' AND [F账套ID] = 2)
+        INSERT INTO [FIN辅助核算项目] ([F辅助类型],[F编码],[F名称],[F启用状态],[F账套ID],[F组织ID],[F来源类型],[F租户ID],[F创建时间],[F更新时间])
+        VALUES (N'outlet', N'744706', N'韵达浏河', 1, 2, 192, N'EXP快递网点', ISNULL(@tenant,0), GETDATE(), GETDATE());
+        ");
+
+        // ③ autoVoucher 节点接线（插件注册 FID=5=AutoVoucher；蓝本=极兔 V76 节点 5141）。
+        ExecSql(ctx, @"
+        SET IDENTITY_INSERT [CF流程节点] ON;
+        IF NOT EXISTS (SELECT 1 FROM [CF流程节点] WHERE [FID] = 5151)
+        INSERT INTO [CF流程节点] ([FID], [F流程版本ID], [F排序号], [F节点名称], [F节点键], [F类型], [F处理粒度], [F审批模式], [F插件注册ID], [F插件规则ID])
+        VALUES (5151, 2351, 2, N'自动凭证', N'stage_2351_2_5151', N'auto', N'batch', N'single', 5, 3151);
+        SET IDENTITY_INSERT [CF流程节点] OFF;
+        ");
     }
 
     /// <summary>
