@@ -317,6 +317,24 @@ public class FlowDefinitionService : IFlowDefinitionService
             .Where(s => s.FFlowVersionId == draftVersion.FID)
             .OrderBy(s => s.FSortOrder)
             .ToListAsync();
+
+        // ═══ 结构完整性门禁(防 0 节点/空键版本上位——空版本一旦成为当前版本,导入链无入口节点即断)═══
+        if (draftStages.Count == 0)
+            throw new InvalidOperationException("草稿版本没有任何节点，不能发布");
+
+        var voucherRegistryIds = await _dbContext.Set<CfAutoPluginRegistry>()
+            .Where(r => r.F插件编码 == "AutoVoucher").Select(r => r.FID).ToListAsync();
+        var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in draftStages)
+        {
+            if (string.IsNullOrWhiteSpace(s.FStageKey))
+                throw new InvalidOperationException($"节点“{s.FStageName}”(排序 {s.FSortOrder}) 缺少 StageKey，请重新保存草稿后发布");
+            if (!seenKeys.Add(s.FStageKey))
+                throw new InvalidOperationException($"节点 StageKey 重复：{s.FStageKey}");
+            if (s.F插件注册ID.HasValue && voucherRegistryIds.Contains(s.F插件注册ID.Value) && !s.F插件规则ID.HasValue)
+                throw new InvalidOperationException($"节点“{s.FStageName}”使用自动凭证插件但未配置凭证规则，不能发布");
+        }
+
         await ValidateRouteRulesAsync(draftVersion.FID, draftStages);
         await ValidateDynamicPoliciesAsync(draftVersion.FID, draftStages);
 
@@ -587,7 +605,10 @@ public class FlowDefinitionService : IFlowDefinitionService
         return version;
     }
 
-    public async Task<FlowVersionDetailDto> SaveDraftVersionAsync(long definitionId, SaveDraftVersionRequest request, long operatorId)
+    public Task<FlowVersionDetailDto> SaveDraftVersionAsync(long definitionId, SaveDraftVersionRequest request, long operatorId)
+        => WithDefinitionTransactionAsync(() => SaveDraftVersionCoreAsync(definitionId, request, operatorId));
+
+    private async Task<FlowVersionDetailDto> SaveDraftVersionCoreAsync(long definitionId, SaveDraftVersionRequest request, long operatorId)
     {
         // 注意：由于全局配置了 NoTracking，必须使用 AsTracking() 才能正确更新已有草稿的 schema JSON
         var existingDraft = await _dbContext.Set<CfFlowVersion>()
@@ -614,7 +635,20 @@ public class FlowDefinitionService : IFlowDefinitionService
                 FIsCurrentVersion = false
             };
             _dbContext.Set<CfFlowVersion>().Add(existingDraft);
-            await _dbContext.SaveChangesAsync();
+            try
+            {
+                await _dbContext.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                // 单草稿唯一索引(UX_CF流程版本_单草稿)兜底：并发会话在本方法读取后抢先建了草稿。
+                // 复查确证后才转业务异常，避免把无关的 FK/NOT NULL 约束失败吞成"已存在草稿"误导排障。
+                var raced = await _dbContext.Set<CfFlowVersion>()
+                    .AnyAsync(x => x.FFlowDefinitionId == definitionId && x.FStatus == "draft");
+                if (raced)
+                    throw new InvalidOperationException("已存在未发布草稿，请先发布或放弃当前草稿");
+                throw;
+            }
         }
         else
         {
@@ -727,11 +761,49 @@ public class FlowDefinitionService : IFlowDefinitionService
         _ => strategy!.ToLowerInvariant()
     };
 
-    private static string EnsureStageKey(string? stageKey, int sortOrder, string stageName, ISet<string> usedKeys)
+    /// <summary>草稿/克隆多段写的事务包裹：失败整体回滚，杜绝"版本行已落、节点未落"的僵尸草稿
+    /// （照抄 Finance VoucherService.WithTransactionAsync：IsRelational 守卫 + 复用外层事务 + ExecutionStrategy 包裹）。
+    /// 严禁裸 BeginTransaction —— DbContext 启用了 EnableRetryOnFailure，裸事务撞重试策略必崩（仓库红线）；
+    /// 非关系型(InMemory) provider 或已存在外层事务时退化为直接执行，行为不变。</summary>
+    private async Task<T> WithDefinitionTransactionAsync<T>(Func<Task<T>> action)
+    {
+        if (!_dbContext.Database.IsRelational() || _dbContext.Database.CurrentTransaction != null)
+            return await action();
+
+        var strategy = _dbContext.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await _dbContext.Database.BeginTransactionAsync();
+            try
+            {
+                var result = await action();
+                await tx.CommitAsync();
+                return result;
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        });
+    }
+
+    /// <summary>非泛型适配：CopyCurrentVersionToTemplateAsync 返回裸 Task，泛型版无法直接套。</summary>
+    private Task WithDefinitionTransactionAsync(Func<Task> action)
+        => WithDefinitionTransactionAsync(async () => { await action(); return true; });
+
+    private static string EnsureStageKey(string? stageKey, int sortOrder, string stageName, ISet<string> usedKeys,
+        Func<string>? fallbackKeyFactory = null)
     {
         var result = NormalizeKeyToken(stageKey);
         if (string.IsNullOrWhiteSpace(result))
-            throw new InvalidOperationException($"节点“{stageName}”(排序 {sortOrder}) 必须携带稳定 StageKey");
+        {
+            // 克隆路径自愈: 历史 seeder 直插节点无键,确定性生成(格式对齐韵达既有 stage_2351_1_5150);
+            // 用户保存路径不传工厂、保持抛错——设计器提交必须自带稳定键
+            result = fallbackKeyFactory != null ? NormalizeKeyToken(fallbackKeyFactory()) : null;
+            if (string.IsNullOrWhiteSpace(result))
+                throw new InvalidOperationException($"节点“{stageName}”(排序 {sortOrder}) 必须携带稳定 StageKey");
+        }
         if (!usedKeys.Add(result))
             throw new InvalidOperationException($"节点 StageKey 重复：{result}");
         return result;
@@ -1066,15 +1138,9 @@ public class FlowDefinitionService : IFlowDefinitionService
         var draft = await _dbContext.Set<CfFlowVersion>()
             .FirstOrDefaultAsync(x => x.FFlowDefinitionId == definitionId && x.FStatus == "draft");
 
-        if (draft == null)
-        {
-            // 自动从当前已发布版本克隆一份草稿
-            var published = await _dbContext.Set<CfFlowVersion>()
-                .FirstOrDefaultAsync(x => x.FFlowDefinitionId == definitionId && x.FIsCurrentVersion);
-            if (published == null) return null; // 既无草稿也无已发布版本
-
-            draft = await CreateDraftFromSnapshotAsync(definitionId, published, published.FCreatorId);
-        }
+        // 读接口不再隐式建草稿：上传对话框/移动端填卡等纯读调用方曾借道此处误建草稿（空键定义首开即产僵尸）。
+        // 设计器需要草稿时显式走 POST versions/{versionId}/create-draft。
+        if (draft == null) return null;
 
         return await GetVersionDetailAsync(definitionId, draft.FID);
     }
@@ -1092,7 +1158,21 @@ public class FlowDefinitionService : IFlowDefinitionService
         if (sourceVersion.FStatus == "draft")
             throw new InvalidOperationException("不能从草稿版本创建草稿");
 
-        var draft = await CreateDraftFromSnapshotAsync(definitionId, sourceVersion, operatorId);
+        CfFlowVersion draft;
+        try
+        {
+            draft = await CreateDraftFromSnapshotAsync(definitionId, sourceVersion, operatorId);
+        }
+        catch (DbUpdateException)
+        {
+            // 单草稿唯一索引(UX_CF流程版本_单草稿)兜底：并发会话在上方 hasDraft 检查后抢先建了草稿。
+            // 复查确证后才转业务异常，避免把无关的 FK/NOT NULL 约束失败吞成"已存在草稿"误导排障。
+            var raced = await _dbContext.Set<CfFlowVersion>()
+                .AnyAsync(x => x.FFlowDefinitionId == definitionId && x.FStatus == "draft");
+            if (raced)
+                throw new InvalidOperationException("已存在未发布草稿，请先发布或放弃当前草稿");
+            throw;
+        }
         _logger.LogInformation("从历史版本创建草稿：定义 {DefinitionId}，源版本 v{SourceVersion}(FID={SourceId}) → 草稿 v{DraftVersion}，操作人 {OperatorId}",
             definitionId, sourceVersion.FVersionNumber, sourceVersion.FID, draft.FVersionNumber, operatorId);
 
@@ -1101,7 +1181,10 @@ public class FlowDefinitionService : IFlowDefinitionService
 
     /// <summary>以指定版本为快照新建草稿版本（复制 schema JSON + 节点 + 路由 + 动态策略）。
     /// 调用方须先保证单草稿不变量（当前定义下无 draft 版本）。</summary>
-    private async Task<CfFlowVersion> CreateDraftFromSnapshotAsync(long definitionId, CfFlowVersion sourceVersion, long creatorId)
+    private Task<CfFlowVersion> CreateDraftFromSnapshotAsync(long definitionId, CfFlowVersion sourceVersion, long creatorId)
+        => WithDefinitionTransactionAsync(() => CreateDraftFromSnapshotCoreAsync(definitionId, sourceVersion, creatorId));
+
+    private async Task<CfFlowVersion> CreateDraftFromSnapshotCoreAsync(long definitionId, CfFlowVersion sourceVersion, long creatorId)
     {
         var maxVersion = await _dbContext.Set<CfFlowVersion>()
             .Where(x => x.FFlowDefinitionId == definitionId)
@@ -1134,7 +1217,8 @@ public class FlowDefinitionService : IFlowDefinitionService
             var clone = new CfStageDefinition
             {
                 FFlowVersionId = draft.FID,
-                FStageKey = EnsureStageKey(src.FStageKey, src.FSortOrder, src.FStageName, usedStageKeys),
+                FStageKey = EnsureStageKey(src.FStageKey, src.FSortOrder, src.FStageName, usedStageKeys,
+                    () => $"stage_{sourceVersion.FID}_{src.FSortOrder}_{src.FID}"),
                 FSortOrder = src.FSortOrder,
                 FStageName = src.FStageName,
                 FType = src.FType,
@@ -1189,7 +1273,13 @@ public class FlowDefinitionService : IFlowDefinitionService
 
     /// <summary>克隆主体：建定义 + 复制当前发布版本/节点/路由/动态策略。
     /// asGlobalTemplate=true 时把定义建为全局(FOrgId=0)并抑制自动组织填充；否则落当前组织(FillOrgId)。</summary>
-    private async Task<CfFlowDefinition> CloneInternalAsync(
+    private Task<CfFlowDefinition> CloneInternalAsync(
+        CfFlowDefinition sourceDefinition, string flowName, string flowCode, string? description,
+        bool asGlobalTemplate, long operatorId)
+        => WithDefinitionTransactionAsync(() => CloneInternalCoreAsync(
+            sourceDefinition, flowName, flowCode, description, asGlobalTemplate, operatorId));
+
+    private async Task<CfFlowDefinition> CloneInternalCoreAsync(
         CfFlowDefinition sourceDefinition, string flowName, string flowCode, string? description,
         bool asGlobalTemplate, long operatorId)
     {
@@ -1253,7 +1343,8 @@ public class FlowDefinitionService : IFlowDefinitionService
                 _dbContext.Set<CfStageDefinition>().Add(new CfStageDefinition
                 {
                     FFlowVersionId = newVersion.FID,
-                    FStageKey = EnsureStageKey(src.FStageKey, src.FSortOrder, src.FStageName, usedStageKeys),
+                    FStageKey = EnsureStageKey(src.FStageKey, src.FSortOrder, src.FStageName, usedStageKeys,
+                        () => $"stage_{sourceVersion.FID}_{src.FSortOrder}_{src.FID}"),
                     FSortOrder = src.FSortOrder,
                     FStageName = src.FStageName,
                     FType = src.FType,
@@ -1404,7 +1495,10 @@ public class FlowDefinitionService : IFlowDefinitionService
     /// 从源流程的当前发布版本复制版本+节点到目标定义（用于更新已存在模板）。
     /// 目标版本设置为 published 且 IsCurrentVersion=true，版本号=1。
     /// </summary>
-    private async Task CopyCurrentVersionToTemplateAsync(long sourceDefinitionId, long targetDefinitionId, long operatorId)
+    private Task CopyCurrentVersionToTemplateAsync(long sourceDefinitionId, long targetDefinitionId, long operatorId)
+        => WithDefinitionTransactionAsync(() => CopyCurrentVersionToTemplateCoreAsync(sourceDefinitionId, targetDefinitionId, operatorId));
+
+    private async Task CopyCurrentVersionToTemplateCoreAsync(long sourceDefinitionId, long targetDefinitionId, long operatorId)
     {
         var sourceVersion = await _dbContext.Set<CfFlowVersion>()
             .FirstOrDefaultAsync(x => x.FFlowDefinitionId == sourceDefinitionId && x.FIsCurrentVersion);
@@ -1437,7 +1531,8 @@ public class FlowDefinitionService : IFlowDefinitionService
             var newStage = new CfStageDefinition
             {
                 FFlowVersionId = newVersion.FID,
-                FStageKey = EnsureStageKey(src.FStageKey, src.FSortOrder, src.FStageName, usedStageKeys),
+                FStageKey = EnsureStageKey(src.FStageKey, src.FSortOrder, src.FStageName, usedStageKeys,
+                    () => $"stage_{sourceVersion.FID}_{src.FSortOrder}_{src.FID}"),
                 FSortOrder = src.FSortOrder,
                 FStageName = src.FStageName,
                 FType = src.FType,

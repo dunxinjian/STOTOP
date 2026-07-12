@@ -17,8 +17,7 @@ import type {
 } from '@/types/cardflow'
 import {
   getFlowDefinitions,
-  getFlowDraftVersion,
-  getFlowVersionDetail,
+  getEffectiveFlowVersionDetail,
   uploadBatch,
 } from '@/api/cardflow'
 import { parseCardSchemaFields } from '@/utils/cardflowSchema'
@@ -114,20 +113,8 @@ function parseTriggerConfig(flow: any): TriggerConfig | null {
 
 async function loadFlowSchema(id: number) {
   try {
-    let ver
-    try {
-      // 优先取已发布版本（通过流程详情拿到 currentVersionId 的代价较高，直接用 draft 兜底）
-      ver = await getFlowDraftVersion(id)
-    } catch {
-      ver = null
-    }
-    if (!ver) {
-      // 回退到取版本列表的当前版本
-      const flow: any = flowOptions.value.find((f) => f.id === id)
-      if (flow?.currentVersionId) {
-        ver = await getFlowVersionDetail(id, flow.currentVersionId)
-      }
-    }
+    // 草稿优先、无草稿回退当前发布版（GET draft-version 已去写副作用，统一走共享助手）。
+    const ver = await getEffectiveFlowVersionDetail(id)
     schemaFields.value = parseSchemaJson(ver?.cardSchemaJson)
     const flow: any = flowOptions.value.find((f) => f.id === id)
     triggerConfig.value = parseTriggerConfig(flow)

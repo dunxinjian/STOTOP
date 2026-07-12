@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { PlusOutlined, DeleteOutlined, ArrowRightOutlined } from '@ant-design/icons-vue'
 import ConditionBuilder from '@/components/cardflow/ConditionBuilder.vue'
 import type { ConditionGroup, FieldOption } from '@/components/cardflow/ConditionBuilder.vue'
-import { getFlowDefinitions, getFlowDraftVersion } from '@/api/cardflow'
+import { getFlowDefinitions, getEffectiveFlowVersionDetail } from '@/api/cardflow'
 import type {
   FlowDefinitionDto,
   FlowGroupLinkDto,
@@ -65,8 +65,9 @@ async function loadFlows() {
 async function fetchFlowFields(flowId: number): Promise<SchemaFieldDefinition[]> {
   if (fieldCache.value.has(flowId)) return fieldCache.value.get(flowId)!
   try {
-    const draft = await getFlowDraftVersion(flowId)
-    const json = draft?.cardSchemaJson
+    // 草稿优先、无草稿回退当前发布版（GET draft-version 已去写副作用，统一走共享助手）。
+    const ver = await getEffectiveFlowVersionDetail(flowId)
+    const json = ver?.cardSchemaJson
     if (!json) {
       fieldCache.value.set(flowId, [])
       return []

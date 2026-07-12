@@ -101,6 +101,7 @@ public static class CardFlowSeeder
             new(77, "韵达凭证规则回填(财务确认版,源=韵达交易-科目映射建议-已修改7.11.xlsx): 规则3151 应用财务21改(11账户改码含5处 往来→损益 重分类:共创基金/复工保证金→其他收入·仲裁代收代付→客服赔款/总部平台单 + 10处进出港BD;268-7/268-8保证金往来无BD维不落) + 种2个韵达outlet辅助项(992209城区/744706浏河) + 流程版本2351接autoVoucher节点5151 — 资金类282-x走createDraft (2026-07-11)", MigrateV77),
             new(78, "极兔导入修缺陷(真实文件E2E暴露): STG极兔总部交易明细 F交易类型 改可空 — 资金类「提现」行交易类型为空,插件写DBNull而NOT NULL列 SqlBulkCopy 不套DEFAULT 致导入整批失败(对齐申通V58 F费用名称改可空) (2026-07-11)", MigrateV78),
             new(79, "M8-E 发起人自选(initiatorSelect): CF流程实例 加 F发起人指定处理人JSON 列(nvarchar(max) null) — 发起时按 stageKey 存 {stageKey:[{userId,userName}]}, resolver initiatorSelect 分支按节点键取选人 (2026-07-12)", MigrateV79),
+            new(80, "流程定义卫生修复(编号让位M8-E已占用的V79): ①CF流程节点 空F节点键全表回填 stage_{版本}_{排序}_{FID}(32行,修设计器克隆抛错) ②清除0节点僵尸草稿(31个,空草稿压住正常发布版致设计器空白) ③韵达2350当前版本动态接autoVoucher节点(修V77插旧版2351之误,凭证链真正上线) ④CF流程版本单草稿过滤唯一索引(防并发双建草稿) (2026-07-12)", MigrateV80),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -123,6 +124,68 @@ public static class CardFlowSeeder
     {
         if (!SeederHelper.IsSqlServer(ctx)) return;
         ExecSql(ctx, @"IF COL_LENGTH(N'CF流程实例', N'F发起人指定处理人JSON') IS NULL ALTER TABLE [CF流程实例] ADD [F发起人指定处理人JSON] NVARCHAR(MAX) NULL;");
+    }
+
+    /// <summary>
+    /// V80 流程定义卫生修复(编号原为V79,合并master时撞M8-E已占用的V79[initiatorSelect]而让位)
+    /// (全量清查证据: 31个0节点僵尸草稿 / 32个空F节点键已发布节点 / 韵达当前版本缺凭证节点):
+    ///   ① 空键回填——早期 seeder(V54-58/V64/派件V*)直插节点未给 F节点键,设计器打开时克隆草稿在 EnsureStageKey 抛错,
+    ///      半途留下0节点僵尸草稿(先落版本行后克隆、无事务)。键格式对齐韵达既有 stage_2351_1_5150;
+    ///      已核实全部空键版本无路由行,无需键重映射。
+    ///   ② 僵尸草稿清除——判据: draft + 节点/路由/动态策略三表皆空 + 定义存在含节点的已发布当前版本
+    ///      (新建定义的合法初始草稿无已发布版本,不误删)。
+    ///   ③ 韵达 autoVoucher 接线——V77 硬编码版本 FID=2351,但 dev 当时当前版本已是 2354(07-08 设计器发布),
+    ///      批次链只认 F是否当前版本 实时解析(FlowEngineService.ProcessBatchStagesAsync),故凭证节点从未生效。
+    ///      本次按 F是否当前版本=1 动态解析目标版本,幂等判据=该版本已有 AutoVoucher 插件节点;
+    ///      不删 2351 上的 5151(其他库可能仍以 2351 为当前版本)。
+    ///   ④ 单草稿过滤唯一索引——GetDraftVersionAsync/SaveDraftVersionAsync 的 check-then-act 并发可双建草稿,
+    ///      加 DB 兜底;先清僵尸再建,若仍有同定义多草稿则跳过(不阻塞启动)。
+    ///      注意: 该索引不进 EF 配置——HasFilter 为关系型注解,InMemory 会退化成无过滤唯一索引炸测试。
+    /// </summary>
+    private static void MigrateV80(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+
+        // ① 空键回填
+        ExecSql(ctx, @"
+        UPDATE [CF流程节点]
+        SET [F节点键] = CONCAT(N'stage_', [F流程版本ID], N'_', [F排序号], N'_', [FID])
+        WHERE [F节点键] IS NULL OR LTRIM(RTRIM([F节点键])) = N'';");
+
+        // ② 僵尸草稿清除(持 F流程版本ID 的子表全集=节点/路由/动态策略/流程实例,已核对 Configurations 全目录;
+        //    卡片只锁已发布版本、理论上不会指草稿,NOT EXISTS 流程实例仅作防御)
+        ExecSql(ctx, @"
+        DELETE v FROM [CF流程版本] v
+        WHERE v.[F状态] = N'draft'
+          AND NOT EXISTS (SELECT 1 FROM [CF流程节点]     n WHERE n.[F流程版本ID] = v.[FID])
+          AND NOT EXISTS (SELECT 1 FROM [CF节点流转规则] r WHERE r.[F流程版本ID] = v.[FID])
+          AND NOT EXISTS (SELECT 1 FROM [CF动态审批策略] p WHERE p.[F流程版本ID] = v.[FID])
+          AND NOT EXISTS (SELECT 1 FROM [CF流程实例]     c WHERE c.[F流程版本ID] = v.[FID])
+          AND EXISTS (SELECT 1 FROM [CF流程版本] pub
+                      WHERE pub.[F流程定义ID] = v.[F流程定义ID]
+                        AND pub.[F是否当前版本] = 1 AND pub.[F状态] = N'published'
+                        AND EXISTS (SELECT 1 FROM [CF流程节点] pn WHERE pn.[F流程版本ID] = pub.[FID]));");
+
+        // ③ 韵达 2350 当前版本接 autoVoucher(动态解析,幂等)
+        ExecSql(ctx, @"
+        DECLARE @curVer BIGINT = (SELECT TOP 1 [FID] FROM [CF流程版本]
+                                  WHERE [F流程定义ID] = 2350 AND [F是否当前版本] = 1 AND [F状态] = N'published');
+        DECLARE @avReg BIGINT = ISNULL((SELECT TOP 1 [FID] FROM [CF自动插件注册] WHERE [F插件编码] = N'AutoVoucher'), 5);
+        IF @curVer IS NOT NULL
+           AND EXISTS (SELECT 1 FROM [CF自动插件_规则] WHERE [FID] = 3151)
+           AND NOT EXISTS (SELECT 1 FROM [CF流程节点] WHERE [F流程版本ID] = @curVer AND [F插件注册ID] = @avReg)
+        BEGIN
+            DECLARE @sort INT = (SELECT ISNULL(MAX([F排序号]), 0) + 1 FROM [CF流程节点] WHERE [F流程版本ID] = @curVer);
+            INSERT INTO [CF流程节点] ([F流程版本ID],[F排序号],[F节点名称],[F节点键],[F类型],[F处理粒度],[F审批模式],[F插件注册ID],[F插件规则ID])
+            VALUES (@curVer, @sort, N'自动凭证', CONCAT(N'stage_', @curVer, N'_av_', @sort), N'auto', N'batch', N'single', @avReg, 3151);
+        END");
+
+        // ④ 单草稿过滤唯一索引(先清僵尸后建;存量多草稿则跳过)
+        ExecSql(ctx, @"
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_CF流程版本_单草稿' AND object_id = OBJECT_ID(N'CF流程版本'))
+           AND NOT EXISTS (SELECT 1 FROM [CF流程版本] WHERE [F状态] = N'draft'
+                           GROUP BY [F流程定义ID] HAVING COUNT(*) > 1)
+        CREATE UNIQUE INDEX [UX_CF流程版本_单草稿] ON [CF流程版本]([F流程定义ID]) WHERE [F状态] = N'draft';");
     }
 
     // ══════════════════════════════════════════════════════════════════════

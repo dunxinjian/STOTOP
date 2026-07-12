@@ -169,6 +169,15 @@ export function getFlowDraftVersion(id: number) {
   return get<FlowVersionDetailDto>(`/cardflow/definitions/${id}/draft-version`)
 }
 
+/** 取"生效版本"详情：草稿优先，无草稿回退当前发布版（GET draft-version 已无建草稿副作用，纯读场景统一走这里）。 */
+export async function getEffectiveFlowVersionDetail(flowId: number): Promise<FlowVersionDetailDto | null> {
+  const draft = await getFlowDraftVersion(flowId).catch(() => null)
+  if (draft) return draft
+  const versions = await getFlowVersions(flowId).catch(() => [])
+  const current = (versions || []).find((v) => v.isCurrentVersion)
+  return current ? getFlowVersionDetail(flowId, current.id) : null
+}
+
 /** 放弃（删除）草稿版本 */
 export function discardFlowDraftVersion(id: number) {
   return del(`/cardflow/definitions/${id}/draft-version`)

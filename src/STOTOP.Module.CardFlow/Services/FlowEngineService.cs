@@ -202,7 +202,30 @@ public class FlowEngineService : IFlowEngineService
         if (batch.FCurrentBatchStageOrder.HasValue)
         {
             startIndex = stages.FindIndex(s => s.FSortOrder > batch.FCurrentBatchStageOrder.Value);
-            if (startIndex < 0) return;
+            if (startIndex < 0)
+            {
+                // 游标之后已无可执行的批次级节点（游标停在末节点）。
+                // 历史上此处直接 return；但当调用方(如 retry-continue 补跑、或崩溃恢复)
+                // 已先把批次置为 Processing(4) 后再进入本方法时，直接返回会让批次永久卡在
+                // “处理中(4)”——因为收尾置 5 的逻辑(见本方法末尾无卡片分支 行398-414)不可达。
+                // 此处补一段与该无卡片收尾分支同款的兜底(Reload + TransitionBatchStatusAsync(5) + 日志)。
+                // 仅在 Processing 态兜底：其它状态(如已终态/已撤销)不擅自改动。
+                // 防御：若仍存在未推进的草稿卡片(极窄的崩溃恢复窗口——FanOut 已建卡但卡片级链尚未跑完)，
+                // 则不擅自置完成，保持原有 return 行为交由后续恢复处理，避免遗漏卡片却谎报完成。
+                if (batch.FStatus == CfBatchStatus.Processing)
+                {
+                    var hasPendingDraftCards = await _dbContext.Set<CfCard>()
+                        .AnyAsync(c => c.FBatchId == batch.FID && c.FStatus == "draft", ct);
+                    if (!hasPendingDraftCards)
+                    {
+                        ReloadBatchDetachConflicts(batch);
+                        try { await _dbContext.Entry(batch).ReloadAsync(ct); } catch { /* 忽略 */ }
+                        await _batchLifecycle.TransitionBatchStatusAsync(batch, 5); // 5=已完成
+                        _logger.LogInformation("批次 {BatchId} 游标已达末节点、无剩余批次级节点，补收尾标记为已完成", batch.FID);
+                    }
+                }
+                return;
+            }
         }
 
         // 4. 收集本次要执行的批次级节点及插件编码
