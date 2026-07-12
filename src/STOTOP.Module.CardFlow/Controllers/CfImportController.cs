@@ -957,7 +957,11 @@ public class CfImportController : ControllerBase
                       && batch.FImportStartTime.HasValue
                       && (DateTime.Now - batch.FImportStartTime.Value).TotalMinutes > 10;
 
-        if (!retryableStatuses.Contains(batch.FStatus) && !isStuck)
+        // 已完成批次仅允许 continue 补跑（流程定义新增节点后的回补场景，如韵达凭证节点接线）；
+        // full-restart 会重导入，跨批次去重会把重复行清零，故对已完成批次仍拒。
+        var isCompletedContinue = batch.FStatus == CfBatchStatus.Completed && mode == "continue";
+
+        if (!retryableStatuses.Contains(batch.FStatus) && !isStuck && !isCompletedContinue)
             return BadRequest(new { message = $"当前状态 [{batch.FStatus}] 不允许重试" });
 
         if (mode == "full-restart")
