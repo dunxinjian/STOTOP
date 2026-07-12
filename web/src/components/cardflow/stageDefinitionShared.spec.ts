@@ -189,4 +189,17 @@ describe('formatAssigneeSummary（竖向图节点「处理人」摘要）', () =
       assigneeConfigJson: undefined,
     }))).toBe('上一节点处理人·最近完成')
   })
+
+  it('ASSIGNEE_STRATEGY_LABELS 覆盖 initiatorSelect', () => {
+    expect(ASSIGNEE_STRATEGY_LABELS.initiatorSelect).toBe('发起人自选')
+  })
+
+  it('normalizeAssigneeStrategy 认 initiatorSelect 变体', () => {
+    expect(normalizeAssigneeStrategy('initiatorselect')).toBe('initiatorSelect')
+    expect(normalizeAssigneeStrategy('initiatorSelect')).toBe('initiatorSelect')
+  })
+
+  it('initiatorSelect 策略 → 摘要固定文案「发起人自选」（无附属配置）', () => {
+    expect(formatAssigneeSummary(stage({ assigneeStrategy: 'initiatorSelect' }))).toBe('发起人自选')
+  })
 })

@@ -38,6 +38,7 @@ public class CfCardConfiguration : IEntityTypeConfiguration<CfCard>
         builder.Property(e => e.FReturnUrl).HasColumnName("F返回地址").HasMaxLength(500);
         builder.Property(e => e.FInitialDataJson).HasColumnName("F初始数据JSON");
         builder.Property(e => e.FSourceTitle).HasColumnName("F来源标题").HasMaxLength(200);
+        builder.Property(e => e.FInitiatorAssignmentsJson).HasColumnName("F发起人指定处理人JSON");
         builder.Property(e => e.FRowVersion).HasColumnName("F乐观锁").IsRowVersion();
 
         builder.HasIndex(e => e.FCardNumber).IsUnique()

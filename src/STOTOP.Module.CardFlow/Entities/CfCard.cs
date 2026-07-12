@@ -41,5 +41,8 @@ public class CfCard : BaseEntity, IOrgScoped, ITenantScoped
     public string? FInitialDataJson { get; set; }
     /// <summary>来源业务展示标题</summary>
     public string? FSourceTitle { get; set; }
+    /// <summary>发起人自选处理人(initiatorSelect 策略)：发起时按 stageKey 指定后续节点处理人。
+    /// 格式 { "&lt;stageKey&gt;": [{ "userId": long, "userName": string }] }。null=未指定。</summary>
+    public string? FInitiatorAssignmentsJson { get; set; }
     public byte[] FRowVersion { get; set; } = Array.Empty<byte>();
 }

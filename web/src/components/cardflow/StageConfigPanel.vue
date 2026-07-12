@@ -64,6 +64,7 @@ const ASSIGNEE_STRATEGIES = [
   { value: 'superiorChain', label: '连续多级主管', hint: '从发起人沿直属上级链逐级向上取 N 级主管' },
   { value: 'prevStage', label: '上一节点处理人', hint: '由上一节点(或指定来源节点)的处理人继续处理' },
   { value: 'initiator', label: '发起人',   hint: '由流程发起人处理' },
+  { value: 'initiatorSelect', label: '发起人自选', hint: '发起时由发起人为本节点指定处理人' },
 ]
 
 const FALLBACK_OPTIONS = [
@@ -537,7 +538,7 @@ function setDetailRequired(fieldKey: string, checked: boolean) {
 }
 
 function isFallbackConfigStrategy(strategy?: string) {
-  return strategy === 'role' || strategy === 'fixed' || strategy === 'fieldUsers' || strategy === 'orgChain' || strategy === 'superiorChain' || strategy === 'prevStage'
+  return strategy === 'role' || strategy === 'fixed' || strategy === 'fieldUsers' || strategy === 'orgChain' || strategy === 'superiorChain' || strategy === 'prevStage' || strategy === 'initiatorSelect'
 }
 
 function fallbackFromConfig(config: any): AssigneeFallbackType {
@@ -588,6 +589,9 @@ function buildAssigneeConfig(stage: StageDefinition) {
     const config: Record<string, unknown> = { fallback }
     if (editPrevSourceStageKey.value) config.sourceStageKey = editPrevSourceStageKey.value
     return config
+  }
+  if (stage.assigneeStrategy === 'initiatorSelect') {
+    return { fallback }
   }
   return null
 }

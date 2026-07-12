@@ -722,6 +722,7 @@ public class FlowDefinitionService : IFlowDefinitionService
         "orgchain" => "orgChain",
         "superiorchain" => "superiorChain",
         "prevstage" => "prevStage",
+        "initiatorselect" => "initiatorSelect",
         "" => "initiator",
         _ => strategy!.ToLowerInvariant()
     };

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, watch, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, reactive, watch, computed, onMounted, onBeforeUnmount, nextTick, type WritableComputedRef } from 'vue'
 import {
   ActionSheet as VanActionSheet,
   Field as VanField,
@@ -49,6 +49,7 @@ import { useOrgContextStore } from '@/stores/orgContext'
 import { useUserStore } from '@/stores/user'
 import { defaultCardHeaderConfig, parseCardSchemaFields, parseCardSchemaHeader, parseDetailSchemaFields } from '@/utils/cardflowSchema'
 import { useStageWorkView } from '@/composables/useStageWorkView'
+import { useUserSearch } from '@/composables/useUserSearch'
 
 // ==================== Props & Emits ====================
 
@@ -134,6 +135,14 @@ const editDetailRows = ref<DetailRow[]>([])
 // 保留每行的明细表归属（rowId → detailTableKey），保存时回传，避免非 default 表行被归并回 default
 const detailTableKeys = new Map<string, string>()
 const formErrors = ref<Record<string, string>>({})
+
+// 发起人自选(initiatorSelect)：fill 模式下为配了该策略的节点指定处理人
+const {
+  userOptions: initiatorUserOptions, loading: initiatorUserLoading,
+  search: onInitiatorUserSearch, pin: pinInitiatorUser,
+} = useUserSearch({ pageSize: 50 })
+const initiatorSelectStages = ref<{ stageKey: string; stageName: string }[]>([])
+const initiatorAssignments = ref<Record<string, { userId: number; userName: string }[]>>({})
 
 // 键盘补偿
 const keyboardOffset = ref(0)
@@ -607,6 +616,8 @@ async function loadCardDetail(id: number | string) {
   stageFieldsData.value = {}
   formErrors.value = {}
   budgetPreview.value = null
+  initiatorSelectStages.value = []
+  initiatorAssignments.value = {}
   try {
     const card = (await getCard(numId)) as CardDetailDto
     cardDetail.value = card
@@ -624,6 +635,10 @@ async function loadCardDetail(id: number | string) {
         detailSchema.value = parseDetailSchemaFields(ver.detailSchemaJson)
         // 从流程设置中提取账套 ID（若存在）
         flowAccountSetId.value = parseAccountSetId(ver.flowSettingsJson)
+        // 发起人自选(initiatorSelect)：全部配了该策略的节点超集，供 fill 模式选人器渲染
+        initiatorSelectStages.value = (ver.stages || [])
+          .filter(s => s.assigneeStrategy === 'initiatorSelect' && s.stageKey)
+          .map(s => ({ stageKey: s.stageKey as string, stageName: s.stageName || (s.stageKey as string) }))
       } catch {
         cardSchema.value = []
         cardHeaderConfig.value = defaultCardHeaderConfig()
@@ -638,6 +653,19 @@ async function loadCardDetail(id: number | string) {
       editDetailRows.value = [...viewDetailRows.value]
       applyAutoIdentityDefaults()
       void ensureUserContextDefaults()
+
+      // 回显已存的发起人自选(initiatorSelect)草稿选择
+      try {
+        initiatorAssignments.value = card.initiatorAssignmentsJson ? JSON.parse(card.initiatorAssignmentsJson) : {}
+      } catch {
+        initiatorAssignments.value = {}
+      }
+      initiatorAssignments.value = { ...initiatorAssignments.value }
+      // pin 已选项以便回显 label（远端搜索换页不丢失）
+      Object.values(initiatorAssignments.value).flat().forEach(u =>
+        pinInitiatorUser({ label: u.userName || `#${u.userId}`, value: u.userId, name: u.userName || `#${u.userId}` }))
+      // 预拉初始候选（无关键词），便于未搜索时也有可选项
+      if (initiatorSelectStages.value.length) void onInitiatorUserSearch('')
     }
 
     // 审批模式：补充字段预填卡片现值，便于在原值基础上修改
@@ -1106,6 +1134,28 @@ function validateFillForm(): boolean {
   return true
 }
 
+// 发起人自选(initiatorSelect)：stageKey → 已选用户ID[] 双向代理（a-select mode="multiple" 只认原始值数组）。
+// 按 stageKey 缓存 computed（镜像 StageConfigPanel.ccUserIds 的 v-model:value 用法，绕开 AntD SelectValue 联合类型）。
+const initiatorPickedCache = new Map<string, WritableComputedRef<number[]>>()
+function initiatorPicked(stageKey: string): WritableComputedRef<number[]> {
+  let cached = initiatorPickedCache.get(stageKey)
+  if (!cached) {
+    cached = computed<number[]>({
+      get: () => (initiatorAssignments.value[stageKey] || []).map(u => u.userId),
+      set: (ids) => {
+        const prev = new Map((initiatorAssignments.value[stageKey] || []).map(u => [u.userId, u]))
+        initiatorAssignments.value[stageKey] = ids.map(id => {
+          const opt = initiatorUserOptions.value.find(o => o.value === id)
+          return { userId: id, userName: opt?.name || prev.get(id)?.userName || '' }
+        })
+        initiatorAssignments.value = { ...initiatorAssignments.value }
+      },
+    })
+    initiatorPickedCache.set(stageKey, cached)
+  }
+  return cached
+}
+
 function buildSavePayload() {
   syncDetailSourcedFields()
   const details = editDetailRows.value.map((row, index) => {
@@ -1121,6 +1171,7 @@ function buildSavePayload() {
     dataJson: JSON.stringify(editFormData.value),
     concurrencyStamp: cardDetail.value?.concurrencyStamp ?? null,
     details,
+    initiatorAssignmentsJson: initiatorSelectStages.value.length ? JSON.stringify(initiatorAssignments.value) : null,
   }
 }
 
@@ -1430,6 +1481,25 @@ void showDialog
               mode="compact"
               :current-round="cardDetail.currentRound"
             />
+          </div>
+
+          <!-- 发起人自选(initiatorSelect)：为配了该策略的节点指定处理人 -->
+          <div v-if="mode === 'fill' && initiatorSelectStages.length" class="cf-panel__initiator-assign cf-panel__form-section">
+            <div class="cf-panel__section-title">指定处理人</div>
+            <div v-for="st in initiatorSelectStages" :key="st.stageKey" class="cf-panel__assign-row">
+              <label>{{ st.stageName }}</label>
+              <a-select
+                v-model:value="initiatorPicked(st.stageKey).value"
+                mode="multiple"
+                style="width: 100%"
+                placeholder="搜索并选择处理人"
+                :options="initiatorUserOptions"
+                :loading="initiatorUserLoading"
+                show-search
+                :filter-option="false"
+                @search="onInitiatorUserSearch"
+              />
+            </div>
           </div>
         </template>
       </div>
@@ -1974,6 +2044,23 @@ void showDialog
       font-weight: 700;
       line-height: 1.2;
       overflow-wrap: anywhere;
+    }
+  }
+
+  &__initiator-assign {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  &__assign-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    label {
+      font-size: 12px;
+      color: var(--text-2);
     }
   }
 

@@ -420,6 +420,8 @@ export interface CardDetailDto extends CardListDto {
   details: CardDetailRowDto[]
   auditTrail: CardFlowRuntimeAuditDto[]
   currentStageWorkView?: StageWorkView | null
+  /** M8-E 件③：发起人自选(initiatorSelect)已选处理人回显，{ stageKey: [{userId,userName}] }。 */
+  initiatorAssignmentsJson?: string | null
 }
 
 export interface CardFlowRuntimeAuditDto {
@@ -701,6 +703,8 @@ export interface UpdateCardRequest {
   dataJson?: string | null
   concurrencyStamp?: string | null
   details?: UpdateCardDetailRequest[] | null
+  /** 发起人自选(initiatorSelect)：{ stageKey: [{userId,userName}] }。null=不更新。 */
+  initiatorAssignmentsJson?: string | null
 }
 
 export interface UpdateCardDetailRequest {

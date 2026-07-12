@@ -39,6 +39,7 @@ public sealed class ApproverResolver : IApproverResolver
             "initiator" => await ResolveUserIdsAsync(new[] { initiatorId }, "initiator", cancellationToken),
             "superiorChain" => await ResolveSuperiorChainAsync(config, initiatorId, cancellationToken),
             "prevStage" => await ResolvePrevStageAsync(config, stageDefinition, card, cancellationToken),
+            "initiatorSelect" => await ResolveInitiatorSelectAsync(card, stageDefinition, cancellationToken),
             _ => new ApproverResolveResult { ErrorMessage = $"不支持的处理人策略：{stageDefinition.FAssigneeStrategy}" }
         };
 
@@ -314,6 +315,25 @@ public sealed class ApproverResolver : IApproverResolver
         return await ResolveUserIdsAsync(userIds, "prevStage", cancellationToken);
     }
 
+    /// <summary>
+    /// 发起人自选：发起时持久化于 CfCard.FInitiatorAssignmentsJson({ stageKey: [{userId,userName}] })，
+    /// 本节点按 FStageKey 取发起人为其指定的处理人。未指定→空集交 ApplyFallbackAsync/fail-closed。
+    /// </summary>
+    private async global::System.Threading.Tasks.Task<ApproverResolveResult> ResolveInitiatorSelectAsync(
+        CfCard card,
+        CfStageDefinition stageDefinition,
+        CancellationToken cancellationToken)
+    {
+        var assignments = ParseObject(card.FInitiatorAssignmentsJson);
+        if (!TryGetProperty(assignments, stageDefinition.FStageKey, out var picked))
+        {
+            return new ApproverResolveResult();
+        }
+
+        var userIds = NormalizeJsonUserIds(picked).ToList();
+        return await ResolveUserIdsAsync(userIds, "initiatorSelect", cancellationToken);
+    }
+
     private async global::System.Threading.Tasks.Task<ApproverResolveResult> ResolveAmountMatrixAsync(
         JsonElement? config,
         IReadOnlyDictionary<string, object?> cardData,
@@ -534,6 +554,7 @@ public sealed class ApproverResolver : IApproverResolver
             "initiator" => "initiator",
             "superiorChain" => "superiorChain",
             "prevStage" => "prevStage",
+            "initiatorSelect" => "initiatorSelect",
             null or "" => "initiator",
             var value => value
         };

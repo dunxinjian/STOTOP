@@ -46,6 +46,7 @@ export function normalizeAssigneeStrategy(strategy?: string | null): string {
     case 'orgchain': return 'orgChain'
     case 'superiorchain': return 'superiorChain'
     case 'prevstage': return 'prevStage'
+    case 'initiatorselect': return 'initiatorSelect'
     case 'amountmatrix': return 'amountMatrix'
     case 'feetypebp': return 'feeTypeBp'
     case '': return ''
@@ -72,6 +73,7 @@ export const ASSIGNEE_STRATEGY_LABELS: Record<string, string> = {
   superiorChain: '连续多级主管',
   prevStage: '上一节点处理人',
   initiator: '发起人',
+  initiatorSelect: '发起人自选',
 }
 
 /**
@@ -93,6 +95,7 @@ export function formatAssigneeSummary(stage: StageDefinition): string {
   if (strategy === 'fieldUsers' && config?.fieldKey) return `${label}·${config.fieldKey}`
   if (strategy === 'superiorChain') return `${label}·${config?.maxLevels || 5}级`
   if (strategy === 'prevStage') return config?.sourceStageKey ? `${label}·${config.sourceStageKey}` : `${label}·最近完成`
+  if (strategy === 'initiatorSelect') return '发起人自选'
   return label
 }
 

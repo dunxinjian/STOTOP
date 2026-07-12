@@ -176,7 +176,8 @@ public class CardService : ICardService
             SourceId = card.FSourceId,
             ReturnUrl = card.FReturnUrl,
             InitialDataJson = card.FInitialDataJson,
-            SourceTitle = card.FSourceTitle
+            SourceTitle = card.FSourceTitle,
+            InitiatorAssignmentsJson = card.FInitiatorAssignmentsJson
         };
 
         // Load stage instances with assignees
@@ -888,6 +889,9 @@ public class CardService : ICardService
 
         if (request.DataJson != null)
             card.FDataJson = request.DataJson;
+
+        if (request.InitiatorAssignmentsJson != null)
+            card.FInitiatorAssignmentsJson = request.InitiatorAssignmentsJson;
 
         // 明细持久化（全量替换策略：清空旧明细后插入新明细）
         if (request.Details != null)

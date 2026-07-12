@@ -247,6 +247,8 @@ public class CardDetailDto : CardListDto
     public StageWorkViewDto? CurrentStageWorkView { get; set; }
     /// <summary>M8-D 件② P1：该卡锁定版本是否允许发起人撤回（allowInitiatorRevoke，缺失=true）。仅供运行时按钮展示，权威 gate 在 WithdrawAsync。</summary>
     public bool AllowInitiatorRevoke { get; set; } = true;
+    /// <summary>M8-E 件③：发起人自选(initiatorSelect)已选处理人回显，{ stageKey: [{userId,userName}] }。null=未指定过。</summary>
+    public string? InitiatorAssignmentsJson { get; set; }
 }
 
 public class StageInstanceDto

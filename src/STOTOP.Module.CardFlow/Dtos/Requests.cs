@@ -265,6 +265,8 @@ public class UpdateCardRequest
     public string? DataJson { get; set; }
     public string? ConcurrencyStamp { get; set; }
     public List<UpdateCardDetailRequest>? Details { get; set; }
+    /// <summary>发起人自选(initiatorSelect)：{ stageKey: [{userId,userName}] }。null=不更新。</summary>
+    public string? InitiatorAssignmentsJson { get; set; }
 }
 
 public class UpdateCardDetailRequest

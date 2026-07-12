@@ -375,4 +375,43 @@ public class ApproverResolverTests
         Assert.True(result.Success);
         Assert.Equal(new long[] { 52 }, result.Approvers.Select(a => a.UserId)); // OrderByDescending(FRound) 取最新轮次2
     }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task InitiatorSelect_ReadsAssignmentsByStageKey()
+    {
+        using var db = TestDbContextFactory.Create(nameof(InitiatorSelect_ReadsAssignmentsByStageKey));
+        db.Set<SysUser>().AddRange(
+            new SysUser { FID = 31, FName = "发起人指定甲", FStatus = 1 },
+            new SysUser { FID = 32, FName = "发起人指定乙", FStatus = 1 });
+        await db.SaveChangesAsync();
+
+        var resolver = new ApproverResolver(db);
+        var card = new CfCard { FID = 800, FInitiatorAssignmentsJson = """{"review":[{"userId":31,"userName":"发起人指定甲"},{"userId":32,"userName":"发起人指定乙"}]}""" };
+        var stage = new CfStageDefinition { FStageKey = "review", FAssigneeStrategy = "initiatorSelect" };
+
+        var result = await resolver.ResolveAsync(stage, card, new Dictionary<string, object?>(), flowOrgId: 100, initiatorId: 99);
+
+        Assert.True(result.Success);
+        Assert.Equal(new long[] { 31, 32 }, result.Approvers.Select(a => a.UserId));
+        Assert.All(result.Approvers, a => Assert.Equal("initiatorSelect", a.Source));
+    }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task InitiatorSelect_NoSelectionFallsBackToFlowAdmin()
+    {
+        using var db = TestDbContextFactory.Create(nameof(InitiatorSelect_NoSelectionFallsBackToFlowAdmin));
+        db.Set<SysUser>().Add(new SysUser { FID = 9, FName = "流程管理员", FStatus = 1 });
+        await db.SaveChangesAsync();
+
+        var resolver = new ApproverResolver(db);
+        var card = new CfCard { FID = 801, FInitiatorAssignmentsJson = """{"other":[{"userId":5}]}""" };
+        var stage = new CfStageDefinition { FStageKey = "review", FAssigneeStrategy = "initiatorSelect", FAssigneeConfigJson = """{"fallback":{"type":"flowAdmin"}}""" };
+
+        var result = await resolver.ResolveAsync(stage, card, new Dictionary<string, object?>(),
+            flowOrgId: 100, initiatorId: 99, flowSettingsJson: """{"approvalAdminUserIds":[9]}""");
+
+        Assert.True(result.Success);
+        Assert.Equal(9, result.Approvers[0].UserId);
+        Assert.Contains("flowAdmin", result.FallbackReason);
+    }
 }
