@@ -24,8 +24,7 @@ import {
   getBatches,
   revokeBatch,
   getFlowDefinitions,
-  getFlowVersionDetail,
-  getFlowDraftVersion,
+  getEffectiveFlowVersionDetail,
 } from '@/api/cardflow'
 import BatchUploadDialog from '@/components/cardflow/BatchUploadDialog.vue'
 import BatchProgressPanel from '@/components/cardflow/BatchProgressPanel.vue'
@@ -121,18 +120,8 @@ function parseSchemaJson(json?: string | null): SchemaFieldDefinition[] {
 async function ensureSchema(flowDefinitionId: number) {
   if (schemaCache.value[flowDefinitionId]) return schemaCache.value[flowDefinitionId]
   try {
-    let ver: any = null
-    try {
-      ver = await getFlowDraftVersion(flowDefinitionId)
-    } catch {
-      ver = null
-    }
-    if (!ver) {
-      const flow: any = flowOptions.value.find((f) => f.id === flowDefinitionId)
-      if (flow?.currentVersionId) {
-        ver = await getFlowVersionDetail(flowDefinitionId, flow.currentVersionId)
-      }
-    }
+    // 草稿优先、无草稿回退当前发布版（GET draft-version 已去写副作用，统一走共享助手）。
+    const ver = await getEffectiveFlowVersionDetail(flowDefinitionId)
     const fields = parseSchemaJson(ver?.cardSchemaJson)
     schemaCache.value[flowDefinitionId] = fields
     return fields

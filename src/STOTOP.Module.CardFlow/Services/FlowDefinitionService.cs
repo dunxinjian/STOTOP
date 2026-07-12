@@ -1134,15 +1134,9 @@ public class FlowDefinitionService : IFlowDefinitionService
         var draft = await _dbContext.Set<CfFlowVersion>()
             .FirstOrDefaultAsync(x => x.FFlowDefinitionId == definitionId && x.FStatus == "draft");
 
-        if (draft == null)
-        {
-            // 自动从当前已发布版本克隆一份草稿
-            var published = await _dbContext.Set<CfFlowVersion>()
-                .FirstOrDefaultAsync(x => x.FFlowDefinitionId == definitionId && x.FIsCurrentVersion);
-            if (published == null) return null; // 既无草稿也无已发布版本
-
-            draft = await CreateDraftFromSnapshotAsync(definitionId, published, published.FCreatorId);
-        }
+        // 读接口不再隐式建草稿：上传对话框/移动端填卡等纯读调用方曾借道此处误建草稿（空键定义首开即产僵尸）。
+        // 设计器需要草稿时显式走 POST versions/{versionId}/create-draft。
+        if (draft == null) return null;
 
         return await GetVersionDetailAsync(definitionId, draft.FID);
     }

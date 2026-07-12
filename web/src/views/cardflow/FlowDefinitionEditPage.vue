@@ -59,7 +59,7 @@ import SchemaRenderer from '@/components/cardflow/SchemaRenderer.vue'
 import {
   getFlowDefinition, createFlowDefinition, updateFlowDefinition,
   publishFlowDefinition, publishFlowDefinitionWithPolicy, getFlowVersions, getFlowVersionDetail,
-  getFlowDraftVersion, saveFlowDraftVersion,
+  getFlowDraftVersion, createDraftFromVersion, saveFlowDraftVersion,
   getFlowGroups, getFlowDefinitions, previewFlowDraftPath, previewPresentation,
 } from '@/api/cardflow'
 import { getRoleList, getUserList, getUserDetail, getPositionList } from '@/api/system'
@@ -1279,6 +1279,21 @@ async function loadData() {
       getFlowDefinition(flowId.value),
       getFlowDraftVersion(flowId.value).catch(() => null),
     ])
+    let draftDetail = draft
+    if (!draftDetail && !isNew.value) {
+      // GET draft-version 已去自动建草稿副作用：已发布定义首次进设计器，显式从当前发布版克隆草稿。
+      try {
+        const versions = await getFlowVersions(flowId.value)
+        const current = (versions || []).find(v => v.isCurrentVersion)
+        if (current) {
+          await createDraftFromVersion(flowId.value, current.id)
+          draftDetail = await getFlowDraftVersion(flowId.value).catch(() => null)
+        }
+      } catch {
+        // “已存在未发布草稿” = 并发会话抢先创建，直接重取
+        draftDetail = await getFlowDraftVersion(flowId.value).catch(() => null)
+      }
+    }
     const d = def as FlowDefinitionDto
     state.basic.flowName = d.flowName
     state.basic.flowCode = d.flowCode
@@ -1297,8 +1312,8 @@ async function loadData() {
       state.basic.matchFileNamePattern = typeof mp?.fileNamePattern === 'string' ? mp.fileNamePattern : ''
     } catch { state.basic.matchFileNamePattern = '' }
 
-    if (draft) {
-      const dv = draft as FlowVersionDetailDto
+    if (draftDetail) {
+      const dv = draftDetail as FlowVersionDetailDto
       draftVersionNumber.value = dv.versionNumber ?? null
       const cardSchemaPayload = parseCardSchemaPayload(dv.cardSchemaJson)
       state.cardSchema = cardSchemaPayload.fields
