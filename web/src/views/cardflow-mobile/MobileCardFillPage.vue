@@ -11,6 +11,11 @@ import {
   Cell as VanCell,
   Tag as VanTag,
   Empty as VanEmpty,
+  Popup as VanPopup,
+  Search as VanSearch,
+  CheckboxGroup as VanCheckboxGroup,
+  Checkbox as VanCheckbox,
+  Button as VanButton,
 } from 'vant'
 import { showToast, showConfirmDialog } from 'vant'
 import 'vant/es/nav-bar/style'
@@ -24,10 +29,16 @@ import 'vant/es/tag/style'
 import 'vant/es/empty/style'
 import 'vant/es/toast/style'
 import 'vant/es/dialog/style'
+import 'vant/es/popup/style'
+import 'vant/es/search/style'
+import 'vant/es/checkbox-group/style'
+import 'vant/es/checkbox/style'
+import 'vant/es/button/style'
 
 import SchemaRenderer from '@/components/cardflow/SchemaRenderer.vue'
 import CardDetailTable, { type DetailRow } from '@/components/cardflow/CardDetailTable.vue'
 import CardRelationPicker from '@/components/cardflow/CardRelationPicker.vue'
+import { useUserSearch } from '@/composables/useUserSearch'
 
 import {
   getCard,
@@ -70,6 +81,20 @@ const flowSettings = ref<Record<string, any>>({})
 const formData = ref<Record<string, any>>({})
 const detailRows = ref<DetailRow[]>([])
 const errors = ref<Record<string, string>>({})
+
+// 发起人自选(initiatorSelect)：配了该策略的节点（超集：条件路由不可预知激活，全部出选人器）
+const initiatorSelectStages = ref<{ stageKey: string; stageName: string }[]>([])
+// { stageKey: [{userId,userName}] }
+const initiatorAssignments = ref<Record<string, { userId: number; userName: string }[]>>({})
+// 选人弹层
+const {
+  userOptions: pickerUserOptions, loading: pickerLoading,
+  load: loadPickerUsers, search: searchPickerUsers, pin: pinPickerUser,
+} = useUserSearch({ pageSize: 50 })
+const pickerVisible = ref(false)
+const pickerStageKey = ref<string>('')
+const pickerKeyword = ref('')
+const pickerChecked = ref<number[]>([])
 
 const relations = ref<CardRelationDto[]>([])
 const offsets = ref<CardBalanceDto[]>([])
@@ -172,10 +197,15 @@ async function loadCard(silent = false) {
         cardSchema.value = parseSchema(version.cardSchemaJson)
         detailSchema.value = parseDetailSchemaFields(version.detailSchemaJson)
         flowSettings.value = parseSettings(version.flowSettingsJson)
+        // 发起人自选(initiatorSelect)：全部配了该策略的节点超集，供 fill 页选人器渲染
+        initiatorSelectStages.value = (version.stages || [])
+          .filter(s => s.assigneeStrategy === 'initiatorSelect' && s.stageKey)
+          .map(s => ({ stageKey: s.stageKey as string, stageName: s.stageName || (s.stageKey as string) }))
       } catch {
         cardSchema.value = []
         detailSchema.value = []
         flowSettings.value = {}
+        initiatorSelectStages.value = []
       }
     }
 
@@ -188,6 +218,13 @@ async function loadCard(silent = false) {
         parsedData = {}
       }
     }
+    // 发起人自选(initiatorSelect)：回显已存的选人结果
+    let parsedInitiatorAssignments: Record<string, { userId: number; userName: string }[]> = {}
+    try {
+      parsedInitiatorAssignments = cardRes.initiatorAssignmentsJson ? JSON.parse(cardRes.initiatorAssignmentsJson) : {}
+    } catch {
+      parsedInitiatorAssignments = {}
+    }
     // 检查 localStorage 是否有更新的离线数据
     const offlineRaw = typeof localStorage !== 'undefined' ? localStorage.getItem(lsKey.value) : null
     if (offlineRaw) {
@@ -198,6 +235,9 @@ async function loadCard(silent = false) {
           if (Array.isArray(offlineData.detailRows)) {
             detailRows.value = offlineData.detailRows
           }
+          if (offlineData.initiatorAssignments) {
+            parsedInitiatorAssignments = offlineData.initiatorAssignments
+          }
           showToast({ message: '已恢复离线缓存', position: 'bottom' })
         }
       } catch {
@@ -205,6 +245,10 @@ async function loadCard(silent = false) {
       }
     }
     formData.value = parsedData
+    initiatorAssignments.value = parsedInitiatorAssignments
+    // pin 已选项以便弹层回显名字（远端搜索换页不丢失）
+    Object.values(initiatorAssignments.value).flat().forEach(u =>
+      pinPickerUser({ label: u.userName || `#${u.userId}`, value: u.userId, name: u.userName || `#${u.userId}` }))
 
     // 明细
     if (!detailRows.value.length) {
@@ -249,7 +293,7 @@ async function onRefresh() {
 
 // 明细必须走 UpdateCardRequest.details 顶层字段（全量替换，后端据此汇总 amount 回写主表单）；
 // 内嵌进 dataJson 的明细后端零消费，审批端不可见
-function buildUpdatePayload(): { dataJson: string; details: UpdateCardDetailRequest[] } {
+function buildUpdatePayload(): { dataJson: string; details: UpdateCardDetailRequest[]; initiatorAssignmentsJson?: string | null } {
   return {
     dataJson: JSON.stringify(formData.value),
     details: detailRows.value.map((row, idx) => {
@@ -260,6 +304,7 @@ function buildUpdatePayload(): { dataJson: string; details: UpdateCardDetailRequ
         dataJson: JSON.stringify(data),
       }
     }),
+    initiatorAssignmentsJson: initiatorSelectStages.value.length ? JSON.stringify(initiatorAssignments.value) : null,
   }
 }
 
@@ -271,6 +316,7 @@ function cacheOffline() {
       JSON.stringify({
         formData: formData.value,
         detailRows: detailRows.value,
+        initiatorAssignments: initiatorAssignments.value,
         savedAt: new Date().toISOString(),
       })
     )
@@ -286,6 +332,41 @@ function clearOfflineCache() {
   } catch {
     // ignore
   }
+}
+
+// ==================== 发起人自选(initiatorSelect) ====================
+
+function openInitiatorPicker(stageKey: string) {
+  pickerStageKey.value = stageKey
+  pickerKeyword.value = ''
+  pickerChecked.value = (initiatorAssignments.value[stageKey] || []).map(u => u.userId)
+  pickerVisible.value = true
+  loadPickerUsers()
+}
+
+function confirmInitiatorPicker() {
+  const prev = new Map((initiatorAssignments.value[pickerStageKey.value] || []).map(u => [u.userId, u]))
+  initiatorAssignments.value = {
+    ...initiatorAssignments.value,
+    [pickerStageKey.value]: pickerChecked.value.map(id => {
+      const opt = pickerUserOptions.value.find(o => o.value === id)
+      return { userId: id, userName: opt?.name || prev.get(id)?.userName || `#${id}` }
+    }),
+  }
+  pickerVisible.value = false
+}
+
+function toggleInitiatorChecked(id: number) {
+  pickerChecked.value = pickerChecked.value.includes(id)
+    ? pickerChecked.value.filter(i => i !== id)
+    : [...pickerChecked.value, id]
+}
+
+function initiatorSummary(stageKey: string): string {
+  const list = initiatorAssignments.value[stageKey] || []
+  if (!list.length) return '未指定'
+  const names = list.map(u => u.userName || `#${u.userId}`)
+  return names.length > 2 ? `${names.slice(0, 2).join('、')} 等 ${names.length} 人` : names.join('、')
 }
 
 async function autoSave() {
@@ -333,7 +414,7 @@ function stopAutosaveTimer() {
 // ==================== 数据变更监听 ====================
 
 watch(
-  [formData, detailRows],
+  [formData, detailRows, initiatorAssignments],
   () => {
     if (suppressDirty) return
     saveState.value = 'dirty'
@@ -696,6 +777,21 @@ onBeforeUnmount(() => {
           </VanCellGroup>
         </div>
 
+        <!-- 发起人自选(initiatorSelect)：为配了该策略的节点指定处理人 -->
+        <div v-if="initiatorSelectStages.length" class="section fill-initiator">
+          <div class="section-header">指定处理人</div>
+          <VanCellGroup inset>
+            <VanCell
+              v-for="st in initiatorSelectStages"
+              :key="st.stageKey"
+              :title="st.stageName"
+              :value="initiatorSummary(st.stageKey)"
+              is-link
+              @click="openInitiatorPicker(st.stageKey)"
+            />
+          </VanCellGroup>
+        </div>
+
         <div class="bottom-spacer" />
       </template>
 
@@ -734,6 +830,36 @@ onBeforeUnmount(() => {
       v-model:show="showRelationPicker"
       @select="onRelationSelect"
     />
+
+    <!-- 发起人自选：选人弹层 -->
+    <VanPopup v-model:show="pickerVisible" position="bottom" round :style="{ height: '70%' }">
+      <div class="initiator-picker">
+        <VanSearch
+          v-model="pickerKeyword"
+          placeholder="搜索姓名/账号/部门"
+          @update:model-value="searchPickerUsers"
+        />
+        <VanCheckboxGroup v-model="pickerChecked" class="initiator-picker__list">
+          <VanCell
+            v-for="opt in pickerUserOptions"
+            :key="opt.value"
+            :title="opt.name"
+            :label="opt.orgName"
+            clickable
+            @click="toggleInitiatorChecked(opt.value)"
+          >
+            <template #right-icon>
+              <VanCheckbox :name="opt.value" @click.stop />
+            </template>
+          </VanCell>
+        </VanCheckboxGroup>
+        <div class="initiator-picker__footer">
+          <VanButton block type="primary" :loading="pickerLoading" @click="confirmInitiatorPicker">
+            确定
+          </VanButton>
+        </div>
+      </div>
+    </VanPopup>
   </div>
 </template>
 
@@ -824,5 +950,21 @@ onBeforeUnmount(() => {
 
 .bottom-spacer {
   height: 24px;
+}
+
+.initiator-picker {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+
+  &__list {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  &__footer {
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+  }
 }
 </style>
