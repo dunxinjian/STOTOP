@@ -59,7 +59,7 @@ import SchemaRenderer from '@/components/cardflow/SchemaRenderer.vue'
 import {
   getFlowDefinition, createFlowDefinition, updateFlowDefinition,
   publishFlowDefinition, publishFlowDefinitionWithPolicy, getFlowVersions, getFlowVersionDetail,
-  getFlowDraftVersion, createDraftFromVersion, saveFlowDraftVersion,
+  getFlowDraftVersion, createDraftFromVersion, saveFlowDraftVersion, discardFlowDraftVersion,
   getFlowGroups, getFlowDefinitions, previewFlowDraftPath, previewPresentation,
 } from '@/api/cardflow'
 import { getRoleList, getUserList, getUserDetail, getPositionList } from '@/api/system'
@@ -183,6 +183,46 @@ const loadError = ref(false)
 const publishing = ref(false)
 const draftVersionNumber = ref<number | null>(null)
 const publishedVersionNumber = ref<number | null>(null)
+
+// ==================== 空草稿救援（历史僵尸草稿 / V79 未跑库的兜底 UI）====================
+const publishedStageCount = ref<number | null>(null)
+const currentVersionRowId = ref<number | null>(null)
+
+async function probePublishedVersion() {
+  if (!flowId.value) return
+  try {
+    const versions = await getFlowVersions(flowId.value)
+    const current = (versions || []).find(v => v.isCurrentVersion)
+    if (!current) return
+    currentVersionRowId.value = current.id
+    const detail = await getFlowVersionDetail(flowId.value, current.id)
+    publishedStageCount.value = (detail.stages || []).length
+  } catch { /* 探测失败不打扰 */ }
+}
+
+const showEmptyDraftBanner = computed(() =>
+  !isNew.value && !loading.value && !loadError.value // isNew 是 ComputedRef,裸 !isNew 恒 false(对抗审 P2-4)
+  && draftVersionNumber.value !== null
+  && state.stages.length === 0
+  && (publishedStageCount.value ?? 0) > 0)
+
+function rebuildDraftFromPublished() {
+  if (!flowId.value) return
+  const id = flowId.value
+  Modal.confirm({
+    title: '重建草稿',
+    content: `将放弃当前空草稿，并基于已发布版本 v${publishedVersionNumber.value} 重新生成草稿，线上运行版本不受影响。`,
+    okText: '重建草稿',
+    cancelText: '取消',
+    async onOk() {
+      await discardFlowDraftVersion(id)
+      if (currentVersionRowId.value)
+        await createDraftFromVersion(id, currentVersionRowId.value)
+      message.success('已基于发布版本重建草稿')
+      await loadData()
+    },
+  })
+}
 
 // ==================== 业务状态 ====================
 
@@ -1369,6 +1409,10 @@ async function loadData() {
       draftVersionNumber.value = null
     }
 
+    if (!isNew.value && state.stages.length === 0 && draftVersionNumber.value !== null) {
+      void probePublishedVersion()
+    }
+
     // 编辑场景默认停留在第一步
     activeStep.value = 0
 
@@ -2023,6 +2067,20 @@ function goBack() {
         <a-button size="small" class="fdef-lock-banner__takeover" :loading="lock.takeoverPending.value" @click="lock.requestTakeover()">申请接管</a-button>
       </span>
     </div>
+
+    <!-- 空草稿救援横幅：当前草稿零节点(历史僵尸草稿/V79未跑库兜底)但已发布版本有节点，提供一键重建 -->
+    <a-alert v-if="showEmptyDraftBanner" type="warning" show-icon style="margin-bottom: 12px">
+      <template #message>当前草稿没有任何流程节点</template>
+      <template #description>
+        多为历史克隆故障残留的空草稿。已发布版本 v{{ publishedVersionNumber }} 含
+        {{ publishedStageCount }} 个节点，线上运行不受影响；可基于发布版本重建草稿后继续编辑。
+      </template>
+      <template #action>
+        <a-button size="small" type="primary" :disabled="editLocked" @click="rebuildDraftFromPublished">
+          基于 v{{ publishedVersionNumber }} 重建草稿
+        </a-button>
+      </template>
+    </a-alert>
 
     <a-spin :spinning="loading">
       <!-- 顶部步骤条：自由跳转 + 状态徽章 -->
