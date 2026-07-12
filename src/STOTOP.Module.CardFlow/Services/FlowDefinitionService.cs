@@ -317,6 +317,24 @@ public class FlowDefinitionService : IFlowDefinitionService
             .Where(s => s.FFlowVersionId == draftVersion.FID)
             .OrderBy(s => s.FSortOrder)
             .ToListAsync();
+
+        // ═══ 结构完整性门禁(防 0 节点/空键版本上位——空版本一旦成为当前版本,导入链无入口节点即断)═══
+        if (draftStages.Count == 0)
+            throw new InvalidOperationException("草稿版本没有任何节点，不能发布");
+
+        var voucherRegistryIds = await _dbContext.Set<CfAutoPluginRegistry>()
+            .Where(r => r.F插件编码 == "AutoVoucher").Select(r => r.FID).ToListAsync();
+        var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in draftStages)
+        {
+            if (string.IsNullOrWhiteSpace(s.FStageKey))
+                throw new InvalidOperationException($"节点“{s.FStageName}”(排序 {s.FSortOrder}) 缺少 StageKey，请重新保存草稿后发布");
+            if (!seenKeys.Add(s.FStageKey))
+                throw new InvalidOperationException($"节点 StageKey 重复：{s.FStageKey}");
+            if (s.F插件注册ID.HasValue && voucherRegistryIds.Contains(s.F插件注册ID.Value) && !s.F插件规则ID.HasValue)
+                throw new InvalidOperationException($"节点“{s.FStageName}”使用自动凭证插件但未配置凭证规则，不能发布");
+        }
+
         await ValidateRouteRulesAsync(draftVersion.FID, draftStages);
         await ValidateDynamicPoliciesAsync(draftVersion.FID, draftStages);
 
