@@ -723,11 +723,18 @@ public class FlowDefinitionService : IFlowDefinitionService
         _ => strategy!.ToLowerInvariant()
     };
 
-    private static string EnsureStageKey(string? stageKey, int sortOrder, string stageName, ISet<string> usedKeys)
+    private static string EnsureStageKey(string? stageKey, int sortOrder, string stageName, ISet<string> usedKeys,
+        Func<string>? fallbackKeyFactory = null)
     {
         var result = NormalizeKeyToken(stageKey);
         if (string.IsNullOrWhiteSpace(result))
-            throw new InvalidOperationException($"节点“{stageName}”(排序 {sortOrder}) 必须携带稳定 StageKey");
+        {
+            // 克隆路径自愈: 历史 seeder 直插节点无键,确定性生成(格式对齐韵达既有 stage_2351_1_5150);
+            // 用户保存路径不传工厂、保持抛错——设计器提交必须自带稳定键
+            result = fallbackKeyFactory != null ? NormalizeKeyToken(fallbackKeyFactory()) : null;
+            if (string.IsNullOrWhiteSpace(result))
+                throw new InvalidOperationException($"节点“{stageName}”(排序 {sortOrder}) 必须携带稳定 StageKey");
+        }
         if (!usedKeys.Add(result))
             throw new InvalidOperationException($"节点 StageKey 重复：{result}");
         return result;
@@ -1130,7 +1137,8 @@ public class FlowDefinitionService : IFlowDefinitionService
             var clone = new CfStageDefinition
             {
                 FFlowVersionId = draft.FID,
-                FStageKey = EnsureStageKey(src.FStageKey, src.FSortOrder, src.FStageName, usedStageKeys),
+                FStageKey = EnsureStageKey(src.FStageKey, src.FSortOrder, src.FStageName, usedStageKeys,
+                    () => $"stage_{sourceVersion.FID}_{src.FSortOrder}_{src.FID}"),
                 FSortOrder = src.FSortOrder,
                 FStageName = src.FStageName,
                 FType = src.FType,
@@ -1249,7 +1257,8 @@ public class FlowDefinitionService : IFlowDefinitionService
                 _dbContext.Set<CfStageDefinition>().Add(new CfStageDefinition
                 {
                     FFlowVersionId = newVersion.FID,
-                    FStageKey = EnsureStageKey(src.FStageKey, src.FSortOrder, src.FStageName, usedStageKeys),
+                    FStageKey = EnsureStageKey(src.FStageKey, src.FSortOrder, src.FStageName, usedStageKeys,
+                        () => $"stage_{sourceVersion.FID}_{src.FSortOrder}_{src.FID}"),
                     FSortOrder = src.FSortOrder,
                     FStageName = src.FStageName,
                     FType = src.FType,
@@ -1433,7 +1442,8 @@ public class FlowDefinitionService : IFlowDefinitionService
             var newStage = new CfStageDefinition
             {
                 FFlowVersionId = newVersion.FID,
-                FStageKey = EnsureStageKey(src.FStageKey, src.FSortOrder, src.FStageName, usedStageKeys),
+                FStageKey = EnsureStageKey(src.FStageKey, src.FSortOrder, src.FStageName, usedStageKeys,
+                    () => $"stage_{sourceVersion.FID}_{src.FSortOrder}_{src.FID}"),
                 FSortOrder = src.FSortOrder,
                 FStageName = src.FStageName,
                 FType = src.FType,
