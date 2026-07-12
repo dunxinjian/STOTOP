@@ -61,6 +61,7 @@ const ASSIGNEE_STRATEGIES = [
   { value: 'fixed',     label: '指定人员', hint: '固定指定的用户处理' },
   { value: 'fieldUsers', label: '按字段取人', hint: '从卡片人员字段中读取处理人' },
   { value: 'orgChain',  label: '组织链主管', hint: '沿组织树逐级取负责人（连续多级主管）' },
+  { value: 'superiorChain', label: '连续多级主管', hint: '从发起人沿直属上级链逐级向上取 N 级主管' },
   { value: 'initiator', label: '发起人',   hint: '由流程发起人处理' },
 ]
 
@@ -248,6 +249,7 @@ const editFieldUserKey = ref<string>('')
 const editFallbackType = ref<AssigneeFallbackType>('failSubmit')
 const editFallbackUserIds = ref<number[]>([])
 const editOrgChainMaxLevels = ref<number>(20)
+const editSuperiorMaxLevels = ref<number>(5)
 // 防止回显期间被 strategy watch 误清
 let suppressStrategyReset = false
 
@@ -533,7 +535,7 @@ function setDetailRequired(fieldKey: string, checked: boolean) {
 }
 
 function isFallbackConfigStrategy(strategy?: string) {
-  return strategy === 'role' || strategy === 'fixed' || strategy === 'fieldUsers' || strategy === 'orgChain'
+  return strategy === 'role' || strategy === 'fixed' || strategy === 'fieldUsers' || strategy === 'orgChain' || strategy === 'superiorChain'
 }
 
 function fallbackFromConfig(config: any): AssigneeFallbackType {
@@ -577,6 +579,9 @@ function buildAssigneeConfig(stage: StageDefinition) {
     const config: Record<string, unknown> = { maxLevels: editOrgChainMaxLevels.value || 20, fallback }
     return config
   }
+  if (stage.assigneeStrategy === 'superiorChain') {
+    return { maxLevels: editSuperiorMaxLevels.value || 5, fallback }
+  }
   return null
 }
 
@@ -601,6 +606,7 @@ function rehydrateSelection(src: StageDefinition | null | undefined) {
   editFallbackType.value = 'failSubmit'
   editFallbackUserIds.value = []
   editOrgChainMaxLevels.value = 20
+  editSuperiorMaxLevels.value = 5
   ensureStageConfigDefaults(src)
   // 存量策略变体（fixedusers/specified 等）归一到 UI 规范值，避免下拉显示裸值
   if (src.type === 'manual' && src.assigneeStrategy) {
@@ -616,6 +622,7 @@ function rehydrateSelection(src: StageDefinition | null | undefined) {
       editFallbackType.value = fallbackFromConfig(config)
       editFallbackUserIds.value = (config?.fallback?.users || []).map((u: any) => u.userId)
       editOrgChainMaxLevels.value = config?.maxLevels || 20
+      editSuperiorMaxLevels.value = config?.maxLevels || 5
       const knownUsers = [...(config?.users || []), ...(config?.fallback?.users || [])]
       if (knownUsers.length) {
         userOptions.value = knownUsers.map((u: any) => ({
@@ -723,6 +730,12 @@ watch(editOrgChainMaxLevels, () => {
   if (props.selectedIndex < 0 || suppressStrategyReset) return
   const stage = props.stages[props.selectedIndex]
   if (stage?.assigneeStrategy === 'orgChain') syncAssigneeConfig()
+})
+
+watch(editSuperiorMaxLevels, () => {
+  if (props.selectedIndex < 0 || suppressStrategyReset) return
+  const stage = props.stages[props.selectedIndex]
+  if (stage?.assigneeStrategy === 'superiorChain') syncAssigneeConfig()
 })
 
 // 条件变化时写回
@@ -995,6 +1008,12 @@ const tabIssueCounts = computed(() => {
               <label class="sde-fld__label">最多逐级层数</label>
               <a-input-number v-model:value="editOrgChainMaxLevels" :min="1" :max="20" style="width: 120px" />
               <p class="sde-fld__hint">从发起组织沿组织树向上逐级取负责人，直到根或达到层数上限</p>
+            </div>
+
+            <div v-if="selectedStage.assigneeStrategy === 'superiorChain'" class="sde-fld">
+              <label class="sde-fld__label">逐级主管层数</label>
+              <a-input-number v-model:value="editSuperiorMaxLevels" :min="1" :max="20" style="width: 120px" />
+              <p class="sde-fld__hint">从发起人沿直属上级逐级向上取指定层数（在职上级）</p>
             </div>
 
             <div v-if="isFallbackConfigStrategy(selectedStage.assigneeStrategy)" class="sde-fld">

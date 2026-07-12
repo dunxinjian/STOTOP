@@ -719,6 +719,8 @@ public class FlowDefinitionService : IFlowDefinitionService
         "role" => "role",
         "initiator" => "initiator",
         "fixed" => "fixed",
+        "orgchain" => "orgChain",
+        "superiorchain" => "superiorChain",
         "" => "initiator",
         _ => strategy!.ToLowerInvariant()
     };

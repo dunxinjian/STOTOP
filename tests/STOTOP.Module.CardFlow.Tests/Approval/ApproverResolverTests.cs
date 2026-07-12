@@ -197,4 +197,75 @@ public class ApproverResolverTests
         Assert.Equal(33, result.Approvers[0].UserId);
         Assert.Equal("feeTypeBp", result.Approvers[0].Source);
     }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task SuperiorChain_WalksDirectSuperiorsInLevelOrder()
+    {
+        using var db = TestDbContextFactory.Create(nameof(SuperiorChain_WalksDirectSuperiorsInLevelOrder));
+        db.Set<SysUser>().AddRange(
+            new SysUser { FID = 1, FName = "发起人", FStatus = 1 },
+            new SysUser { FID = 2, FName = "一级主管", FStatus = 1 },
+            new SysUser { FID = 3, FName = "二级主管", FStatus = 1 },
+            new SysUser { FID = 4, FName = "三级主管", FStatus = 1 });
+        db.Set<SysUserOrganization>().AddRange(
+            new SysUserOrganization { FUserId = 1, FOrgId = 100, FDirectSuperiorId = 2, FStatus = 1, F是否当前 = true },
+            new SysUserOrganization { FUserId = 2, FOrgId = 100, FDirectSuperiorId = 3, FStatus = 1, F是否当前 = true },
+            new SysUserOrganization { FUserId = 3, FOrgId = 100, FDirectSuperiorId = 4, FStatus = 1, F是否当前 = true },
+            new SysUserOrganization { FUserId = 4, FOrgId = 100, FDirectSuperiorId = null, FStatus = 1, F是否当前 = true });
+        await db.SaveChangesAsync();
+
+        var resolver = new ApproverResolver(db);
+        var stage = new CfStageDefinition { FAssigneeStrategy = "superiorChain", FAssigneeConfigJson = """{"maxLevels":2}""" };
+
+        var result = await resolver.ResolveAsync(stage, new CfCard(), new Dictionary<string, object?>(), flowOrgId: 100, initiatorId: 1);
+
+        Assert.True(result.Success);
+        Assert.Equal(new long[] { 2, 3 }, result.Approvers.Select(a => a.UserId));
+        Assert.All(result.Approvers, a => Assert.Equal("superiorChain", a.Source));
+    }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task SuperiorChain_SkipsInactiveSuperiorButPenetratesUpward()
+    {
+        using var db = TestDbContextFactory.Create(nameof(SuperiorChain_SkipsInactiveSuperiorButPenetratesUpward));
+        db.Set<SysUser>().AddRange(
+            new SysUser { FID = 1, FName = "发起人", FStatus = 1 },
+            new SysUser { FID = 2, FName = "已离职主管", FStatus = 0 },
+            new SysUser { FID = 3, FName = "上级主管", FStatus = 1 });
+        db.Set<SysUserOrganization>().AddRange(
+            new SysUserOrganization { FUserId = 1, FOrgId = 100, FDirectSuperiorId = 2, FStatus = 1, F是否当前 = true },
+            new SysUserOrganization { FUserId = 2, FOrgId = 100, FDirectSuperiorId = 3, FStatus = 1, F是否当前 = true },
+            new SysUserOrganization { FUserId = 3, FOrgId = 100, FDirectSuperiorId = null, FStatus = 1, F是否当前 = true });
+        await db.SaveChangesAsync();
+
+        var resolver = new ApproverResolver(db);
+        var stage = new CfStageDefinition { FAssigneeStrategy = "superiorChain", FAssigneeConfigJson = """{"maxLevels":5}""" };
+
+        var result = await resolver.ResolveAsync(stage, new CfCard(), new Dictionary<string, object?>(), flowOrgId: 100, initiatorId: 1);
+
+        Assert.True(result.Success);
+        Assert.Equal(new long[] { 3 }, result.Approvers.Select(a => a.UserId));
+    }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task SuperiorChain_EmptyChainFallsBackToFlowAdmin()
+    {
+        using var db = TestDbContextFactory.Create(nameof(SuperiorChain_EmptyChainFallsBackToFlowAdmin));
+        db.Set<SysUser>().AddRange(
+            new SysUser { FID = 1, FName = "发起人", FStatus = 1 },
+            new SysUser { FID = 9, FName = "流程管理员", FStatus = 1 });
+        db.Set<SysUserOrganization>().Add(
+            new SysUserOrganization { FUserId = 1, FOrgId = 100, FDirectSuperiorId = null, FStatus = 1, F是否当前 = true });
+        await db.SaveChangesAsync();
+
+        var resolver = new ApproverResolver(db);
+        var stage = new CfStageDefinition { FAssigneeStrategy = "superiorChain", FAssigneeConfigJson = """{"maxLevels":3,"fallback":{"type":"flowAdmin"}}""" };
+
+        var result = await resolver.ResolveAsync(stage, new CfCard(), new Dictionary<string, object?>(),
+            flowOrgId: 100, initiatorId: 1, flowSettingsJson: """{"approvalAdminUserIds":[9]}""");
+
+        Assert.True(result.Success);
+        Assert.Equal(9, result.Approvers[0].UserId);
+        Assert.Contains("flowAdmin", result.FallbackReason);
+    }
 }

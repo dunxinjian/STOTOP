@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { StageDefinition } from './StageDefinitionEditor.vue'
 import type { SchemaFieldDefinition } from '@/types/cardflow'
-import { DEFAULT_ACTIONS, parseAssigneeConfig, getStageHealth, stageVisualKind, isCcStage, NOTIFY_PLUGIN_REGISTRY_ID, formatAssigneeSummary } from './stageDefinitionShared'
+import { DEFAULT_ACTIONS, parseAssigneeConfig, getStageHealth, stageVisualKind, isCcStage, NOTIFY_PLUGIN_REGISTRY_ID, formatAssigneeSummary, ASSIGNEE_STRATEGY_LABELS, normalizeAssigneeStrategy } from './stageDefinitionShared'
 
 /**
  * stageDefinitionShared 纯逻辑门禁（B9 StageConfigPanel 抽取的共享助手）。
@@ -158,5 +158,15 @@ describe('formatAssigneeSummary（竖向图节点「处理人」摘要）', () =
   it('未配策略 → 未配置处理人；auto 节点 → 空串', () => {
     expect(formatAssigneeSummary(stage({ assigneeStrategy: undefined }))).toBe('未配置处理人')
     expect(formatAssigneeSummary(stage({ type: 'auto', assigneeStrategy: 'fixed' }))).toBe('')
+  })
+
+  it('ASSIGNEE_STRATEGY_LABELS 覆盖 orgChain 与 superiorChain', () => {
+    expect(ASSIGNEE_STRATEGY_LABELS.orgChain).toBeTruthy()
+    expect(ASSIGNEE_STRATEGY_LABELS.superiorChain).toBe('连续多级主管')
+  })
+
+  it('normalizeAssigneeStrategy 认 superiorChain 变体', () => {
+    expect(normalizeAssigneeStrategy('superiorchain')).toBe('superiorChain')
+    expect(normalizeAssigneeStrategy('superiorChain')).toBe('superiorChain')
   })
 })

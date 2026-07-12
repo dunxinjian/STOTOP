@@ -44,6 +44,7 @@ export function normalizeAssigneeStrategy(strategy?: string | null): string {
     case 'role': return 'role'
     case 'fieldusers': return 'fieldUsers'
     case 'orgchain': return 'orgChain'
+    case 'superiorchain': return 'superiorChain'
     case 'amountmatrix': return 'amountMatrix'
     case 'feetypebp': return 'feeTypeBp'
     case '': return ''
@@ -66,6 +67,8 @@ export const ASSIGNEE_STRATEGY_LABELS: Record<string, string> = {
   role: '按角色',
   fixed: '指定人员',
   fieldUsers: '按字段取人',
+  orgChain: '组织链主管',
+  superiorChain: '连续多级主管',
   initiator: '发起人',
 }
 
@@ -86,6 +89,7 @@ export function formatAssigneeSummary(stage: StageDefinition): string {
     return names.length > 2 ? `${names.slice(0, 2).join('、')} 等 ${names.length} 人` : names.join('、')
   }
   if (strategy === 'fieldUsers' && config?.fieldKey) return `${label}·${config.fieldKey}`
+  if (strategy === 'superiorChain') return `${label}·${config?.maxLevels || 5}级`
   return label
 }
 

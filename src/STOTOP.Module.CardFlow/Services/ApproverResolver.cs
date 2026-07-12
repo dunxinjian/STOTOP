@@ -37,6 +37,7 @@ public sealed class ApproverResolver : IApproverResolver
             "amountMatrix" => await ResolveAmountMatrixAsync(config, cardData, flowOrgId, cancellationToken),
             "feeTypeBp" => await ResolveFeeTypeBpAsync(config, cardData, flowOrgId, cancellationToken),
             "initiator" => await ResolveUserIdsAsync(new[] { initiatorId }, "initiator", cancellationToken),
+            "superiorChain" => await ResolveSuperiorChainAsync(config, initiatorId, cancellationToken),
             _ => new ApproverResolveResult { ErrorMessage = $"不支持的处理人策略：{stageDefinition.FAssigneeStrategy}" }
         };
 
@@ -208,6 +209,48 @@ public sealed class ApproverResolver : IApproverResolver
         }
 
         return await ResolveUserIdsAsync(managerIds, "orgChain", cancellationToken);
+    }
+
+    /// <summary>
+    /// 连续多级直属上级：从发起人起沿 SysUserOrganization.FDirectSuperiorId 逐级向上取 N 级在职直属上级。
+    /// 纯个人上级链（真源=SysUserOrganization.FDirectSuperiorId，决策 B），刻意不带 orgChain 的组织负责人兜底。
+    /// 停用上级跳过但穿透（继续取其上级），visited 防环。空链交 ApplyFallbackAsync。
+    /// 注：与超时升级的 FlowEngineService.ResolveSuperiorUserAsync 语义不同（后者带组织链兜底），未来可评估 DRY 合并。
+    /// </summary>
+    private async global::System.Threading.Tasks.Task<ApproverResolveResult> ResolveSuperiorChainAsync(
+        JsonElement? config,
+        long initiatorId,
+        CancellationToken cancellationToken)
+    {
+        var maxLevels = TryGetProperty(config, "maxLevels", out var maxLevelsValue) && TryReadLong(maxLevelsValue, out var parsedMaxLevels)
+            ? Math.Clamp((int)parsedMaxLevels, 1, 20)
+            : 5;
+
+        var chain = new List<long>();
+        var visited = new HashSet<long> { initiatorId };
+        var current = initiatorId;
+        // 安全上限：即便全是停用上级穿透也不无限循环（maxLevels 只计在职上级）。
+        for (var hops = 0; chain.Count < maxLevels && hops < 50; hops++)
+        {
+            var superiorId = await _dbContext.Set<SysUserOrganization>()
+                .Where(uo => uo.FStatus == 1 && uo.F是否当前 && uo.FUserId == current)
+                .Select(uo => uo.FDirectSuperiorId)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (superiorId is null or <= 0 || !visited.Add(superiorId.Value))
+            {
+                break;
+            }
+
+            current = superiorId.Value; // 先前移以支持“停用跳过但穿透”
+            var isActive = await _dbContext.Set<SysUser>()
+                .AnyAsync(u => u.FStatus == 1 && u.FID == superiorId.Value, cancellationToken);
+            if (isActive)
+            {
+                chain.Add(superiorId.Value);
+            }
+        }
+
+        return await ResolveUserIdsAsync(chain, "superiorChain", cancellationToken);
     }
 
     private async global::System.Threading.Tasks.Task<ApproverResolveResult> ResolveAmountMatrixAsync(
@@ -428,6 +471,7 @@ public sealed class ApproverResolver : IApproverResolver
             "amountMatrix" => "amountMatrix",
             "feeTypeBp" => "feeTypeBp",
             "initiator" => "initiator",
+            "superiorChain" => "superiorChain",
             null or "" => "initiator",
             var value => value
         };
