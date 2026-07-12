@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildFlowTree,
   insertStageAfter,
+  insertStageAtHead,
   insertBranchGroup,
   deleteBranch,
   copyBranch,
@@ -234,6 +235,50 @@ describe('insertStageAfter 反向写回', () => {
   })
 })
 
+describe('insertStageAtHead 头部插入（起点后 / 首节点前）', () => {
+  it('规则模式线性 a→b：头插 n → n 成新首节点，n→a(default)，链 n→a→b', () => {
+    const stages = [s('a', 1), s('b', 2)]
+    const routes = [r('e1', 'a', 'b', { isDefault: true })]
+    const out = insertStageAtHead(stages, routes, s('n', 0))
+    // n 排到最前
+    expect(out.stages.map((x) => x.id)).toEqual(['n', 'a', 'b'])
+    expect(out.stages.find((x) => x.id === 'n')!.sortOrder).toBe(1)
+    // n→a 默认边；a 不再有入边来源以外的变化
+    const nOut = out.routes.filter((x) => x.fromStageKey === 'n')
+    expect(nOut).toHaveLength(1)
+    expect(nOut[0].toStageKey).toBe('a')
+    expect(nOut[0].isDefault).toBe(true)
+    // 投影闭环：n 成为起点，链 n→a→b
+    expect(collectStageIds(buildFlowTree(out.stages, out.routes).tree)).toEqual(['n', 'a', 'b'])
+  })
+
+  it('legacy 模式（无 routes）：仅按 sortOrder 头插，不造边', () => {
+    const out = insertStageAtHead([s('a', 1), s('b', 2)], [], s('n', 0))
+    expect(out.routes).toEqual([])
+    expect(out.stages.map((x) => x.id)).toEqual(['n', 'a', 'b'])
+    expect(collectStageIds(buildFlowTree(out.stages, out.routes).tree)).toEqual(['n', 'a', 'b'])
+  })
+
+  it('首节点是分支源：头插 n 后 n→原首节点，分支结构完整保留', () => {
+    // a 为首节点且是分支源：cond→b / default→c
+    const stages = [s('a', 1), s('b', 2), s('c', 3)]
+    const routes = [
+      r('c1', 'a', 'b', { conditionJson: '{}', priority: 1 }),
+      r('d1', 'a', 'c', { isDefault: true, priority: 2 }),
+    ]
+    const out = insertStageAtHead(stages, routes, s('n', 0))
+    const nOut = out.routes.filter((x) => x.fromStageKey === 'n')
+    expect(nOut).toHaveLength(1)
+    expect(nOut[0].toStageKey).toBe('a')
+    // 投影：n → a → branchGroup([b],[c])，零孤儿
+    const { tree, orphans } = buildFlowTree(out.stages, out.routes)
+    expect(orphans).toEqual([])
+    expect(tree[0]).toMatchObject({ kind: 'stage', stageId: 'n' })
+    expect(tree[1]).toMatchObject({ kind: 'stage', stageId: 'a' })
+    expect(tree[2].kind).toBe('branchGroup')
+  })
+})
+
 describe('insertBranchGroup 反向写回', () => {
   it('a→b 处插入 2 列分支组：1 条件列 + 1 兜底列，均指向原后继 b', () => {
     const stages = [s('a', 1), s('b', 2)]
@@ -251,6 +296,59 @@ describe('insertBranchGroup 反向写回', () => {
     expect(tree[1].kind).toBe('branchGroup')
     expect(tree[1].branches).toHaveLength(2)
     expect(tree[2]).toMatchObject({ kind: 'stage', stageId: 'b' })
+  })
+
+  it('传 makeNode：每个条件支自动补占位节点(节点再汇合原后继)，兜底直接汇合', () => {
+    const stages = [s('a', 1), s('x', 2)]
+    const routes = [r('e1', 'a', 'x', { isDefault: true })]
+    let seq = 0
+    const makeNode = () => s(`n${++seq}`, 0)
+    const out = insertBranchGroup(stages, routes, { afterStageId: 'a' }, 3, makeNode)
+    const aOut = out.routes.filter((e) => e.fromStageKey === 'a')
+    const conds = aOut.filter((e) => !e.isDefault)
+    const def = aOut.find((e) => e.isDefault)!
+    // 2 条件支各指向一个新节点(不是 x)
+    expect(conds).toHaveLength(2)
+    expect(conds.map((e) => e.toStageKey)).not.toContain('x')
+    // 每个新节点默认汇合到 x
+    for (const c of conds) {
+      const nodeOut = out.routes.filter((e) => e.fromStageKey === c.toStageKey)
+      expect(nodeOut).toHaveLength(1)
+      expect(nodeOut[0].toStageKey).toBe('x')
+      expect(nodeOut[0].isDefault).toBe(true)
+    }
+    // 兜底直接汇合到 x（无节点）
+    expect(def.toStageKey).toBe('x')
+    // 新增 2 个占位节点，投影零孤儿
+    expect(out.stages.filter((st) => st.id.startsWith('n'))).toHaveLength(2)
+    expect(buildFlowTree(out.stages, out.routes).orphans).toEqual([])
+  })
+
+  it('不传 makeNode：行为不变（条件支直接指向原后继，不加节点）', () => {
+    const stages = [s('a', 1), s('x', 2)]
+    const routes = [r('e1', 'a', 'x', { isDefault: true })]
+    const out = insertBranchGroup(stages, routes, { afterStageId: 'a' }, 2)
+    expect(out.routes.filter((e) => e.fromStageKey === 'a').every((e) => e.toStageKey === 'x')).toBe(true)
+    expect(out.stages.map((st) => st.id)).toEqual(['a', 'x'])
+  })
+
+  it('已分支节点上再插条件支 + makeNode：新条件支带节点，兄弟支不受影响', () => {
+    const stages = [s('a', 1), s('b', 2), s('x', 3)]
+    const routes = [
+      r('c1', 'a', 'b', { conditionJson: '{}', priority: 1 }),
+      r('d1', 'a', 'x', { isDefault: true, priority: 2 }),
+      r('e1', 'b', 'x', { isDefault: true }),
+    ]
+    let seq = 0
+    const out = insertBranchGroup(stages, routes, { afterStageId: 'a' }, 2, () => s(`n${++seq}`, 0))
+    const aOut = out.routes.filter((e) => e.fromStageKey === 'a')
+    // 原 c1(→b) 保留，新增 1 条件支 → n1，n1 → x
+    expect(aOut.map((e) => e.edgeKey)).toEqual(expect.arrayContaining(['c1', 'd1']))
+    const fresh = aOut.filter((e) => !e.isDefault && e.edgeKey !== 'c1')
+    expect(fresh).toHaveLength(1)
+    expect(fresh[0].toStageKey).toBe('n1')
+    expect(out.routes.filter((e) => e.fromStageKey === 'n1')[0].toStageKey).toBe('x')
+    expect(buildFlowTree(out.stages, out.routes).orphans).toEqual([])
   })
 
   it('尾节点处插入分支组：列指向空（各支即流程结束）', () => {

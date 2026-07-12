@@ -297,6 +297,18 @@ public class BatchLifecycleService : IBatchLifecycleService
                     batch.FID)
                 .ToListAsync();
             batch.FChangeVersion = versions.FirstOrDefault();
+
+            // 关键并发修复(真实文件E2E暴露)：本方法用 raw SQL 直接 UPDATE 该批次行 → DB 端 F乐观锁(rowversion) 已递增，
+            // 但被追踪的 batch 实体仍持旧 token。若不同步，批次链后续任何 SaveChanges 连带保存本批次会 WHERE 旧token → 影响0行
+            // → DbUpdateConcurrencyException，导致批次在导入后中断、autoVoucher 等后续节点永不执行(极兔 import→autoVoucher 直连
+            // 无中间质量节点故首次触发；申通有质量节点会 Reload 批次而躲过)。ReloadAsync 重取本行、刷新 token 与各字段(此刻批次
+            // 变更已在调用方 SaveChanges 落库、实体为 Unchanged，Reload 无数据丢失)。
+            var entry = _db.Entry(batch);
+            if (entry.State != EntityState.Detached)
+            {
+                try { await entry.ReloadAsync(); }
+                catch (Exception rex) { _logger.LogWarning(rex, "BumpChangeVersion 后 Reload 批次刷新乐观锁失败, BatchId={BatchId}", batch.FID); }
+            }
             return batch.FChangeVersion;
         }
         catch (Exception ex)

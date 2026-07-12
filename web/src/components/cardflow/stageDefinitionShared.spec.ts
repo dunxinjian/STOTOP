@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { StageDefinition } from './StageDefinitionEditor.vue'
 import type { SchemaFieldDefinition } from '@/types/cardflow'
-import { DEFAULT_ACTIONS, parseAssigneeConfig, getStageHealth, stageVisualKind, isCcStage, NOTIFY_PLUGIN_REGISTRY_ID } from './stageDefinitionShared'
+import { DEFAULT_ACTIONS, parseAssigneeConfig, getStageHealth, stageVisualKind, isCcStage, NOTIFY_PLUGIN_REGISTRY_ID, formatAssigneeSummary } from './stageDefinitionShared'
 
 /**
  * stageDefinitionShared 纯逻辑门禁（B9 StageConfigPanel 抽取的共享助手）。
@@ -107,5 +107,56 @@ describe('stageVisualKind / isCcStage（竖向图节点五类视觉）', () => {
 
   it('人工节点即便误挂通知插件 ID 也不算抄送（cc 必须 auto）', () => {
     expect(isCcStage(stage({ type: 'manual', pluginRegistryId: NOTIFY_PLUGIN_REGISTRY_ID }))).toBe(false)
+  })
+})
+
+describe('formatAssigneeSummary（竖向图节点「处理人」摘要）', () => {
+  it('fixed 策略读持久化真键 userId/userName（回归 #undefined：不得读 id/name 落空）', () => {
+    expect(formatAssigneeSummary(stage({
+      assigneeStrategy: 'fixed',
+      assigneeConfigJson: JSON.stringify({ users: [{ userId: 10, userName: '张三' }] }),
+    }))).toBe('张三')
+  })
+
+  it('fixed 用户缺 userName → #userId（而非 #undefined）', () => {
+    expect(formatAssigneeSummary(stage({
+      assigneeStrategy: 'fixed',
+      assigneeConfigJson: JSON.stringify({ users: [{ userId: 10 }] }),
+    }))).toBe('#10')
+  })
+
+  it('存量策略变体 fixedusers 先归一再取名（不显示裸 fixedusers）', () => {
+    expect(formatAssigneeSummary(stage({
+      assigneeStrategy: 'fixedusers',
+      assigneeConfigJson: JSON.stringify({ users: [{ userId: 1, userName: '李四' }] }),
+    }))).toBe('李四')
+  })
+
+  it('fixed 超过 2 人 → 折叠「前两人 等 N 人」', () => {
+    expect(formatAssigneeSummary(stage({
+      assigneeStrategy: 'fixed',
+      assigneeConfigJson: JSON.stringify({ users: [
+        { userId: 1, userName: 'A' }, { userId: 2, userName: 'B' }, { userId: 3, userName: 'C' },
+      ] }),
+    }))).toBe('A、B 等 3 人')
+  })
+
+  it('role 有 roleCode → 按角色·角色名（回退 roleCode）', () => {
+    expect(formatAssigneeSummary(stage({
+      assigneeStrategy: 'role',
+      assigneeConfigJson: JSON.stringify({ roleCode: 'fin_mgr', roleName: '财务经理' }),
+    }))).toBe('按角色·财务经理')
+  })
+
+  it('fixed 但 users 为空 → 回退策略标签「指定人员」（不再 #undefined）', () => {
+    expect(formatAssigneeSummary(stage({
+      assigneeStrategy: 'fixed',
+      assigneeConfigJson: JSON.stringify({ users: [] }),
+    }))).toBe('指定人员')
+  })
+
+  it('未配策略 → 未配置处理人；auto 节点 → 空串', () => {
+    expect(formatAssigneeSummary(stage({ assigneeStrategy: undefined }))).toBe('未配置处理人')
+    expect(formatAssigneeSummary(stage({ type: 'auto', assigneeStrategy: 'fixed' }))).toBe('')
   })
 })

@@ -45,6 +45,7 @@ export interface FlowTreeResult {
 export type InsertAnchor =
   | { afterStageId: string }
   | { branchEdgeKey: string }
+  | { atHead: true }
 
 interface ProjectionContext {
   outgoing: Map<string, StageRouteRuleRequest[]>
@@ -163,6 +164,25 @@ function findMergePoint(outs: StageRouteRuleRequest[], ctx: ProjectionContext): 
   return undefined
 }
 
+/**
+ * 起点 stage 选取（buildFlowTree 与 insertStageAtHead 共用，避免口径漂移）：
+ * 无入边节点中优先取"有出边"者（避免选中无边僵尸节点，见 #1357）；均无出边则 sortOrder 最早；
+ * 全有入边（环）退回 sortOrder 首节点。
+ */
+function resolveStartStageId(
+  sorted: StageDefinition[],
+  activeRoutes: StageRouteRuleRequest[],
+  outgoing: Map<string, StageRouteRuleRequest[]>,
+): string | undefined {
+  const hasIncoming = new Set(activeRoutes.map((r) => r.toStageKey).filter(Boolean))
+  const noIncoming = sorted.filter((s) => !hasIncoming.has(s.id))
+  return (
+    noIncoming.find((s) => (outgoing.get(s.id) ?? []).length > 0)?.id
+    ?? noIncoming[0]?.id
+    ?? sorted[0]?.id
+  )
+}
+
 export function buildFlowTree(
   stages: StageDefinition[],
   routes: StageRouteRuleRequest[],
@@ -186,13 +206,8 @@ export function buildFlowTree(
     stageById: new Map(sorted.map((s) => [s.id, s])),
   }
 
-  // 起点：无入边节点中优先取"有出边"者（避免选中无边僵尸节点，见 #1357 形态）；
-  // 均无出边则按 sortOrder 最早；全有入边（环）退回 sortOrder 首节点
-  const hasIncoming = new Set(activeRoutes.map((r) => r.toStageKey).filter(Boolean))
-  const noIncoming = sorted.filter((s) => !hasIncoming.has(s.id))
-  const start =
-    noIncoming.find((s) => (ctx.outgoing.get(s.id) ?? []).length > 0) ?? noIncoming[0] ?? sorted[0]
-  const tree = start ? walkChain(start.id, undefined, ctx) : []
+  const startId = resolveStartStageId(sorted, activeRoutes, ctx.outgoing)
+  const tree = startId ? walkChain(startId, undefined, ctx) : []
 
   const orphans = sorted.filter((s) => !ctx.rendered.has(s.id)).map((s) => s.id)
   // 孤儿节点按 sortOrder 追加为可见尾段（可编辑），orphans 列表仅作诊断
@@ -227,7 +242,7 @@ function spliceStage(stages: StageDefinition[], afterId: string | undefined, new
 export function insertStageAfter(
   stages: StageDefinition[],
   routes: StageRouteRuleRequest[],
-  anchor: InsertAnchor,
+  anchor: { afterStageId: string } | { branchEdgeKey: string },
   newStage: StageDefinition,
 ): { stages: StageDefinition[]; routes: StageRouteRuleRequest[] } {
   if ('branchEdgeKey' in anchor) {
@@ -275,15 +290,62 @@ export function insertStageAfter(
 }
 
 /**
+ * 在起点后 / 首节点前插入普通节点（新节点成为新首节点）。
+ * - 有 active route：新节点以 default 边指向原首节点（原首节点获得入边 → 让位，新节点无入边 → 成起点）。
+ * - legacy（无 active route）：仅置 sortOrder 最前，不造边（投影按 sortOrder 定首节点）。
+ * 头部无法插入分支组（分支需锚点 stage 作源），故此入口只插单节点。
+ */
+export function insertStageAtHead(
+  stages: StageDefinition[],
+  routes: StageRouteRuleRequest[],
+  newStage: StageDefinition,
+): { stages: StageDefinition[]; routes: StageRouteRuleRequest[] } {
+  const sorted = [...stages].sort((a, b) => a.sortOrder - b.sortOrder)
+  const nextStages = [{ ...newStage }, ...sorted].map((s, i) => ({ ...s, sortOrder: i + 1 }))
+  const activeRoutes = routes.filter(isActive)
+  if (activeRoutes.length === 0) return { stages: nextStages, routes }
+
+  const oldHeadId = resolveStartStageId(sorted, activeRoutes, buildOutgoingMap(routes))
+  if (!oldHeadId) return { stages: nextStages, routes }
+  const nextRoutes = [
+    ...routes,
+    {
+      edgeKey: genEdgeKey(),
+      fromStageKey: newStage.id,
+      toStageKey: oldHeadId,
+      routeName: '默认',
+      conditionJson: null,
+      priority: 1,
+      isDefault: true,
+      status: 'active' as const,
+    },
+  ]
+  return { stages: nextStages, routes: nextRoutes }
+}
+
+/** 在 afterId 之后批量插入 newStages 并重编 sortOrder（空数组则原样返回）。 */
+function insertStagesAfter(stages: StageDefinition[], afterId: string, newStages: StageDefinition[]): StageDefinition[] {
+  if (!newStages.length) return stages
+  const sorted = [...stages].sort((a, b) => a.sortOrder - b.sortOrder)
+  const idx = sorted.findIndex((s) => s.id === afterId)
+  sorted.splice((idx < 0 ? sorted.length - 1 : idx) + 1, 0, ...newStages)
+  return sorted.map((s, i) => ({ ...s, sortOrder: i + 1 }))
+}
+
+/**
  * 在锚点后插入条件分支组（branchCount ≥ 2，含恒定兜底列）。
- * 原出边（若有）保留为兜底列并置 priority 最大；新建 branchCount-1 条条件列，均指向原后继。
+ * 原出边（若有）保留为兜底列并置 priority 最大；新建 branchCount-1 条条件列。
  * 无原出边（尾节点）：全部新建，指向空（各支即流程结束）。
+ *
+ * makeNode（可选）：为每个「条件」列自动补一个占位处理节点——条件边指向新节点、新节点默认边再汇合原后继，
+ * 从源头杜绝空条件分支（业务约束：每个条件分支汇合前须至少一个处理节点）。兜底列不补节点、允许直接汇合。
  */
 export function insertBranchGroup(
   stages: StageDefinition[],
   routes: StageRouteRuleRequest[],
   anchor: { afterStageId: string },
   branchCount: number,
+  makeNode?: () => StageDefinition,
 ): { stages: StageDefinition[]; routes: StageRouteRuleRequest[] } {
   const afterId = anchor.afterStageId
   const existing = sortOutgoing(routes.filter((r) => isActive(r) && r.fromStageKey === afterId))
@@ -291,56 +353,35 @@ export function insertBranchGroup(
   const originalDefault = existing.find((r) => r.isDefault)
   const originalTo = originalDefault?.toStageKey ?? existing[0]?.toStageKey ?? ''
   const conditionCount = Math.max(1, branchCount - 1)
-
-  // 已是分支源（已有多条条件出边）→ 保留既有分支，仅追加新条件列（不清空兄弟分支）。
-  // 单出边/无出边 → 原节点线性后继变兜底目标，新建条件列。
   const alreadyBranched = existingConditions.length > 0
 
+  const newNodes: StageDefinition[] = []
+  // 追加一条条件边到 bucket：有 makeNode 则先落占位节点(节点→原后继)、条件边指向该节点；否则条件边直指原后继。
+  const pushCondition = (bucket: StageRouteRuleRequest[], priority: number, routeName: string) => {
+    if (makeNode) {
+      const node = makeNode()
+      newNodes.push(node)
+      bucket.push({ edgeKey: genEdgeKey(), fromStageKey: afterId, toStageKey: node.id, routeName, conditionJson: JSON.stringify({ logic: 'and', conditions: [] }), priority, isDefault: false, status: 'active' })
+      bucket.push({ edgeKey: genEdgeKey(), fromStageKey: node.id, toStageKey: originalTo, routeName: '默认', conditionJson: null, priority: 1, isDefault: true, status: 'active' })
+    } else {
+      bucket.push({ edgeKey: genEdgeKey(), fromStageKey: afterId, toStageKey: originalTo, routeName, conditionJson: JSON.stringify({ logic: 'and', conditions: [] }), priority, isDefault: false, status: 'active' })
+    }
+  }
+
   if (alreadyBranched) {
-    // 保留全部既有出边，追加 conditionCount 条空条件列，priority 顺延；兜底若缺则补
+    // 保留全部既有出边，追加条件列，priority 顺延；兜底若缺则补
     const maxPriority = Math.max(0, ...existing.map((r) => r.priority))
     const nextRoutes = [...routes]
-    for (let i = 0; i < conditionCount; i++) {
-      nextRoutes.push({
-        edgeKey: genEdgeKey(),
-        fromStageKey: afterId,
-        toStageKey: originalTo,
-        routeName: `分支 ${existingConditions.length + i + 1}`,
-        conditionJson: JSON.stringify({ logic: 'and', conditions: [] }),
-        priority: maxPriority + i + 1,
-        isDefault: false,
-        status: 'active',
-      })
-    }
+    for (let i = 0; i < conditionCount; i++) pushCondition(nextRoutes, maxPriority + i + 1, `分支 ${existingConditions.length + i + 1}`)
     if (!originalDefault) {
-      nextRoutes.push({
-        edgeKey: genEdgeKey(),
-        fromStageKey: afterId,
-        toStageKey: originalTo,
-        routeName: '其他情况',
-        conditionJson: null,
-        priority: maxPriority + conditionCount + 1,
-        isDefault: true,
-        status: 'active',
-      })
+      nextRoutes.push({ edgeKey: genEdgeKey(), fromStageKey: afterId, toStageKey: originalTo, routeName: '其他情况', conditionJson: null, priority: maxPriority + conditionCount + 1, isDefault: true, status: 'active' })
     }
-    return { stages, routes: nextRoutes }
+    return { stages: insertStagesAfter(stages, afterId, newNodes), routes: nextRoutes }
   }
 
   // 未分支：删原单出边，重建条件列 + 兜底列（复用原 default 保 edgeKey 稳定）
   const nextRoutes = routes.filter((r) => !(isActive(r) && r.fromStageKey === afterId))
-  for (let i = 0; i < conditionCount; i++) {
-    nextRoutes.push({
-      edgeKey: genEdgeKey(),
-      fromStageKey: afterId,
-      toStageKey: originalTo,
-      routeName: `分支 ${i + 1}`,
-      conditionJson: JSON.stringify({ logic: 'and', conditions: [] }),
-      priority: i + 1,
-      isDefault: false,
-      status: 'active',
-    })
-  }
+  for (let i = 0; i < conditionCount; i++) pushCondition(nextRoutes, i + 1, `分支 ${i + 1}`)
   nextRoutes.push(
     originalDefault
       ? { ...originalDefault, routeName: '其他情况', priority: conditionCount + 1 }
@@ -355,7 +396,7 @@ export function insertBranchGroup(
           status: 'active',
         },
   )
-  return { stages, routes: nextRoutes }
+  return { stages: insertStagesAfter(stages, afterId, newNodes), routes: nextRoutes }
 }
 
 // ==================== 分支操作（M1-4）====================

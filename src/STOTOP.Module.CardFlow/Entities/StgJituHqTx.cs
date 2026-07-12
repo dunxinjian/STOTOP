@@ -27,7 +27,8 @@ public class StgJituHqTx : BaseEntity, IStagingRecord, ITenantScoped
     public string? F网点编号 { get; set; }
     public string F网点名称 { get; set; } = string.Empty;
     public string? F所属代理 { get; set; }
-    public string F交易类型 { get; set; } = string.Empty;
+    // 可空：资金类「提现」行的交易类型为空（真实数据 7 行）；插件把空值写 DBNull，SqlBulkCopy 对 NOT NULL 列不套 DEFAULT → 须可空(对齐申通 V58 F费用名称改可空)
+    public string? F交易类型 { get; set; }
     public string? F转运中心 { get; set; }
     public string? F结算中心 { get; set; }
     public string? F结算对象 { get; set; }

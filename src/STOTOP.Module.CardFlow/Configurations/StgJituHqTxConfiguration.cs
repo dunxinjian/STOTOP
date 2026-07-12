@@ -33,7 +33,7 @@ public class StgJituHqTxConfiguration : IEntityTypeConfiguration<StgJituHqTx>
         builder.Property(e => e.F网点编号).HasColumnName("F网点编号").HasMaxLength(200);
         builder.Property(e => e.F网点名称).HasColumnName("F网点名称").HasMaxLength(200).IsRequired();
         builder.Property(e => e.F所属代理).HasColumnName("F所属代理").HasMaxLength(200);
-        builder.Property(e => e.F交易类型).HasColumnName("F交易类型").HasMaxLength(200).IsRequired();
+        builder.Property(e => e.F交易类型).HasColumnName("F交易类型").HasMaxLength(200);
         builder.Property(e => e.F转运中心).HasColumnName("F转运中心").HasMaxLength(200);
         builder.Property(e => e.F结算中心).HasColumnName("F结算中心").HasMaxLength(200);
         builder.Property(e => e.F结算对象).HasColumnName("F结算对象").HasMaxLength(200);

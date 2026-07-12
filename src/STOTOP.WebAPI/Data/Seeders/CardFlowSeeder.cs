@@ -99,8 +99,22 @@ public static class CardFlowSeeder
             new(75, "M8-C 超时升级链: CF流程节点 加 F超时动作JSON 列(nvarchar(max) null) + CF节点执行实例 加 F超时动作已执行级别 列(int null, 幂等高水位标记) (2026-07-11)", MigrateV75),
             new(76, "极兔凭证规则回填(财务确认版): 规则3141 ruleGroups 155组(账套2末级,四行收支模式,2重名合并组) + 种3个极兔outlet辅助项 + 流程版本2341接autoVoucher节点5141 — 资金类7项走createDraft (2026-07-11)", MigrateV76),
             new(77, "韵达凭证规则回填(财务确认版,源=韵达交易-科目映射建议-已修改7.11.xlsx): 规则3151 应用财务21改(11账户改码含5处 往来→损益 重分类:共创基金/复工保证金→其他收入·仲裁代收代付→客服赔款/总部平台单 + 10处进出港BD;268-7/268-8保证金往来无BD维不落) + 种2个韵达outlet辅助项(992209城区/744706浏河) + 流程版本2351接autoVoucher节点5151 — 资金类282-x走createDraft (2026-07-11)", MigrateV77),
+            new(78, "极兔导入修缺陷(真实文件E2E暴露): STG极兔总部交易明细 F交易类型 改可空 — 资金类「提现」行交易类型为空,插件写DBNull而NOT NULL列 SqlBulkCopy 不套DEFAULT 致导入整批失败(对齐申通V58 F费用名称改可空) (2026-07-11)", MigrateV78),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
+    }
+
+    /// <summary>
+    /// V78 极兔导入修缺陷（真实文件 E2E 暴露）：F交易类型 改可空。
+    ///   资金类「提现」行交易类型为空 → ExcelInputPlugin 空值写 DBNull → 目标列 NOT NULL 时
+    ///   SqlBulkCopy(KeepNulls off) 对已映射列不套 DEFAULT，报「列 F交易类型 不允许 DBNull.Value」整批失败。
+    ///   对齐申通 V58（F费用名称 因调账行无费用名称而改可空）。仅本列有合法空值，其余 required 列全量非空不动。
+    /// </summary>
+    private static void MigrateV78(STOTOPDbContext ctx)
+    {
+        if (!SeederHelper.IsSqlServer(ctx)) return;
+        ExecSql(ctx, @"IF COL_LENGTH(N'STG极兔总部交易明细', N'F交易类型') IS NOT NULL
+            ALTER TABLE [STG极兔总部交易明细] ALTER COLUMN [F交易类型] NVARCHAR(200) NULL;");
     }
 
     // ══════════════════════════════════════════════════════════════════════

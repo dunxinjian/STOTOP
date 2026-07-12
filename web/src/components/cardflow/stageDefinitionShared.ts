@@ -61,6 +61,34 @@ export function parseAssigneeConfig(stage: StageDefinition) {
   }
 }
 
+/** 竖向图节点「处理人」摘要的策略标签（规范策略 → 中文）。 */
+export const ASSIGNEE_STRATEGY_LABELS: Record<string, string> = {
+  role: '按角色',
+  fixed: '指定人员',
+  fieldUsers: '按字段取人',
+  initiator: '发起人',
+}
+
+/**
+ * 竖向图节点卡片「处理人」摘要文案。口径对齐 StageConfigPanel 回显：
+ * 先归一化存量策略变体（fixedusers/specified…），再按规范策略取值——固定人员
+ * 读持久化真键 userId/userName（见 buildAssigneeConfig），避免误读 id/name 落空显示「#undefined」。
+ */
+export function formatAssigneeSummary(stage: StageDefinition): string {
+  if (stage.type === 'auto') return ''
+  const strategy = normalizeAssigneeStrategy(stage.assigneeStrategy)
+  if (!strategy) return '未配置处理人'
+  const config = parseAssigneeConfig(stage)
+  const label = ASSIGNEE_STRATEGY_LABELS[strategy] || strategy
+  if (strategy === 'role' && config?.roleCode) return `${label}·${config.roleName || config.roleCode}`
+  if (strategy === 'fixed' && Array.isArray(config?.users) && config.users.length) {
+    const names = config.users.map((u: { userName?: string; userId?: unknown }) => u.userName || `#${u.userId}`)
+    return names.length > 2 ? `${names.slice(0, 2).join('、')} 等 ${names.length} 人` : names.join('、')
+  }
+  if (strategy === 'fieldUsers' && config?.fieldKey) return `${label}·${config.fieldKey}`
+  return label
+}
+
 /** 节点健康诊断（纯函数；节点链左栏徽标与右栏面板横幅共用）。detailSchemaFields 用于明细权限提醒。 */
 export function getStageHealth(stage: StageDefinition, detailSchemaFields?: SchemaFieldDefinition[]) {
   const issues: string[] = []

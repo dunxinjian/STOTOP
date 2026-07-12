@@ -4,8 +4,9 @@
  * 结构类来自 cardflow-designer.scss（.cfd-node 族），本组件只写状态绑定不重写样式。
  */
 import { computed } from 'vue'
+import { DeleteOutlined } from '@ant-design/icons-vue'
 import type { StageDefinition } from '@/components/cardflow/StageDefinitionEditor.vue'
-import { parseAssigneeConfig, stageVisualKind } from '@/components/cardflow/stageDefinitionShared'
+import { formatAssigneeSummary, stageVisualKind } from '@/components/cardflow/stageDefinitionShared'
 
 const props = defineProps<{
   stage: StageDefinition
@@ -47,27 +48,7 @@ const approvalModeText = computed(() => {
   }
 })
 
-const STRATEGY_LABELS: Record<string, string> = {
-  role: '按角色',
-  fixed: '指定人员',
-  fieldUsers: '按字段取人',
-  initiator: '发起人',
-}
-
-const assigneeText = computed(() => {
-  if (props.stage.type === 'auto') return ''
-  const strategy = props.stage.assigneeStrategy
-  if (!strategy) return '未配置处理人'
-  const config = parseAssigneeConfig(props.stage)
-  const label = STRATEGY_LABELS[strategy] || strategy
-  if (strategy === 'role' && config?.roleCode) return `${label}·${config.roleName || config.roleCode}`
-  if (strategy === 'fixed' && Array.isArray(config?.users) && config.users.length) {
-    const names = config.users.map((u: { name?: string; id?: unknown }) => u.name || `#${u.id}`)
-    return names.length > 2 ? `${names.slice(0, 2).join('、')} 等 ${names.length} 人` : names.join('、')
-  }
-  if (strategy === 'fieldUsers' && config?.fieldKey) return `${label}·${config.fieldKey}`
-  return label
-})
+const assigneeText = computed(() => formatAssigneeSummary(props.stage))
 
 /** 抄送节点摘要（抄送给谁；解析 ccConfigJson，容错） */
 const ccText = computed(() => {
@@ -75,9 +56,9 @@ const ccText = computed(() => {
   if (!props.stage.ccConfigJson) return '未配置抄送对象'
   try {
     const cfg = JSON.parse(props.stage.ccConfigJson)
-    const users: Array<{ name?: string; id?: unknown }> = Array.isArray(cfg?.users) ? cfg.users : []
+    const users: Array<{ userName?: string; userId?: unknown }> = Array.isArray(cfg?.users) ? cfg.users : []
     if (users.length) {
-      const names = users.map((u) => u.name || `#${u.id}`)
+      const names = users.map((u) => u.userName || `#${u.userId}`)
       return names.length > 2 ? `${names.slice(0, 2).join('、')} 等 ${names.length} 人` : names.join('、')
     }
     if (cfg?.roleName || cfg?.roleCode) return `角色·${cfg.roleName || cfg.roleCode}`
@@ -111,7 +92,7 @@ const kindLabel = computed(() => {
   >
     <span v-if="issueCount" class="cfd-node__errdot" :class="{ 'is-warn': !errorCount }">{{ issueCount }}</span>
     <span class="cfd-node__tools" @click.stop>
-      <span role="button" tabindex="-1" title="删除节点" aria-label="删除节点" @click="emit('remove')">🗑</span>
+      <span role="button" tabindex="-1" title="删除节点" aria-label="删除节点" @click="emit('remove')"><DeleteOutlined /></span>
     </span>
     <div class="cfd-node__head">
       <span class="cfd-node__icon">{{ iconChar }}</span>

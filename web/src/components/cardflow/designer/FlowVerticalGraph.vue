@@ -9,6 +9,7 @@ import { computed, ref } from 'vue'
 import {
   buildFlowTree,
   insertStageAfter,
+  insertStageAtHead,
   insertBranchGroup,
   deleteBranch,
   copyBranch,
@@ -20,6 +21,7 @@ import {
   type InsertAnchor,
 } from '@/utils/flowGraphProjection'
 import { Modal } from 'ant-design-vue'
+import { LeftOutlined, RightOutlined, CopyOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import type { StageDefinition } from '@/components/cardflow/StageDefinitionEditor.vue'
 import { NOTIFY_PLUGIN_REGISTRY_ID } from '@/components/cardflow/stageDefinitionShared'
 import type { StageRouteRuleRequest } from '@/types/cardflow'
@@ -92,7 +94,9 @@ function onGraphKeydown(e: KeyboardEvent) {
 const openMenuAnchor = ref<string | null>(null)
 
 function anchorId(anchor: InsertAnchor): string {
-  return 'afterStageId' in anchor ? `s:${anchor.afterStageId}` : `e:${anchor.branchEdgeKey}`
+  if ('afterStageId' in anchor) return `s:${anchor.afterStageId}`
+  if ('branchEdgeKey' in anchor) return `e:${anchor.branchEdgeKey}`
+  return 'head'
 }
 
 function toggleMenu(anchor: InsertAnchor) {
@@ -146,12 +150,15 @@ function handleInsert(anchor: InsertAnchor, kind: InsertKind) {
   openMenuAnchor.value = null
   if (kind === 'branch') {
     if ('afterStageId' in anchor) {
-      emit('update-structure', { ...insertBranchGroup(props.stages, props.routes, anchor, 2), label: '添加条件分支' })
+      // 每个条件支自动补一个占位审批节点（业务约束：条件分支汇合前须至少一个处理节点）；兜底支不补。
+      emit('update-structure', { ...insertBranchGroup(props.stages, props.routes, anchor, 2, () => buildNewStage('approval')), label: '添加条件分支' })
     }
     return
   }
   const newStage = buildNewStage(kind)
-  const result = insertStageAfter(props.stages, props.routes, anchor, newStage)
+  const result = 'atHead' in anchor
+    ? insertStageAtHead(props.stages, props.routes, newStage)
+    : insertStageAfter(props.stages, props.routes, anchor, newStage)
   emit('update-structure', { ...result, label: `添加节点「${newStage.name}」` })
   // 等 props 更新一拍后再选中（选中即开抽屉，需新节点已在 stages 中）
   requestAnimationFrame(() => emit('select-node', newStage.id))
@@ -208,6 +215,47 @@ function branchPosition(group: FlowTreeNode, edgeKey: string): { first: boolean;
   const conds = (group.branches ?? []).filter((b) => !b.isDefault)
   const idx = conds.findIndex((b) => b.routeEdgeKey === edgeKey)
   return { first: idx <= 0, last: idx === conds.length - 1 }
+}
+
+// ==================== 圆角分叉/汇合连线（钉钉/企微式） ====================
+// viewBox 恒 0 0 1000 24，preserveAspectRatio=none 拉伸至列容器宽；列中心 x=(i+0.5)/n*1000，
+// 外列圆角、内列直下 T 接，与网格列中心对齐（padding 8 ≈ 抵消 gap，误差 <1%）。
+const FORK_R = 8
+
+function branchColXs(n: number): number[] {
+  return Array.from({ length: n }, (_, i) => Math.round(((i + 0.5) / n) * 1000))
+}
+
+/** 顶部分叉：主干下探到横母线，母线圆角分到各列（bus y=8，底 y=24）。 */
+function forkPaths(n: number): string[] {
+  if (n < 1) return []
+  const busY = 8, botY = 24, cx = 500
+  const xs = branchColXs(n)
+  const x0 = xs[0], xL = xs[n - 1]
+  const centerCol = xs.some((x) => Math.abs(x - cx) < 2)
+  const paths = [`M${cx} 0 V${centerCol ? botY : busY}`]
+  if (n >= 2) paths.push(`M${x0} ${botY} V${busY + FORK_R} Q${x0} ${busY} ${x0 + FORK_R} ${busY} H${xL - FORK_R} Q${xL} ${busY} ${xL} ${busY + FORK_R} V${botY}`)
+  for (let i = 1; i < n - 1; i++) {
+    if (Math.abs(xs[i] - cx) < 2) continue
+    paths.push(`M${xs[i]} ${busY} V${botY}`)
+  }
+  return paths
+}
+
+/** 底部汇合：各列圆角收拢到横母线，主干续下（顶 y=0，bus y=16，出 y=24）。 */
+function mergePaths(n: number): string[] {
+  if (n < 1) return []
+  const topY = 0, busY = 16, outY = 24, cx = 500
+  const xs = branchColXs(n)
+  const x0 = xs[0], xL = xs[n - 1]
+  const centerCol = xs.some((x) => Math.abs(x - cx) < 2)
+  const paths = [`M${cx} ${centerCol ? topY : busY} V${outY}`]
+  if (n >= 2) paths.push(`M${x0} ${topY} V${busY - FORK_R} Q${x0} ${busY} ${x0 + FORK_R} ${busY} H${xL - FORK_R} Q${xL} ${busY} ${xL} ${busY - FORK_R} V${topY}`)
+  for (let i = 1; i < n - 1; i++) {
+    if (Math.abs(xs[i] - cx) < 2) continue
+    paths.push(`M${xs[i]} ${topY} V${busY}`)
+  }
+  return paths
 }
 
 // ==================== 节点删除（E0-D1，设计 C7 分级确认）====================
@@ -287,19 +335,30 @@ function askDeleteStage(stageId: string) {
     </a-popover>
 
     <template v-for="(node, i) in projection.tree" :key="node.kind === 'stage' ? node.stageId : `bg-${i}`">
-      <!-- 节点前连接件："+"锚定在上一个 stage 或起点 -->
+      <!-- 节点前连接件；i===0 为"起点后/首节点前"头部插入锚（+ 可插入新首节点），前后各一段连接件保证连线连续 -->
       <div class="cfd-connector"></div>
       <div class="cfd-graph__pluswrap">
-        <button
-          v-if="node.kind === 'stage' && i === 0"
-          class="cfd-plus"
-          :class="{ 'is-open': openMenuAnchor === null }"
-          style="visibility: hidden"
-          tabindex="-1"
-          aria-hidden="true"
-        >+</button>
-        <template v-else></template>
+        <template v-if="node.kind === 'stage' && i === 0">
+          <button
+            class="cfd-plus"
+            :class="{ 'is-open': openMenuAnchor === 'head' }"
+            aria-label="在起点后添加节点"
+            @click.stop="toggleMenu({ atHead: true })"
+          >+</button>
+          <div v-if="openMenuAnchor === 'head'" class="cfd-pmenu cfd-graph__menu">
+            <div
+              v-for="item in menuItemsFor({ atHead: true })"
+              :key="item.kind"
+              class="cfd-pmenu__row"
+              @click.stop="handleInsert({ atHead: true }, item.kind)"
+            >
+              <span class="cfd-pmenu__icon" :class="item.iconClass">{{ item.icon }}</span>
+              {{ item.label }}
+            </div>
+          </div>
+        </template>
       </div>
+      <div v-if="node.kind === 'stage' && i === 0" class="cfd-connector"></div>
 
       <!-- stage 节点 -->
       <template v-if="node.kind === 'stage' && node.stageId">
@@ -336,10 +395,13 @@ function askDeleteStage(stageId: string) {
 
       <!-- 分支组：横向展开（mock 屏 4） -->
       <template v-else-if="node.kind === 'branchGroup'">
-        <div class="cfd-branch-bar" :style="{ width: `${Math.min(86, (node.branches?.length ?? 0) * 28)}%` }"></div>
+        <div class="cfd-branch-fork">
+          <svg viewBox="0 0 1000 24" preserveAspectRatio="none" aria-hidden="true">
+            <path v-for="(d, di) in forkPaths(node.branches?.length ?? 0)" :key="di" :d="d" fill="none" vector-effect="non-scaling-stroke" />
+          </svg>
+        </div>
         <div class="cfd-branch-cols">
           <div v-for="branch in node.branches" :key="branch.routeEdgeKey" class="cfd-branch-col">
-            <div class="cfd-branch-stem"></div>
             <div
               class="cfd-branch-head"
               :class="{ 'is-default': branch.isDefault, 'is-selected': selectedType === 'edge' && selectedKey === branch.routeEdgeKey }"
@@ -349,30 +411,29 @@ function askDeleteStage(stageId: string) {
               @click="emit('select-edge', branch.routeEdgeKey)"
               @keydown.enter.prevent="emit('select-edge', branch.routeEdgeKey)"
             >
+              <!-- 悬浮操作工具条：浮在分支头上方，不占行内空间（标题不再被挤） -->
+              <span v-if="!branch.isDefault" class="cfd-branch-head__tools" @click.stop>
+                <button
+                  class="cfd-branch-op"
+                  :disabled="branchPosition(node, branch.routeEdgeKey).first"
+                  title="左移（提升优先级）"
+                  aria-label="左移分支"
+                  @click.stop="handleReorderBranch(branch.routeEdgeKey, 'left')"
+                ><LeftOutlined /></button>
+                <button
+                  class="cfd-branch-op"
+                  :disabled="branchPosition(node, branch.routeEdgeKey).last"
+                  title="右移（降低优先级）"
+                  aria-label="右移分支"
+                  @click.stop="handleReorderBranch(branch.routeEdgeKey, 'right')"
+                ><RightOutlined /></button>
+                <button class="cfd-branch-op" title="复制分支" aria-label="复制分支" @click.stop="handleCopyBranch(branch.routeEdgeKey)"><CopyOutlined /></button>
+                <button class="cfd-branch-op is-danger" title="删除分支" aria-label="删除分支" @click.stop="askDeleteBranch(branch.routeEdgeKey)"><DeleteOutlined /></button>
+              </span>
               <div class="cfd-branch-head__row">
-                <span class="cfd-branch-head__name">{{ routeByEdge.get(branch.routeEdgeKey)?.routeName || (branch.isDefault ? '其他情况' : '条件分支') }}</span>
-                <span class="cfd-branch-head__ops">
-                  <template v-if="!branch.isDefault">
-                    <button
-                      class="cfd-branch-op"
-                      :disabled="branchPosition(node, branch.routeEdgeKey).first"
-                      title="左移（提升优先级）"
-                      aria-label="左移分支"
-                      @click.stop="handleReorderBranch(branch.routeEdgeKey, 'left')"
-                    >◂</button>
-                    <button
-                      class="cfd-branch-op"
-                      :disabled="branchPosition(node, branch.routeEdgeKey).last"
-                      title="右移（降低优先级）"
-                      aria-label="右移分支"
-                      @click.stop="handleReorderBranch(branch.routeEdgeKey, 'right')"
-                    >▸</button>
-                    <button class="cfd-branch-op" title="复制分支" aria-label="复制分支" @click.stop="handleCopyBranch(branch.routeEdgeKey)">⧉</button>
-                    <button class="cfd-branch-op is-danger" title="删除分支" aria-label="删除分支" @click.stop="askDeleteBranch(branch.routeEdgeKey)">✕</button>
-                  </template>
-                  <span class="cfd-branch-prio" :class="{ 'is-default': branch.isDefault }">
-                    {{ branch.isDefault ? '兜底' : `优先级 ${branch.priority}` }}
-                  </span>
+                <span class="cfd-branch-head__name" :title="routeByEdge.get(branch.routeEdgeKey)?.routeName || ''">{{ routeByEdge.get(branch.routeEdgeKey)?.routeName || (branch.isDefault ? '其他情况' : '条件分支') }}</span>
+                <span class="cfd-branch-prio" :class="{ 'is-default': branch.isDefault }">
+                  {{ branch.isDefault ? '兜底' : `优先级 ${branch.priority}` }}
                 </span>
               </div>
               <div class="cfd-branch-cond">
@@ -407,6 +468,7 @@ function askDeleteStage(stageId: string) {
                 </div>
               </div>
             </div>
+            <div class="cfd-connector"></div>
 
             <!-- 支内子链（递归渲染子 stage；嵌套分支组降级为摘要） -->
             <template v-for="child in branch.children" :key="child.kind === 'stage' ? child.stageId : 'nested'">
@@ -440,15 +502,22 @@ function askDeleteStage(stageId: string) {
                     </div>
                   </div>
                 </div>
+                <div class="cfd-connector"></div>
               </template>
               <div v-else-if="child.kind === 'stageRef' && child.stageId" class="cfd-graph__stageref" role="note">
                 ↳ 汇入「{{ stageById.get(child.stageId)?.name || child.stageId }}」
               </div>
               <div v-else-if="child.kind === 'branchGroup'" class="cfd-graph__nested">嵌套分支 · 点击分支头进入编辑</div>
             </template>
+            <!-- 支尾连线：撑满列剩余高度，把本支末节点接到底部汇合线 -->
+            <div class="cfd-branch-tail"></div>
           </div>
         </div>
-        <div class="cfd-branch-bar" :style="{ width: `${Math.min(86, (node.branches?.length ?? 0) * 28)}%` }"></div>
+        <div class="cfd-branch-merge">
+          <svg viewBox="0 0 1000 24" preserveAspectRatio="none" aria-hidden="true">
+            <path v-for="(d, di) in mergePaths(node.branches?.length ?? 0)" :key="di" :d="d" fill="none" vector-effect="non-scaling-stroke" />
+          </svg>
+        </div>
       </template>
 
       <!-- 顶层交叉引用（罕见：主干汇入他支已渲染节点） -->
@@ -579,34 +648,53 @@ function askDeleteStage(stageId: string) {
   &.is-auto { background: var(--color-flow-auto); }
 }
 
-.cfd-branch-head__ops {
-  display: inline-flex;
-  flex: none;
-  gap: 4px;
-  align-items: center;
+// 悬浮操作工具条：浮在分支头上方（不占行内空间，标题不被挤），随分支头 hover/focus 浮现
+.cfd-branch-head__tools {
+  position: absolute;
+  top: -13px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  visibility: hidden;
+  background: $bg-card;
+  border: 1px solid $border-color;
+  border-radius: 7px;
+  box-shadow: $shadow-card;
+}
+
+.cfd-branch-head:hover .cfd-branch-head__tools,
+.cfd-branch-head:focus-within .cfd-branch-head__tools {
+  visibility: visible;
 }
 
 .cfd-branch-op {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   padding: 0;
-  font-size: 11px;
+  font-size: 13px;
   color: $text-secondary;
   cursor: pointer;
   background: transparent;
   border: 0;
-  border-radius: 4px;
+  border-radius: 5px;
 
   &:hover:not(:disabled) {
     color: var(--color-primary);
     background: $bg-page;
   }
 
-  &.is-danger:hover:not(:disabled) {
-    color: var(--color-danger);
+  &.is-danger {
+    color: $color-danger;
+
+    &:hover:not(:disabled) {
+      color: $text-on-accent;
+      background: $color-danger;
+    }
   }
 
   &:disabled {
