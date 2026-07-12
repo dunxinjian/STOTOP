@@ -100,7 +100,7 @@ public static class CardFlowSeeder
             new(76, "极兔凭证规则回填(财务确认版): 规则3141 ruleGroups 155组(账套2末级,四行收支模式,2重名合并组) + 种3个极兔outlet辅助项 + 流程版本2341接autoVoucher节点5141 — 资金类7项走createDraft (2026-07-11)", MigrateV76),
             new(77, "韵达凭证规则回填(财务确认版,源=韵达交易-科目映射建议-已修改7.11.xlsx): 规则3151 应用财务21改(11账户改码含5处 往来→损益 重分类:共创基金/复工保证金→其他收入·仲裁代收代付→客服赔款/总部平台单 + 10处进出港BD;268-7/268-8保证金往来无BD维不落) + 种2个韵达outlet辅助项(992209城区/744706浏河) + 流程版本2351接autoVoucher节点5151 — 资金类282-x走createDraft (2026-07-11)", MigrateV77),
             new(78, "极兔导入修缺陷(真实文件E2E暴露): STG极兔总部交易明细 F交易类型 改可空 — 资金类「提现」行交易类型为空,插件写DBNull而NOT NULL列 SqlBulkCopy 不套DEFAULT 致导入整批失败(对齐申通V58 F费用名称改可空) (2026-07-11)", MigrateV78),
-            new(79, "流程定义卫生修复: ①CF流程节点 空F节点键全表回填 stage_{版本}_{排序}_{FID}(32行,修设计器克隆抛错) ②清除0节点僵尸草稿(31个,空草稿压住正常发布版致设计器空白) ③韵达2350当前版本动态接autoVoucher节点(修V77插旧版2351之误,凭证链真正上线) ④CF流程版本单草稿过滤唯一索引(防并发双建草稿) (2026-07-12)", MigrateV79),
+            new(80, "流程定义卫生修复(编号让位M8-E已占用的V79): ①CF流程节点 空F节点键全表回填 stage_{版本}_{排序}_{FID}(32行,修设计器克隆抛错) ②清除0节点僵尸草稿(31个,空草稿压住正常发布版致设计器空白) ③韵达2350当前版本动态接autoVoucher节点(修V77插旧版2351之误,凭证链真正上线) ④CF流程版本单草稿过滤唯一索引(防并发双建草稿) (2026-07-12)", MigrateV80),
         };
         MigrationRunner.RunMigrations(ctx, Module, steps);
     }
@@ -119,7 +119,8 @@ public static class CardFlowSeeder
     }
 
     /// <summary>
-    /// V79 流程定义卫生修复(全量清查证据: 31个0节点僵尸草稿 / 32个空F节点键已发布节点 / 韵达当前版本缺凭证节点):
+    /// V80 流程定义卫生修复(编号原为V79,合并master时撞M8-E已占用的V79[initiatorSelect]而让位)
+    /// (全量清查证据: 31个0节点僵尸草稿 / 32个空F节点键已发布节点 / 韵达当前版本缺凭证节点):
     ///   ① 空键回填——早期 seeder(V54-58/V64/派件V*)直插节点未给 F节点键,设计器打开时克隆草稿在 EnsureStageKey 抛错,
     ///      半途留下0节点僵尸草稿(先落版本行后克隆、无事务)。键格式对齐韵达既有 stage_2351_1_5150;
     ///      已核实全部空键版本无路由行,无需键重映射。
@@ -133,7 +134,7 @@ public static class CardFlowSeeder
     ///      加 DB 兜底;先清僵尸再建,若仍有同定义多草稿则跳过(不阻塞启动)。
     ///      注意: 该索引不进 EF 配置——HasFilter 为关系型注解,InMemory 会退化成无过滤唯一索引炸测试。
     /// </summary>
-    private static void MigrateV79(STOTOPDbContext ctx)
+    private static void MigrateV80(STOTOPDbContext ctx)
     {
         if (!SeederHelper.IsSqlServer(ctx)) return;
 
