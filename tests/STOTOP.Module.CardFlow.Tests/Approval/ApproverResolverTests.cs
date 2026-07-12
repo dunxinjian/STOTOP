@@ -268,4 +268,111 @@ public class ApproverResolverTests
         Assert.Equal(9, result.Approvers[0].UserId);
         Assert.Contains("flowAdmin", result.FallbackReason);
     }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task PrevStage_ExplicitSourceStageKey_TakesApprovedAssignees()
+    {
+        using var db = TestDbContextFactory.Create(nameof(PrevStage_ExplicitSourceStageKey_TakesApprovedAssignees));
+        db.Set<SysUser>().AddRange(
+            new SysUser { FID = 11, FName = "初审人", FStatus = 1 },
+            new SysUser { FID = 12, FName = "驳回人", FStatus = 1 });
+        db.Set<CfStageDefinition>().Add(new CfStageDefinition { FID = 500, FFlowVersionId = 900, FStageKey = "first_review", FStageName = "初审", FType = "human" });
+        db.Set<CfStageInstance>().Add(new CfStageInstance { FID = 600, FCardId = 700, FStageDefinitionId = 500, FStageName = "初审", FType = "human", FRound = 1, FStatus = "completed", FCompletedTime = DateTime.Now.AddMinutes(-10) });
+        db.Set<CfStageAssignee>().AddRange(
+            new CfStageAssignee { FStageInstanceId = 600, FUserId = 11, FUserName = "初审人", FStatus = "approved" },
+            new CfStageAssignee { FStageInstanceId = 600, FUserId = 12, FUserName = "驳回人", FStatus = "rejected" });
+        await db.SaveChangesAsync();
+
+        var resolver = new ApproverResolver(db);
+        var card = new CfCard { FID = 700, FFlowVersionId = 900, FOrgId = 100 };
+        var stage = new CfStageDefinition { FID = 501, FFlowVersionId = 900, FStageKey = "second", FAssigneeStrategy = "prevStage", FAssigneeConfigJson = """{"sourceStageKey":"first_review"}""" };
+
+        var result = await resolver.ResolveAsync(stage, card, new Dictionary<string, object?>(), flowOrgId: 100, initiatorId: 99);
+
+        Assert.True(result.Success);
+        Assert.Equal(new long[] { 11 }, result.Approvers.Select(a => a.UserId));
+        Assert.All(result.Approvers, a => Assert.Equal("prevStage", a.Source));
+    }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task PrevStage_Default_TakesMostRecentCompletedHumanStage()
+    {
+        using var db = TestDbContextFactory.Create(nameof(PrevStage_Default_TakesMostRecentCompletedHumanStage));
+        db.Set<SysUser>().AddRange(
+            new SysUser { FID = 21, FName = "早节点人", FStatus = 1 },
+            new SysUser { FID = 22, FName = "近节点人", FStatus = 1 });
+        db.Set<CfStageDefinition>().AddRange(
+            new CfStageDefinition { FID = 510, FFlowVersionId = 900, FStageKey = "early", FType = "human" },
+            new CfStageDefinition { FID = 511, FFlowVersionId = 900, FStageKey = "recent", FType = "human" },
+            new CfStageDefinition { FID = 512, FFlowVersionId = 900, FStageKey = "auto_node", FType = "auto" });
+        db.Set<CfStageInstance>().AddRange(
+            new CfStageInstance { FID = 610, FCardId = 700, FStageDefinitionId = 510, FType = "human", FRound = 1, FStatus = "completed", FCompletedTime = DateTime.Now.AddMinutes(-30) },
+            new CfStageInstance { FID = 611, FCardId = 700, FStageDefinitionId = 511, FType = "human", FRound = 1, FStatus = "completed", FCompletedTime = DateTime.Now.AddMinutes(-5) },
+            new CfStageInstance { FID = 612, FCardId = 700, FStageDefinitionId = 512, FType = "auto", FRound = 1, FStatus = "completed", FCompletedTime = DateTime.Now.AddMinutes(-1) });
+        db.Set<CfStageAssignee>().AddRange(
+            new CfStageAssignee { FStageInstanceId = 610, FUserId = 21, FUserName = "早节点人", FStatus = "approved" },
+            new CfStageAssignee { FStageInstanceId = 611, FUserId = 22, FUserName = "近节点人", FStatus = "approved" });
+        await db.SaveChangesAsync();
+
+        var resolver = new ApproverResolver(db);
+        var card = new CfCard { FID = 700, FFlowVersionId = 900, FOrgId = 100 };
+        var stage = new CfStageDefinition { FID = 513, FFlowVersionId = 900, FStageKey = "current", FAssigneeStrategy = "prevStage", FAssigneeConfigJson = null };
+
+        var result = await resolver.ResolveAsync(stage, card, new Dictionary<string, object?>(), flowOrgId: 100, initiatorId: 99);
+
+        Assert.True(result.Success);
+        Assert.Equal(new long[] { 22 }, result.Approvers.Select(a => a.UserId)); // 排除 auto_node(612) 与更早的 early(610)
+    }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task PrevStage_ExplicitSource_ExcludesCancelledRound_TakesNonCancelled()
+    {
+        using var db = TestDbContextFactory.Create(nameof(PrevStage_ExplicitSource_ExcludesCancelledRound_TakesNonCancelled));
+        db.Set<SysUser>().AddRange(
+            new SysUser { FID = 41, FName = "被撤销轮次人", FStatus = 1 },
+            new SysUser { FID = 42, FName = "有效轮次人", FStatus = 1 });
+        db.Set<CfStageDefinition>().Add(new CfStageDefinition { FID = 520, FFlowVersionId = 900, FStageKey = "review_source", FStageName = "来源节点", FType = "human" });
+        db.Set<CfStageInstance>().AddRange(
+            new CfStageInstance { FID = 630, FCardId = 700, FStageDefinitionId = 520, FStageName = "来源节点", FType = "human", FRound = 2, FStatus = "cancelled", FCompletedTime = DateTime.Now.AddMinutes(-5) },
+            new CfStageInstance { FID = 631, FCardId = 700, FStageDefinitionId = 520, FStageName = "来源节点", FType = "human", FRound = 1, FStatus = "completed", FCompletedTime = DateTime.Now.AddMinutes(-10) });
+        db.Set<CfStageAssignee>().AddRange(
+            new CfStageAssignee { FStageInstanceId = 630, FUserId = 41, FUserName = "被撤销轮次人", FStatus = "approved" },
+            new CfStageAssignee { FStageInstanceId = 631, FUserId = 42, FUserName = "有效轮次人", FStatus = "approved" });
+        await db.SaveChangesAsync();
+
+        var resolver = new ApproverResolver(db);
+        var card = new CfCard { FID = 700, FFlowVersionId = 900, FOrgId = 100 };
+        var stage = new CfStageDefinition { FID = 521, FFlowVersionId = 900, FStageKey = "current", FAssigneeStrategy = "prevStage", FAssigneeConfigJson = """{"sourceStageKey":"review_source"}""" };
+
+        var result = await resolver.ResolveAsync(stage, card, new Dictionary<string, object?>(), flowOrgId: 100, initiatorId: 99);
+
+        Assert.True(result.Success);
+        Assert.Equal(new long[] { 42 }, result.Approvers.Select(a => a.UserId)); // 高轮次(2)已 cancelled 被排除，取非撤销的轮次1
+    }
+
+    [Fact]
+    public async global::System.Threading.Tasks.Task PrevStage_ExplicitSource_MultipleRounds_TakesLatestRound()
+    {
+        using var db = TestDbContextFactory.Create(nameof(PrevStage_ExplicitSource_MultipleRounds_TakesLatestRound));
+        db.Set<SysUser>().AddRange(
+            new SysUser { FID = 51, FName = "第一轮人", FStatus = 1 },
+            new SysUser { FID = 52, FName = "第二轮人", FStatus = 1 });
+        db.Set<CfStageDefinition>().Add(new CfStageDefinition { FID = 522, FFlowVersionId = 900, FStageKey = "review_source2", FStageName = "来源节点2", FType = "human" });
+        db.Set<CfStageInstance>().AddRange(
+            new CfStageInstance { FID = 640, FCardId = 701, FStageDefinitionId = 522, FStageName = "来源节点2", FType = "human", FRound = 1, FStatus = "completed", FCompletedTime = DateTime.Now.AddMinutes(-20) },
+            new CfStageInstance { FID = 641, FCardId = 701, FStageDefinitionId = 522, FStageName = "来源节点2", FType = "human", FRound = 2, FStatus = "completed", FCompletedTime = DateTime.Now.AddMinutes(-5) });
+        db.Set<CfStageAssignee>().AddRange(
+            new CfStageAssignee { FStageInstanceId = 640, FUserId = 51, FUserName = "第一轮人", FStatus = "approved" },
+            new CfStageAssignee { FStageInstanceId = 641, FUserId = 52, FUserName = "第二轮人", FStatus = "approved" });
+        await db.SaveChangesAsync();
+
+        var resolver = new ApproverResolver(db);
+        var card = new CfCard { FID = 701, FFlowVersionId = 900, FOrgId = 100 };
+        var stage = new CfStageDefinition { FID = 523, FFlowVersionId = 900, FStageKey = "current2", FAssigneeStrategy = "prevStage", FAssigneeConfigJson = """{"sourceStageKey":"review_source2"}""" };
+
+        var result = await resolver.ResolveAsync(stage, card, new Dictionary<string, object?>(), flowOrgId: 100, initiatorId: 99);
+
+        Assert.True(result.Success);
+        Assert.Equal(new long[] { 52 }, result.Approvers.Select(a => a.UserId)); // OrderByDescending(FRound) 取最新轮次2
+    }
 }

@@ -169,4 +169,24 @@ describe('formatAssigneeSummary（竖向图节点「处理人」摘要）', () =
     expect(normalizeAssigneeStrategy('superiorchain')).toBe('superiorChain')
     expect(normalizeAssigneeStrategy('superiorChain')).toBe('superiorChain')
   })
+
+  it('ASSIGNEE_STRATEGY_LABELS 覆盖 prevStage', () => {
+    expect(ASSIGNEE_STRATEGY_LABELS.prevStage).toBe('上一节点处理人')
+  })
+
+  it('normalizeAssigneeStrategy 认 prevStage 变体', () => {
+    expect(normalizeAssigneeStrategy('prevstage')).toBe('prevStage')
+    expect(normalizeAssigneeStrategy('prevStage')).toBe('prevStage')
+  })
+
+  it('prevStage 策略：显式 sourceStageKey → 标签·节点键；缺省 → 标签·最近完成', () => {
+    expect(formatAssigneeSummary(stage({
+      assigneeStrategy: 'prevStage',
+      assigneeConfigJson: JSON.stringify({ sourceStageKey: 'first_review' }),
+    }))).toBe('上一节点处理人·first_review')
+    expect(formatAssigneeSummary(stage({
+      assigneeStrategy: 'prevStage',
+      assigneeConfigJson: undefined,
+    }))).toBe('上一节点处理人·最近完成')
+  })
 })

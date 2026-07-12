@@ -38,6 +38,7 @@ public sealed class ApproverResolver : IApproverResolver
             "feeTypeBp" => await ResolveFeeTypeBpAsync(config, cardData, flowOrgId, cancellationToken),
             "initiator" => await ResolveUserIdsAsync(new[] { initiatorId }, "initiator", cancellationToken),
             "superiorChain" => await ResolveSuperiorChainAsync(config, initiatorId, cancellationToken),
+            "prevStage" => await ResolvePrevStageAsync(config, stageDefinition, card, cancellationToken),
             _ => new ApproverResolveResult { ErrorMessage = $"不支持的处理人策略：{stageDefinition.FAssigneeStrategy}" }
         };
 
@@ -251,6 +252,66 @@ public sealed class ApproverResolver : IApproverResolver
         }
 
         return await ResolveUserIdsAsync(chain, "superiorChain", cancellationToken);
+    }
+
+    /// <summary>
+    /// 上一节点处理人指定：取来源节点 approved 处理人。config.sourceStageKey 显式指定来源节点(同版本 FStageKey)；
+    /// 缺省=按 FCompletedTime 最近完成的人工节点(排除当前节点、排除 auto)。排除 rejected/cancelled、多轮取最新完成。
+    /// </summary>
+    private async global::System.Threading.Tasks.Task<ApproverResolveResult> ResolvePrevStageAsync(
+        JsonElement? config,
+        CfStageDefinition stageDefinition,
+        CfCard card,
+        CancellationToken cancellationToken)
+    {
+        var sourceStageKey = TryGetProperty(config, "sourceStageKey", out var sourceKeyValue)
+            ? ReadString(sourceKeyValue)
+            : null;
+
+        long? sourceInstanceId;
+        if (!string.IsNullOrWhiteSpace(sourceStageKey))
+        {
+            var sourceDefId = await _dbContext.Set<CfStageDefinition>()
+                .Where(s => s.FFlowVersionId == stageDefinition.FFlowVersionId && s.FStageKey == sourceStageKey)
+                .Select(s => (long?)s.FID)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (sourceDefId is null)
+            {
+                return new ApproverResolveResult { ErrorMessage = $"上一节点处理人策略：来源节点 {sourceStageKey} 不存在" };
+            }
+
+            sourceInstanceId = await _dbContext.Set<CfStageInstance>()
+                .Where(si => si.FCardId == card.FID && si.FStageDefinitionId == sourceDefId && si.FStatus != "cancelled")
+                .OrderByDescending(si => si.FRound).ThenByDescending(si => si.FCompletedTime)
+                .Select(si => (long?)si.FID)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+        else
+        {
+            sourceInstanceId = await (
+                from si in _dbContext.Set<CfStageInstance>()
+                join sd in _dbContext.Set<CfStageDefinition>() on si.FStageDefinitionId equals sd.FID
+                where si.FCardId == card.FID
+                    && si.FStageDefinitionId != stageDefinition.FID
+                    && si.FStatus == "completed"
+                    && sd.FType != "auto"
+                orderby si.FCompletedTime descending
+                select (long?)si.FID)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        if (sourceInstanceId is null)
+        {
+            return new ApproverResolveResult();
+        }
+
+        var userIds = await _dbContext.Set<CfStageAssignee>()
+            .Where(a => a.FStageInstanceId == sourceInstanceId && a.FStatus == "approved")
+            .OrderBy(a => a.FSortOrder)
+            .Select(a => a.FUserId)
+            .ToListAsync(cancellationToken);
+
+        return await ResolveUserIdsAsync(userIds, "prevStage", cancellationToken);
     }
 
     private async global::System.Threading.Tasks.Task<ApproverResolveResult> ResolveAmountMatrixAsync(
@@ -472,6 +533,7 @@ public sealed class ApproverResolver : IApproverResolver
             "feeTypeBp" => "feeTypeBp",
             "initiator" => "initiator",
             "superiorChain" => "superiorChain",
+            "prevStage" => "prevStage",
             null or "" => "initiator",
             var value => value
         };

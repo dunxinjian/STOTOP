@@ -59,6 +59,22 @@ public class AssigneeStrategyNormalizationTests
         Assert.Equal("orgChain", reloaded!.Stages[0].AssigneeStrategy);
     }
 
+    [Fact]
+    public async global::System.Threading.Tasks.Task SaveDraftVersion_PreservesPrevStageStrategyCasing()
+    {
+        using var db = TestDbContextFactory.Create(nameof(SaveDraftVersion_PreservesPrevStageStrategyCasing));
+        SeedDraft(db);
+        await db.SaveChangesAsync();
+        var service = new FlowDefinitionService(db, NullLogger<FlowDefinitionService>.Instance);
+        var detail = await service.SaveDraftVersionAsync(100, new SaveDraftVersionRequest
+        {
+            Stages = { new StageDefinitionRequest { StageKey = "second", Name = "复核", SortOrder = 1, Type = "human", AssigneeStrategy = "prevStage" } }
+        }, operatorId: 1);
+        Assert.Equal("prevStage", detail.Stages[0].AssigneeStrategy);
+        var reloaded = await service.GetVersionDetailAsync(100, detail.Id);
+        Assert.Equal("prevStage", reloaded!.Stages[0].AssigneeStrategy);
+    }
+
     private static void SeedDraft(STOTOP.Infrastructure.Data.STOTOPDbContext db)
     {
         db.Set<CfFlowDefinition>().Add(new CfFlowDefinition
